@@ -31,7 +31,7 @@ pub struct ChatState {
 impl ChatState {
     pub fn new(
         config: &ChatConfig,
-        name: &str,
+        account: &str,
         muted_until_ms: Option<i64>,
         ignores: &[(u64, String)],
         now_secs: f64,
@@ -41,7 +41,7 @@ impl ChatState {
             strikes: 0,
             muted_until_ms,
             ignores: ignores.iter().cloned().collect(),
-            is_admin: config.is_admin(name),
+            is_admin: config.is_admin(account),
         }
     }
 
@@ -100,8 +100,8 @@ fn handle_chat_send(
     for (session, mut receiver) in &mut links {
         let messages = receiver.receive();
         // Messages from links that haven't logged in are dropped.
-        if let Session::InGame { player } = session {
-            incoming.extend(messages.map(|m| (*player, m)));
+        if let Some(player) = session.player() {
+            incoming.extend(messages.map(|m| (player, m)));
         }
     }
 
@@ -217,8 +217,8 @@ fn handle_chat_actions(
     let mut incoming = Vec::new();
     for (link, session, mut receiver) in &mut links {
         let actions = receiver.receive();
-        if let Session::InGame { player } = session {
-            incoming.extend(actions.map(|a| (link, *player, a)));
+        if let Some(player) = session.player() {
+            incoming.extend(actions.map(|a| (link, player, a)));
         }
     }
 
@@ -292,8 +292,8 @@ fn handle_db_results(
                     notify(&mut notice_tx, *link, SystemNotice::info(format!("No player named {target_name}.")));
                     continue;
                 };
-                if let Ok(Session::InGame { player }) = sessions.get(*link)
-                    && let Ok((.., mut state)) = players.get_mut(*player)
+                if let Some(player) = sessions.get(*link).ok().and_then(Session::player)
+                    && let Ok((.., mut state)) = players.get_mut(player)
                 {
                     if *ignore {
                         state.ignores.insert(*target_id, canonical.clone());

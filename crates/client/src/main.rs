@@ -1,7 +1,10 @@
 //! Millennium game client.
 //!
-//! Usage: `millennium-client [--name Alice] [--server 127.0.0.1:5888] [--config config/client.toml] [--host] [--bot]`
-//! `--name` skips the login screen and signs on straight away (handy for testing two clients).
+//! Usage: `millennium-client [--name Alice [--password secret123]] [--server 127.0.0.1:5888]
+//!        [--config config/client.toml] [--host] [--bot]`
+//!
+//! `--name` pre-fills the sign-on window. With `--password` too, it signs in straight away
+//! (creating the account and a same-named character if needed): handy for testing two clients.
 //! `--host` (with `--name`) hosts a game for friends instead of joining a server.
 //! `--bot` makes the character wander and chat by itself (for testing with a second client).
 
@@ -12,8 +15,10 @@ mod avatars;
 mod bot;
 mod bubbles;
 mod camera;
+mod char_select;
 mod chat_ui;
 mod config;
+mod game_ui;
 mod host;
 mod hud;
 mod input;
@@ -33,8 +38,11 @@ use lightyear::prelude::client::ClientPlugins;
 pub enum AppState {
     #[default]
     Login,
-    /// UDP handshake + LoginRequest in flight.
+    /// Talking to the TLS login service.
+    Authenticating,
+    /// UDP connection with the connect token.
     Connecting,
+    CharacterSelect,
     InGame,
 }
 
@@ -42,12 +50,17 @@ pub enum AppState {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct Cli {
     pub name: Option<String>,
+    /// With `--name`, signs in straight away (creating the account if needed) and picks the
+    /// character with the same name (creating it if needed). Handy for testing.
+    pub password: Option<String>,
     pub server: Option<String>,
     pub config: Option<String>,
     /// Dev/testing: walk around and chat automatically.
     pub bot: bool,
     /// With `--name`: host a game instead of joining one.
     pub host: bool,
+    /// Dev/testing: scripted steps for the bot (see `bot.rs`).
+    pub steps: Vec<String>,
 }
 
 impl Cli {
@@ -57,10 +70,12 @@ impl Cli {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--name" | "-n" => cli.name = args.next(),
+                "--password" | "-p" => cli.password = args.next(),
                 "--server" | "-s" => cli.server = args.next(),
                 "--config" | "-c" => cli.config = args.next(),
                 "--bot" => cli.bot = true,
                 "--host" => cli.host = true,
+                "--step" => cli.steps.extend(args.next()),
                 other => eprintln!("ignoring unknown argument {other}"),
             }
         }
@@ -119,6 +134,8 @@ fn main() {
             input::MovementInputPlugin,
             avatars::AvatarPlugin,
             login_ui::LoginUiPlugin,
+            char_select::CharSelectPlugin,
+            game_ui::GameUiPlugin,
             chat_ui::ChatUiPlugin,
             bubbles::BubblePlugin,
             hud::HudPlugin,

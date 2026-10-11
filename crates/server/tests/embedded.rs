@@ -8,6 +8,8 @@ fn start_stop_restart() {
     let dir = std::env::temp_dir().join(format!("millennium-embedded-{}", std::process::id()));
     let mut config = ServerConfig::default();
     config.network.bind = SocketAddr::from(([127, 0, 0, 1], 58_881));
+    config.network.auth_bind = config.network.bind;
+    config.network.tls_dir = dir.join("tls").display().to_string();
     config.database.url = format!("sqlite://{}/world.db", dir.display());
 
     let mut first = EmbeddedServer::start(config.clone()).expect("first start");
@@ -27,6 +29,8 @@ fn start_stop_restart() {
 fn bad_database_is_reported_not_panicked() {
     let mut config = ServerConfig::default();
     config.network.bind = SocketAddr::from(([127, 0, 0, 1], 58_882));
+    config.network.auth_bind = config.network.bind;
+    config.network.tls_dir = std::env::temp_dir().join("millennium-tls-test").display().to_string();
     config.database.url = "postgres://nobody@127.0.0.1:1/none".into();
     config.database.max_connections = 1;
     assert!(EmbeddedServer::start(config).is_err());

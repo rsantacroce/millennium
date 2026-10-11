@@ -1,0 +1,16 @@
+[
+    (
+        id: "corner_store",
+        name: "Corner Store 24/7",
+        sells: [("soda", 1), ("screwdriver_set", 6), ("burned_cd", 4)],
+        // Doesn't buy from players.
+        buy_rate: 0.0,
+    ),
+    (
+        id: "pawn_shop",
+        name: "Pawn & Pager",
+        sells: [("broken_walkman", 8), ("broken_pocketplay", 20), ("pager", 40)],
+        // Pays half of an item's value.
+        buy_rate: 0.5,
+    ),
+]

@@ -6,9 +6,15 @@
 //!    The client sends *intent* ("I'm pressing forward-left"), never a position.
 //! 2. **Replicated components** — server → client. The server owns the player entities; lightyear
 //!    mirrors their components to every client in the same zone (room).
-//! 3. **Messages** — discrete events on reliable ordered channels (login, chat).
+//! 3. **Messages** — discrete events on reliable ordered channels (character select, chat,
+//!    gameplay actions).
+//!
+//! Authentication happens *before* this connection, at the TLS login service (see
+//! [`crate::auth`]): the netcode connect token itself proves which account is connecting.
 
+use crate::appearance::Appearance;
 use crate::chat::{ChatAction, ChatLine, ChatTarget};
+use crate::game::PlayerState;
 use crate::zone::ZoneId;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
@@ -19,18 +25,37 @@ use serde::{Deserialize, Serialize};
 // Channels
 // ---------------------------------------------------------------------------------------------
 
-/// Session control: login handshake, system notices.
+/// Session control: character select, entering the world.
 pub struct ControlChannel;
 /// All chat traffic. Ordered so a conversation never arrives scrambled.
 pub struct ChatNetChannel;
+/// Gameplay actions and their results (dialogue, shops, inventory).
+pub struct GameChannel;
 
 // ---------------------------------------------------------------------------------------------
 // Client -> Server messages
 // ---------------------------------------------------------------------------------------------
 
+/// Character select screen.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct LoginRequest {
-    pub username: String,
+pub enum SessionAction {
+    CreateCharacter { name: String, appearance: Appearance },
+    SelectCharacter { id: u64 },
+}
+
+/// Everything a player can *ask* to do in the world. The server decides what actually happens.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum GameAction {
+    /// Talk to an NPC (by content id). Must be within reach.
+    Interact { npc: String },
+    /// Pick one of the options from the last `DialogueNode`.
+    ChooseOption { index: u8 },
+    CloseDialogue,
+    Buy { item: String, qty: u32 },
+    Sell { slot: u8, qty: u32 },
+    CloseShop,
+    UseItem { slot: u8 },
+    MoveItem { from: u8, to: u8 },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -46,9 +71,36 @@ pub struct ChatSend {
 // ---------------------------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum LoginResponse {
-    Accepted { character_id: u64, name: String, zone: ZoneId },
-    Rejected { reason: String },
+pub struct CharacterSummary {
+    pub id: u64,
+    pub name: String,
+    pub appearance: Appearance,
+    pub zone: ZoneId,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum SessionUpdate {
+    /// Sent on connect and after creating a character.
+    CharacterList { account: String, characters: Vec<CharacterSummary>, max: u8 },
+    /// Character creation/selection failed.
+    CharacterError { reason: String },
+    EnterWorld { character_id: u64, name: String, zone: ZoneId },
+    /// The server is closing this session (e.g. account already online).
+    Kicked { reason: String },
+}
+
+/// Results of `GameAction`s and other changes to your own character.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum GameUpdate {
+    /// Your full inventory/cash/quests/skills. Sent on entering the world and after every change.
+    State(PlayerState),
+    DialogueNode { npc: String, speaker: String, text: String, options: Vec<String> },
+    DialogueClosed,
+    ShopOpened { shop: String },
+    ShopClosed,
+    /// A timed action (e.g. a repair) started; it's cancelled if you move.
+    ActionStarted { label: String, seconds: f32 },
+    ActionEnded { completed: bool },
 }
 
 /// Recent chat sent once, right after login.
@@ -89,6 +141,10 @@ pub struct PlayerId(pub u64);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DisplayName(pub String);
+
+/// Marks an NPC; the value is its content id (see `assets/data/npcs.ron`).
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NpcTag(pub String);
 
 /// Position on the ground plane (`x`, `y` = world X, Z).
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default, Deref, DerefMut)]
@@ -146,15 +202,21 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<ChatNetChannel>(reliable())
             .add_direction(NetworkDirection::Bidirectional);
+        app.add_channel::<GameChannel>(reliable())
+            .add_direction(NetworkDirection::Bidirectional);
 
-        app.register_message::<LoginRequest>()
+        app.register_message::<SessionAction>()
+            .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<GameAction>()
             .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ChatSend>()
             .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ChatAction>()
             .add_direction(NetworkDirection::ClientToServer);
 
-        app.register_message::<LoginResponse>()
+        app.register_message::<SessionUpdate>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<GameUpdate>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<ChatLine>()
             .add_direction(NetworkDirection::ServerToClient);
@@ -168,6 +230,8 @@ impl Plugin for ProtocolPlugin {
         app.component::<PlayerId>().replicate();
         app.component::<DisplayName>().replicate();
         app.component::<ZoneId>().replicate();
+        app.component::<Appearance>().replicate();
+        app.component::<NpcTag>().replicate();
         // Position is predicted for the local player and interpolated for everyone else.
         app.component::<Position>()
             .replicate()

@@ -143,7 +143,7 @@ impl Plugin for ChatUiPlugin {
             .insert_resource(StickToBottom(true))
             .add_message::<SpeechEvent>()
             .add_systems(PreUpdate, track_focus)
-            .add_systems(OnEnter(AppState::Connecting), |mut log: ResMut<ChatLog>| *log = ChatLog::default())
+            .add_systems(OnEnter(AppState::Authenticating), |mut log: ResMut<ChatLog>| *log = ChatLog::default())
             .add_systems(OnEnter(AppState::InGame), spawn_chat_window)
             // Receive in Connecting too: chat history may arrive in the same frame as the login reply.
             .add_systems(Update, receive.run_if(not(in_state(AppState::Login))))

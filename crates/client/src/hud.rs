@@ -1,6 +1,7 @@
 //! Small status / controls panel in the top-left corner.
 
 use crate::camera::CameraRig;
+use crate::game_ui::LocalState;
 use crate::host::HostedServer;
 use crate::net::LocalPlayer;
 use crate::theme;
@@ -45,13 +46,15 @@ fn update_hud(
     local: Res<LocalPlayer>,
     zones: Res<ZoneRegistry>,
     hosted: Option<Res<HostedServer>>,
+    state: Res<LocalState>,
     mut text: Single<&mut Text, With<HudText>>,
 ) {
     let zone = zones.get(local.zone).map_or("?", |z| z.name);
     let mut content = format!(
-        "{} - {}\nWASD move | Q/E rotate | V camera: {} | M minimap\nRight-drag orbit | Wheel zoom | Enter chat | /help",
+        "{} - {}    ${}\nWASD move | E talk | I inventory | L quests | K skills\nZ/C rotate | V camera: {} | M minimap | Enter chat | /help",
         local.name,
         zone,
+        state.cash,
         rig.mode.label()
     );
     if let Some(hosted) = hosted {

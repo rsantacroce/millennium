@@ -1,0 +1,15 @@
+[
+    (
+        id: "56k_dreams",
+        name: "56k Dreams",
+        stages: [
+            (log: "Dot at the Byte Cafe needs a replacement modem. Ask Sal at Pawn & Pager."),
+            (
+                log: "Fix the fried modem: use it from your inventory. You'll need a Screwdriver Set (Corner Store, across the street).",
+                advance_when: [HasItem("working_modem", 1)],
+            ),
+            (log: "Bring the repaired modem back to Dot at the Byte Cafe."),
+        ],
+        rewards: (cash: 40, xp: [(Electronics, 150)], items: [("pager", 1)]),
+    ),
+]

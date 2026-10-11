@@ -6,8 +6,13 @@
 //!   background thread and the host's own client joins it over localhost, exactly like everyone
 //!   else. One code path, no host-specific special cases.
 
+// Bevy queries routinely trip this lint; the Bevy project recommends allowing it.
+#![allow(clippy::type_complexity)]
+
+pub mod auth;
 mod chat;
 pub mod config;
+mod gameplay;
 mod movement;
 mod net;
 mod persistence;
@@ -68,7 +73,9 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
 
     // Open the database first so a bad URL is reported instead of panicking inside a plugin.
     let db = persistence::Db::open(&config)?;
-    app.insert_resource(db);
+    // The login service runs on its own threads; it gets a handle to the database.
+    let auth = auth::AuthService::start(&config, db.clone())?;
+    app.insert_resource(db).insert_resource(auth);
     app.insert_resource(config);
     app.add_plugins((
         persistence::PersistencePlugin,
@@ -77,6 +84,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         session::SessionPlugin,
         movement::MovementPlugin,
         chat::ChatPlugin,
+        gameplay::GameplayPlugin,
     ));
     Ok(app)
 }
@@ -108,6 +116,7 @@ pub struct EmbeddedServer {
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
     port: u16,
+    fingerprint: String,
 }
 
 impl EmbeddedServer {
@@ -118,7 +127,7 @@ impl EmbeddedServer {
         let flag = stop.clone();
         // A Bevy `App` isn't `Send`, so it's built on the thread that runs it; startup errors
         // (e.g. an unreadable save file) are reported back before we return.
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<String, String>>();
         let thread = std::thread::Builder::new()
             .name("embedded-server".into())
             .spawn(move || {
@@ -126,7 +135,8 @@ impl EmbeddedServer {
                     .and_then(|mut app| start_listening(&mut app).map(|_| app));
                 match started {
                     Ok(mut app) => {
-                        let _ = ready_tx.send(Ok(()));
+                        let fingerprint = app.world().resource::<auth::AuthService>().fingerprint.clone();
+                        let _ = ready_tx.send(Ok(fingerprint));
                         app.run();
                         info!("embedded server stopped");
                     }
@@ -136,13 +146,18 @@ impl EmbeddedServer {
                 }
             })
             .map_err(|e| e.to_string())?;
-        ready_rx.recv().map_err(|_| "server thread crashed during startup".to_string())??;
+        let fingerprint = ready_rx.recv().map_err(|_| "server thread crashed during startup".to_string())??;
         info!("hosting a server on udp://{bind}");
-        Ok(Self { stop, thread: Some(thread), port: bind.port() })
+        Ok(Self { stop, thread: Some(thread), port: bind.port(), fingerprint })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The login service's certificate fingerprint, so the host's own client can trust it.
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
     }
 
     /// Stops the server and waits until it has saved everyone.

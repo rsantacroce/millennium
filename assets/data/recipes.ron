@@ -1,0 +1,6 @@
+// Using `input` (with `tool` in your inventory) starts the recipe. Moving cancels it.
+[
+    (id: "fix_modem", skill: Electronics, level: 1, input: "broken_modem", tool: Some("screwdriver_set"), output: "working_modem", xp: 60, seconds: 3.0, verb: "Repairing modem"),
+    (id: "fix_walkman", skill: Electronics, level: 2, input: "broken_walkman", tool: Some("screwdriver_set"), output: "walkman", xp: 25, seconds: 3.0, verb: "Replacing drive belt"),
+    (id: "fix_pocketplay", skill: Electronics, level: 5, input: "broken_pocketplay", tool: Some("screwdriver_set"), output: "pocketplay", xp: 45, seconds: 4.0, verb: "Cleaning battery contacts"),
+]

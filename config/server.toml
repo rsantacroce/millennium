@@ -4,8 +4,14 @@
 # log_filter = "info,lightyear=warn,sqlx=warn"
 
 [network]
+# UDP: the game itself.
 bind = "0.0.0.0:5888"
-# 64 hex chars, must match config/client.toml. Empty = all-zero development key.
+# TCP: the TLS login service. Clients assume it's on the same port number as the game.
+auth_bind = "0.0.0.0:5888"
+# The login service's self-signed certificate is created here on first start.
+tls_dir = "saves/tls"
+# 64 hex chars used to sign connect tokens. Only the server needs it; keep it secret.
+# Empty = all-zero development key (fine on your own machine, not for a public server).
 private_key = ""
 max_clients = 64
 
@@ -30,5 +36,5 @@ history_global = 50
 history_whispers = 50
 # Whole-word, case-insensitive; simple leetspeak (d4rn) and stretched letters are caught too.
 blocked_words = ["darn", "heck", "frak"]
-# Accounts allowed to /mute and /unmute.
+# Account names (not character names) allowed to /mute and /unmute.
 admins = ["admin"]

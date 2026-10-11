@@ -20,6 +20,13 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 rand = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 sqlx = { version = "0.9", default-features = false }
+postcard = { version = "1", features = ["alloc"] }
+ron = "0.12"
+# TLS for the login service. `ring` avoids needing cmake/NASM for aws-lc-rs.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+sha2 = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
+argon2 = "0.6"
 
 # Bevy is slow in debug builds; optimise dependencies but keep our code fast to compile.
 [profile.dev]

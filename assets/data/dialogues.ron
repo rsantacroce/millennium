@@ -1,0 +1,115 @@
+// Dialogue trees. Options are shown only when all `when` conditions hold, and the server
+// re-checks them when chosen. `effects` apply all-or-nothing. `goto: None` ends the conversation.
+[
+    (
+        id: "dot",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to the Byte Cafe! ...Well, it's usually busier than this.",
+                options: [
+                    (text: "Why is it so quiet in here?", when: [QuestNotStarted("56k_dreams")], goto: Some("problem")),
+                    (text: "Still looking for that modem.", when: [QuestAt("56k_dreams", 0)], goto: Some("reminder")),
+                    (text: "I'm working on fixing the modem.", when: [QuestAt("56k_dreams", 1)], goto: Some("reminder")),
+                    (
+                        text: "Here's your modem, good as new!",
+                        when: [QuestAt("56k_dreams", 2), HasItem("working_modem", 1)],
+                        effects: [TakeItem("working_modem", 1), CompleteQuest("56k_dreams")],
+                        goto: Some("reward"),
+                    ),
+                    (text: "How's business?", when: [QuestDone("56k_dreams")], goto: Some("business")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "problem",
+                text: "Our modem got fried in last night's storm. No modem, no internet, no customers. Could you find me a replacement?",
+                options: [
+                    (text: "I'll find you one.", effects: [StartQuest("56k_dreams")], goto: Some("accepted")),
+                    (text: "Sorry, not my problem.", goto: None),
+                ],
+            ),
+            (
+                id: "accepted",
+                text: "You're a star, {name}! Try Sal at Pawn & Pager, just down the street. He has a bit of everything.",
+                options: [(text: "On my way.", goto: None)],
+            ),
+            (
+                id: "reminder",
+                text: "Every hour offline, another regular goes to the library instead. Hurry!",
+                options: [(text: "I'm on it.", goto: None)],
+            ),
+            (
+                id: "reward",
+                text: "*plugs it in* ...Beeee-dong-dong-kshhhh! We're online! Here's for your trouble, and take my old pager. I've upgraded to a cell phone.",
+                options: [(text: "Thanks, Dot!", goto: None)],
+            ),
+            (
+                id: "business",
+                text: "Booming! Everybody wants to check their email and argue on forums.",
+                options: [(text: "Glad to hear it.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "sal",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Pawn & Pager. If it beeps, buzzes or blinks, I buy it. If it's broken, I sell it cheap.",
+                options: [
+                    (text: "Dot sent me. Got a 56k modem?", when: [QuestAt("56k_dreams", 0)], goto: Some("modem")),
+                    (text: "Show me what you've got.", effects: [OpenShop("pawn_shop")], goto: None),
+                    (text: "Any advice?", goto: Some("advice")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "modem",
+                text: "Got one. Thing's fried, though. Fifteen bucks and it's yours. Fix it yourself and you save a fortune.",
+                options: [
+                    (
+                        text: "Deal. ($15)",
+                        when: [Cash(15)],
+                        effects: [TakeCash(15), GiveItem("broken_modem", 1), SetQuestStage("56k_dreams", 1)],
+                        goto: Some("sold"),
+                    ),
+                    (text: "I don't have $15 right now.", when: [Not(Cash(15))], goto: None),
+                    (text: "Let me think about it.", goto: None),
+                ],
+            ),
+            (
+                id: "sold",
+                text: "Pleasure doing business. You'll want a screwdriver set for that. Mr. Kim sells them across the street.",
+                options: [(text: "Thanks.", goto: None)],
+            ),
+            (
+                id: "advice",
+                text: "I buy broken gear cheap and sell it fixed. Learn Electronics and you can do the fixing, and I'll still buy what you fix.",
+                options: [(text: "Good to know.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "kim",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to Corner Store 24/7. We never close, not even for Y2K.",
+                options: [
+                    (text: "Let me see what you have.", effects: [OpenShop("corner_store")], goto: None),
+                    (text: "Anything new?", goto: Some("news")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "news",
+                text: "I sold forty cans of Fizz Cola to the arcade kids before lunch. Also, someone keeps burning CDs and leaving them in my mailbox.",
+                options: [(text: "Weird.", goto: None)],
+            ),
+        ],
+    ),
+]

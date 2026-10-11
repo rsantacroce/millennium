@@ -1,0 +1,30 @@
+// NPCs stand on the sidewalk in front of their shops. facing: degrees, 0 = north (-Z), 180 = south.
+[
+    (
+        id: "dot",
+        name: "Dot",
+        zone: 1,
+        position: (-15.0, -6.8),
+        facing: 180.0,
+        appearance: (body: 0, skin: 1, jacket: 6, pants: 1, cap: 0),
+        dialogue: "dot",
+    ),
+    (
+        id: "sal",
+        name: "Sal",
+        zone: 1,
+        position: (-31.0, -6.8),
+        facing: 180.0,
+        appearance: (body: 2, skin: 3, jacket: 4, pants: 0, cap: 10),
+        dialogue: "sal",
+    ),
+    (
+        id: "kim",
+        name: "Mr. Kim",
+        zone: 1,
+        position: (-14.0, 7.8),
+        facing: 0.0,
+        appearance: (body: 1, skin: 2, jacket: 2, pants: 9, cap: 0),
+        dialogue: "kim",
+    ),
+]

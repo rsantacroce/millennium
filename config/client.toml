@@ -1,12 +1,16 @@
 # Millennium client configuration. Every key is optional; defaults are shown.
 
+# Pre-filled in the sign-on window. Login (TCP) and game traffic (UDP) use the same port number.
 server_addr = "127.0.0.1:5888"
-# Must match the server's network.private_key. Empty = development key.
-private_key = ""
 log_filter = "info,wgpu=error,naga=warn,lightyear=warn"
+# Certificates of servers you've connected to, remembered on first connect (like SSH known_hosts).
+# If a server is reinstalled, delete its line here.
+known_servers_file = "saves/known_servers.txt"
 
 # "Host Game": run a world on this computer for friends to join.
 [host]
 port = 5888
 # SQLite save file for the hosted world.
 save_file = "saves/world.db"
+# Certificate for the hosted world's login service.
+tls_dir = "saves/host_tls"

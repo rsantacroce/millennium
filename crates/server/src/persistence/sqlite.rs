@@ -1,14 +1,11 @@
-//! SQLite store: a single save file, used for hosted games (and usable by a dedicated server).
-//! Same behaviour as the Postgres store; see `migrations/sqlite` for schema differences.
+//! SQLite store: a single save file (Host Game), or an in-memory database (`sqlite::memory:`)
+//! for tests and servers without a database. Same behaviour as the Postgres store; see
+//! `migrations/sqlite` for the schema differences.
 
 use super::worker::HistoryLimits;
-use super::{
-    finish_history, history_lines, now_ms, CharacterRecord, ChatRecord, DbCommand, DbResult, HistoryRow,
-    LoginData, SavedPosition,
-};
-use bevy::math::Vec2;
-use shared::zone::ZoneId;
+use super::*;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
+use sqlx::{Sqlite, Transaction};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -16,36 +13,83 @@ pub struct SqliteStore {
     pool: SqlitePool,
 }
 
+type CharacterRow = (i64, String, i64, i64, i64, i64, i64, i64);
+
 impl SqliteStore {
-    /// Opens (creating if needed) e.g. `sqlite://saves/world.db`, and applies migrations.
+    /// Opens (creating if needed) e.g. `sqlite://saves/world.db` or `sqlite::memory:`.
     pub async fn open(url: &str) -> Result<Self, sqlx::Error> {
-        let path = url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
-        let path = path.split('?').next().unwrap_or_default();
-        if let Some(dir) = Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)?;
+        let in_memory = url.contains(":memory:");
+        if !in_memory {
+            let path = url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
+            let path = path.split('?').next().unwrap_or_default();
+            if let Some(dir) = Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir)?;
+            }
         }
         let options = SqliteConnectOptions::from_str(url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .foreign_keys(true);
-        // One connection: SQLite serialises writes anyway, and the worker is sequential.
-        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
+        // One connection: SQLite serialises writes anyway, the worker is sequential, and an
+        // in-memory database lives exactly as long as its connection, so it must never be recycled.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .min_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .connect_with(options)
+            .await?;
         sqlx::migrate!("../../migrations/sqlite").run(&pool).await?;
         Ok(Self { pool })
     }
 
     pub async fn handle(&mut self, cmd: DbCommand, history: HistoryLimits) -> Option<DbResult> {
-        let result = match cmd {
-            DbCommand::Login { link, username, spawn_zone, spawn_pos } => {
-                return Some(match self.login(&username, spawn_zone, spawn_pos, history).await {
-                    Ok(data) => DbResult::LoggedIn { link, data: Box::new(data) },
+        let result: Result<Option<DbResult>, sqlx::Error> = match cmd {
+            DbCommand::GetCredentials { username, reply } => {
+                let _ = reply.send(self.credentials(&username).await.map_err(|e| e.to_string()));
+                Ok(None)
+            }
+            DbCommand::CreateAccount { username, password_hash, reply } => {
+                let _ = reply.send(self.create_account(&username, &password_hash).await.map_err(|e| e.to_string()));
+                Ok(None)
+            }
+            DbCommand::SetPasswordHash { account_id, password_hash } => sqlx::query("UPDATE accounts SET password_hash = ? WHERE id = ?")
+                .bind(password_hash)
+                .bind(account_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| None),
+            DbCommand::ListCharacters { link, account_id } => self.list(link, account_id).await.map(Some),
+            DbCommand::CreateCharacter { link, account_id, character } => {
+                let result = self.create_character(account_id, &character).await;
+                Ok(Some(match result {
+                    Ok(r) => DbResult::CharacterCreated { link, account_id, result: r },
                     Err(e) => {
-                        tracing::error!("login query for {username} failed: {e}");
-                        DbResult::LoginFailed { link, username, reason: "database error, try again".into() }
+                        tracing::error!("creating character failed: {e}");
+                        DbResult::CharacterCreated { link, account_id, result: Err("database error, try again".into()) }
                     }
-                });
+                }))
+            }
+            DbCommand::LoadCharacter { link, account_id, character_id } => {
+                Ok(Some(match self.load(account_id, character_id, history).await {
+                    Ok(Some(data)) => DbResult::LoggedIn { link, data: Box::new(data) },
+                    Ok(None) => DbResult::LoginFailed { link, reason: "That character doesn't exist.".into() },
+                    Err(e) => {
+                        tracing::error!("loading character {character_id} failed: {e}");
+                        DbResult::LoginFailed { link, reason: "database error, try again".into() }
+                    }
+                }))
             }
             DbCommand::SavePositions(positions) => self.save_positions(&positions).await.map(|_| None),
+            DbCommand::SaveState { character_id, state } => {
+                async {
+                    let mut tx = self.pool.begin().await?;
+                    write_state(&mut tx, character_id, &state).await?;
+                    tx.commit().await
+                }
+                .await
+                .map(|_| None)
+            }
             DbCommand::InsertChat(record) => self.insert_chat(&record).await.map(|_| None),
             DbCommand::SetIgnore { link, character_id, target_name, ignore } => self
                 .set_ignore(character_id, &target_name, ignore)
@@ -66,52 +110,123 @@ impl SqliteStore {
         })
     }
 
-    async fn login(
-        &self,
-        username: &str,
-        spawn_zone: ZoneId,
-        spawn_pos: Vec2,
-        history: HistoryLimits,
-    ) -> Result<LoginData, sqlx::Error> {
-        let now = now_ms();
-        let mut tx = self.pool.begin().await?;
-        let (account_id, muted_until_ms): (i64, Option<i64>) = sqlx::query_as(
-            "INSERT INTO accounts (username, created_at_ms, last_login_at_ms) VALUES (?1, ?2, ?2)
-             ON CONFLICT (username) DO UPDATE SET last_login_at_ms = ?2
-             RETURNING id, muted_until_ms",
+    async fn credentials(&self, username: &str) -> Result<Option<Credentials>, sqlx::Error> {
+        let row: Option<(i64, String, Option<String>)> =
+            sqlx::query_as("SELECT id, username, password_hash FROM accounts WHERE username = ?")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(account_id, username, password_hash)| Credentials { account_id, username, password_hash }))
+    }
+
+    async fn create_account(&self, username: &str, hash: &str) -> Result<Option<Credentials>, sqlx::Error> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "INSERT INTO accounts (username, password_hash, created_at_ms) VALUES (?, ?, ?)
+             ON CONFLICT (username) DO NOTHING RETURNING id, username",
         )
         .bind(username)
-        .bind(now)
-        .fetch_one(&mut *tx)
+        .bind(hash)
+        .bind(now_ms())
+        .fetch_optional(&self.pool)
         .await?;
+        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()) }))
+    }
 
-        type Row = (i64, String, i64, f64, f64);
-        let existing: Option<Row> = sqlx::query_as(
-            "SELECT id, name, zone_id, pos_x, pos_z FROM characters WHERE account_id = ? ORDER BY id LIMIT 1",
+    async fn list(&self, link: Entity, account_id: i64) -> Result<DbResult, sqlx::Error> {
+        let (account,): (String,) = sqlx::query_as("SELECT username FROM accounts WHERE id = ?")
+            .bind(account_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let rows: Vec<CharacterRow> = sqlx::query_as(
+            "SELECT id, name, zone_id, body, skin, jacket, pants, cap FROM characters WHERE account_id = ? ORDER BY id",
         )
         .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let characters = rows
+            .into_iter()
+            .map(|(id, name, zone, body, skin, jacket, pants, cap)| CharacterSummary {
+                id: id as u64,
+                name,
+                appearance: appearance_from(body, skin, jacket, pants, cap),
+                zone: ZoneId(zone as u16),
+            })
+            .collect();
+        Ok(DbResult::CharacterList { link, account, characters })
+    }
+
+    async fn create_character(&self, account_id: i64, c: &NewCharacter) -> Result<Result<(), String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM characters WHERE account_id = ?")
+            .bind(account_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if count as usize >= MAX_CHARACTERS {
+            return Ok(Err(format!("You can have at most {MAX_CHARACTERS} characters.")));
+        }
+        let a = c.appearance;
+        let id: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO characters (account_id, name, zone_id, pos_x, pos_z, updated_at_ms, body, skin, jacket, pants, cap, cash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (name) DO NOTHING RETURNING id",
+        )
+        .bind(account_id)
+        .bind(&c.name)
+        .bind(c.zone.0 as i64)
+        .bind(c.position.x as f64)
+        .bind(c.position.y as f64)
+        .bind(now_ms())
+        .bind(a.body as i64)
+        .bind(a.skin as i64)
+        .bind(a.jacket as i64)
+        .bind(a.pants as i64)
+        .bind(a.cap as i64)
+        .bind(c.state.cash)
         .fetch_optional(&mut *tx)
         .await?;
-        let (character_id, name, zone_id, x, z) = match existing {
-            Some(row) => row,
-            None => {
-                tracing::info!("creating character {username}");
-                sqlx::query_as(
-                    "INSERT INTO characters (account_id, name, zone_id, pos_x, pos_z, updated_at_ms)
-                     VALUES (?, ?, ?, ?, ?, ?)
-                     RETURNING id, name, zone_id, pos_x, pos_z",
-                )
-                .bind(account_id)
-                .bind(username)
-                .bind(spawn_zone.0 as i64)
-                .bind(spawn_pos.x as f64)
-                .bind(spawn_pos.y as f64)
-                .bind(now)
-                .fetch_one(&mut *tx)
-                .await?
-            }
+        let Some((id,)) = id else {
+            return Ok(Err(format!("The name {} is taken.", c.name)));
         };
+        write_state(&mut tx, id, &c.state).await?;
         tx.commit().await?;
+        tracing::info!("created character {} (account {account_id})", c.name);
+        Ok(Ok(()))
+    }
+
+    async fn load(&self, account_id: i64, character_id: i64, history: HistoryLimits) -> Result<Option<LoginData>, sqlx::Error> {
+        type Row = (String, i64, f64, f64, i64, i64, i64, i64, i64, i64, Option<i64>, String);
+        let row: Option<Row> = sqlx::query_as(
+            "SELECT c.name, c.zone_id, c.pos_x, c.pos_z, c.body, c.skin, c.jacket, c.pants, c.cap, c.cash, a.muted_until_ms, a.username
+             FROM characters c JOIN accounts a ON a.id = c.account_id
+             WHERE c.id = ? AND c.account_id = ?",
+        )
+        .bind(character_id)
+        .bind(account_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((name, zone, x, z, body, skin, jacket, pants, cap, cash, muted_until_ms, account_name)) = row else {
+            return Ok(None);
+        };
+        sqlx::query("UPDATE accounts SET last_login_at_ms = ? WHERE id = ?")
+            .bind(now_ms())
+            .bind(account_id)
+            .execute(&self.pool)
+            .await?;
+
+        let items: Vec<(i64, String, i64)> =
+            sqlx::query_as("SELECT slot, item, quantity FROM inventory_items WHERE character_id = ?")
+                .bind(character_id)
+                .fetch_all(&self.pool)
+                .await?;
+        let quests: Vec<(String, i64, bool)> =
+            sqlx::query_as("SELECT quest, stage, completed FROM quest_progress WHERE character_id = ?")
+                .bind(character_id)
+                .fetch_all(&self.pool)
+                .await?;
+        let skills: Vec<(String, i64)> = sqlx::query_as("SELECT skill, xp FROM skills WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
 
         let ignores: Vec<(i64, String)> = sqlx::query_as(
             "SELECT i.ignored_id, c.name FROM ignores i
@@ -146,17 +261,21 @@ impl SqliteStore {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(LoginData {
+        Ok(Some(LoginData {
             character: CharacterRecord {
+                account_id,
+                account_name,
                 character_id,
                 name,
-                zone: ZoneId(zone_id as u16),
+                zone: ZoneId(zone as u16),
                 position: Vec2::new(x as f32, z as f32),
+                appearance: appearance_from(body, skin, jacket, pants, cap),
                 muted_until_ms,
+                state: assemble_state(cash, items, quests, skills),
             },
             history: finish_history(history_lines(rows), &ignores),
             ignores,
-        })
+        }))
     }
 
     async fn save_positions(&self, positions: &[SavedPosition]) -> Result<(), sqlx::Error> {
@@ -191,12 +310,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn set_ignore(
-        &self,
-        character_id: i64,
-        target_name: &str,
-        ignore: bool,
-    ) -> Result<Option<(u64, String)>, sqlx::Error> {
+    async fn set_ignore(&self, character_id: i64, target_name: &str, ignore: bool) -> Result<Option<(u64, String)>, sqlx::Error> {
         let target: Option<(i64, String)> = sqlx::query_as("SELECT id, name FROM characters WHERE name = ?")
             .bind(target_name)
             .fetch_optional(&self.pool)
@@ -205,15 +319,12 @@ impl SqliteStore {
             return Ok(None);
         };
         if ignore {
-            sqlx::query(
-                "INSERT INTO ignores (character_id, ignored_id, created_at_ms) VALUES (?, ?, ?)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(character_id)
-            .bind(target_id)
-            .bind(now_ms())
-            .execute(&self.pool)
-            .await?;
+            sqlx::query("INSERT INTO ignores (character_id, ignored_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+                .bind(character_id)
+                .bind(target_id)
+                .bind(now_ms())
+                .execute(&self.pool)
+                .await?;
         } else {
             sqlx::query("DELETE FROM ignores WHERE character_id = ? AND ignored_id = ?")
                 .bind(character_id)
@@ -237,79 +348,181 @@ impl SqliteStore {
     }
 }
 
+/// Replaces a character's cash, inventory, quests and skills.
+async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state: &PlayerState) -> Result<(), sqlx::Error> {
+    let (items, quests, skills) = state_rows(state);
+    sqlx::query("UPDATE characters SET cash = ?, updated_at_ms = ? WHERE id = ?")
+        .bind(state.cash)
+        .bind(now_ms())
+        .bind(character_id)
+        .execute(&mut **tx)
+        .await?;
+    for sql in [
+        "DELETE FROM inventory_items WHERE character_id = ?",
+        "DELETE FROM quest_progress WHERE character_id = ?",
+        "DELETE FROM skills WHERE character_id = ?",
+    ] {
+        sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
+    }
+    for (slot, item, qty) in items {
+        sqlx::query("INSERT INTO inventory_items (character_id, slot, item, quantity) VALUES (?, ?, ?, ?)")
+            .bind(character_id)
+            .bind(slot)
+            .bind(item)
+            .bind(qty)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (quest, stage, completed) in quests {
+        sqlx::query("INSERT INTO quest_progress (character_id, quest, stage, completed) VALUES (?, ?, ?, ?)")
+            .bind(character_id)
+            .bind(quest)
+            .bind(stage)
+            .bind(completed)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (skill, xp) in skills {
+        sqlx::query("INSERT INTO skills (character_id, skill, xp) VALUES (?, ?, ?)")
+            .bind(character_id)
+            .bind(skill)
+            .bind(xp)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::Entity;
-    use shared::chat::ChatChannel;
+    use shared::content::Effect;
 
     const LIMITS: HistoryLimits = HistoryLimits { global: 50, whispers: 50 };
 
-    async fn login(store: &mut SqliteStore, name: &str) -> LoginData {
-        let cmd = DbCommand::Login {
-            link: Entity::PLACEHOLDER,
-            username: name.into(),
-            spawn_zone: ZoneId(1),
-            spawn_pos: Vec2::new(1.0, 2.0),
+    async fn store() -> SqliteStore {
+        SqliteStore::open("sqlite::memory:").await.unwrap()
+    }
+
+    async fn account(store: &mut SqliteStore, name: &str) -> i64 {
+        store.create_account(name, "hash").await.unwrap().unwrap().account_id
+    }
+
+    async fn character(store: &mut SqliteStore, account_id: i64, name: &str) -> Result<i64, String> {
+        let new = NewCharacter {
+            name: name.into(),
+            appearance: Appearance::default(),
+            zone: ZoneId(1),
+            position: Vec2::new(1.0, 2.0),
+            state: PlayerState::new(25),
         };
-        match store.handle(cmd, LIMITS).await {
-            Some(DbResult::LoggedIn { data, .. }) => *data,
-            other => panic!("unexpected {other:?}"),
+        store.create_character(account_id, &new).await.unwrap()?;
+        match store.list(Entity::PLACEHOLDER, account_id).await.unwrap() {
+            DbResult::CharacterList { characters, .. } => {
+                Ok(characters.into_iter().find(|c| c.name == name).unwrap().id as i64)
+            }
+            _ => unreachable!(),
         }
     }
 
+    async fn load(store: &mut SqliteStore, account_id: i64, id: i64) -> LoginData {
+        store.load(account_id, id, LIMITS).await.unwrap().expect("character exists")
+    }
+
     #[tokio::test]
-    async fn roundtrip_in_a_temp_file() {
-        let dir = std::env::temp_dir().join(format!("millennium-test-{}", std::process::id()));
-        let url = format!("sqlite://{}/world.db", dir.display());
-        let mut store = SqliteStore::open(&url).await.unwrap();
+    async fn accounts_are_unique_and_case_insensitive() {
+        let mut s = store().await;
+        account(&mut s, "Neo").await;
+        assert!(s.create_account("NEO", "x").await.unwrap().is_none());
+        let creds = s.credentials("neo").await.unwrap().unwrap();
+        assert_eq!(creds.username, "Neo");
+        assert!(s.credentials("trinity").await.unwrap().is_none());
+    }
 
-        let neo = login(&mut store, "Neo").await.character;
-        let trinity = login(&mut store, "Trinity").await.character.character_id;
-        store
-            .handle(
-                DbCommand::SavePositions(vec![SavedPosition {
-                    character_id: neo.character_id,
-                    zone: ZoneId(1),
-                    position: Vec2::new(5.0, -6.0),
-                }]),
-                LIMITS,
+    #[tokio::test]
+    async fn character_limits_and_ownership() {
+        let mut s = store().await;
+        let neo = account(&mut s, "Neo").await;
+        let smith = account(&mut s, "Smith").await;
+        let id = character(&mut s, neo, "Neo").await.unwrap();
+        character(&mut s, neo, "Thomas").await.unwrap();
+        // Names are unique across accounts, case-insensitively.
+        assert!(character(&mut s, smith, "THOMAS").await.unwrap_err().contains("taken"));
+        character(&mut s, neo, "Anderson").await.unwrap();
+        assert!(character(&mut s, neo, "TheOne").await.unwrap_err().contains("at most 3"));
+        // Smith can't load Neo's character.
+        assert!(s.load(smith, id, LIMITS).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn state_and_position_roundtrip() {
+        let content = shared::content::Content::builtin();
+        let mut s = store().await;
+        let acc = account(&mut s, "Neo").await;
+        let id = character(&mut s, acc, "Neo").await.unwrap();
+        let fresh = load(&mut s, acc, id).await.character;
+        assert_eq!(fresh.position, Vec2::new(1.0, 2.0));
+        assert_eq!(fresh.state, PlayerState::new(25));
+
+        let mut state = fresh.state.clone();
+        state
+            .apply(
+                &[
+                    Effect::StartQuest("56k_dreams".into()),
+                    Effect::GiveItem("soda".into(), 12),
+                    Effect::GiveItem("pager".into(), 1),
+                    Effect::TakeCash(5),
+                ],
+                &content,
             )
-            .await;
-        for (channel, recipient, t) in [(ChatChannel::Global, None, 1), (ChatChannel::Whisper, Some(trinity), 2)] {
-            let record = ChatRecord {
-                channel,
-                sender_id: neo.character_id,
-                recipient_id: recipient,
-                zone: None,
-                body: format!("msg{t}"),
-                sent_at_ms: t,
-            };
-            store.handle(DbCommand::InsertChat(record), LIMITS).await;
+            .unwrap();
+        state.skills.insert(Skill::Electronics, 123);
+        s.handle(DbCommand::SaveState { character_id: id, state: state.clone() }, LIMITS).await;
+        s.handle(
+            DbCommand::SavePositions(vec![SavedPosition { character_id: id, zone: ZoneId(1), position: Vec2::new(5.0, -6.0) }]),
+            LIMITS,
+        )
+        .await;
+
+        let loaded = load(&mut s, acc, id).await.character;
+        assert_eq!(loaded.state, state);
+        assert_eq!(loaded.position, Vec2::new(5.0, -6.0));
+    }
+
+    #[tokio::test]
+    async fn history_and_ignores() {
+        let mut s = store().await;
+        let a = account(&mut s, "Alice").await;
+        let b = account(&mut s, "Bob").await;
+        let c = account(&mut s, "Carol").await;
+        let alice = character(&mut s, a, "Alice").await.unwrap();
+        let bob = character(&mut s, b, "Bob").await.unwrap();
+        let carol = character(&mut s, c, "Carol").await.unwrap();
+        for (channel, sender, recipient, t) in [
+            (ChatChannel::Global, bob, None, 1),
+            (ChatChannel::Whisper, bob, Some(alice), 2),
+            (ChatChannel::Whisper, bob, Some(carol), 3), // not Alice's business
+            (ChatChannel::Say, bob, None, 4),            // say isn't replayed
+            (ChatChannel::Global, carol, None, 5),
+        ] {
+            let record = ChatRecord { channel, sender_id: sender, recipient_id: recipient, zone: None, body: format!("msg{t}"), sent_at_ms: t };
+            s.handle(DbCommand::InsertChat(record), LIMITS).await;
         }
-        let ignore = DbCommand::SetIgnore {
-            link: Entity::PLACEHOLDER,
-            character_id: trinity,
-            target_name: "neo".into(),
-            ignore: true,
-        };
-        assert!(matches!(
-            store.handle(ignore, LIMITS).await,
-            Some(DbResult::IgnoreUpdated { target: Some(_), .. })
-        ));
+        let texts = |d: &LoginData| d.history.iter().map(|l| l.text.clone()).collect::<Vec<_>>();
+        assert_eq!(texts(&load(&mut s, a, alice).await), ["msg1", "msg2", "msg5"]);
 
-        // Case-insensitive name, restored position.
-        let again = login(&mut store, "NEO").await;
-        assert_eq!(again.character.character_id, neo.character_id);
-        assert_eq!(again.character.position, Vec2::new(5.0, -6.0));
-        let texts: Vec<_> = again.history.iter().map(|l| l.text.as_str()).collect();
-        assert_eq!(texts, ["msg1", "msg2"]);
+        s.set_ignore(alice, "carol", true).await.unwrap();
+        let data = load(&mut s, a, alice).await;
+        assert_eq!(data.ignores, vec![(carol as u64, "Carol".to_string())]);
+        assert_eq!(texts(&data), ["msg1", "msg2"]);
+    }
 
-        // Trinity ignores Neo, so Neo's lines are filtered from her history.
-        let t = login(&mut store, "Trinity").await;
-        assert_eq!(t.ignores.len(), 1);
-        assert!(t.history.is_empty());
-
+    #[tokio::test]
+    async fn save_file_is_created() {
+        let dir = std::env::temp_dir().join(format!("millennium-sqlite-{}", std::process::id()));
+        let url = format!("sqlite://{}/world.db", dir.display());
+        drop(SqliteStore::open(&url).await.unwrap());
+        assert!(dir.join("world.db").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

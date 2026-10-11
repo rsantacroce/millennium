@@ -31,6 +31,9 @@ fn start_server(mut commands: Commands, config: Res<ServerConfig>) {
                 protocol_id: shared::PROTOCOL_ID,
                 private_key,
                 max_clients: net.max_clients,
+                // Tokens carry the address the *client* used to reach us (which may be a public
+                // or port-forwarded address), not our bind address, so don't require them to match.
+                server_addr_check: false,
                 ..default()
             }),
             LocalAddr(net.bind),
@@ -49,6 +52,6 @@ fn on_new_link(trigger: On<Add, LinkOf>, mut commands: Commands) {
 
 fn on_connected(trigger: On<Add, Connected>, ids: Query<&RemoteId, With<ClientOf>>) {
     if let Ok(id) = ids.get(trigger.entity) {
-        info!("client {:?} connected (link {:?}), waiting for login", id.0, trigger.entity);
+        info!("client {:?} connected (link {:?})", id.0, trigger.entity);
     }
 }

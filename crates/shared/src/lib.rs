@@ -4,13 +4,19 @@
 //! - the network protocol (channels, messages, replicated components, inputs),
 //! - deterministic game rules (movement + collision) so client prediction matches the server,
 //! - static zone data (the test city block) used for both collision and rendering,
-//! - chat parsing/validation rules.
+//! - chat parsing/validation rules,
+//! - game content (items, NPCs, quests...) and the rules for inventory, shops, quests and skills,
+//! - the login service protocol.
 
 use bevy::prelude::*;
 use core::time::Duration;
 
+pub mod appearance;
+pub mod auth;
 pub mod chat;
 pub mod config;
+pub mod content;
+pub mod game;
 pub mod movement;
 pub mod names;
 pub mod protocol;
@@ -23,7 +29,7 @@ pub const TICK_HZ: f64 = 30.0;
 pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Bumped whenever the wire protocol changes; netcode rejects mismatched clients.
-pub const PROTOCOL_ID: u64 = 2000_0001;
+pub const PROTOCOL_ID: u64 = 2000_0002;
 
 /// Default UDP port of the game server.
 pub const DEFAULT_SERVER_PORT: u16 = 5888;
@@ -40,6 +46,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(protocol::ProtocolPlugin)
-            .insert_resource(zone::ZoneRegistry::default());
+            .insert_resource(zone::ZoneRegistry::default())
+            .insert_resource(content::Content::builtin());
     }
 }

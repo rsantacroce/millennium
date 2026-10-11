@@ -16,6 +16,8 @@ pub struct HostedServer {
     #[cfg(feature = "host")]
     _server: server::EmbeddedServer,
     pub port: u16,
+    /// Certificate fingerprint of our own login service.
+    pub fingerprint: String,
     /// Best guess at the address friends on the same network should use.
     pub lan_ip: Option<IpAddr>,
 }
@@ -24,30 +26,42 @@ pub fn can_host() -> bool {
     cfg!(feature = "host")
 }
 
-/// Starts the embedded server (if not already running) and returns the address to connect to.
-pub fn start(commands: &mut Commands, existing: Option<&HostedServer>, config: &ClientConfig, host_name: &str) -> Result<SocketAddr, String> {
+/// Starts the embedded server (if not already running) and returns the address to connect to
+/// and its certificate fingerprint.
+/// The host's own account is an admin of the hosted world.
+pub fn start(
+    commands: &mut Commands,
+    existing: Option<&HostedServer>,
+    config: &ClientConfig,
+    host_account: &str,
+) -> Result<(SocketAddr, String), String> {
     if let Some(hosted) = existing {
-        return Ok(SocketAddr::from(([127, 0, 0, 1], hosted.port)));
+        return Ok((SocketAddr::from(([127, 0, 0, 1], hosted.port)), hosted.fingerprint.clone()));
     }
-    let port = start_server(commands, config, host_name)?;
-    Ok(SocketAddr::from(([127, 0, 0, 1], port)))
+    let (port, fingerprint) = start_server(commands, config, host_account)?;
+    Ok((SocketAddr::from(([127, 0, 0, 1], port)), fingerprint))
 }
 
 #[cfg(feature = "host")]
-fn start_server(commands: &mut Commands, config: &ClientConfig, host_name: &str) -> Result<u16, String> {
+fn start_server(commands: &mut Commands, config: &ClientConfig, host_account: &str) -> Result<(u16, String), String> {
     let mut server_config = server::ServerConfig::default();
-    server_config.network.bind = SocketAddr::from(([0, 0, 0, 0], config.host.port));
-    server_config.network.private_key = config.private_key.clone();
+    let bind = SocketAddr::from(([0, 0, 0, 0], config.host.port));
+    server_config.network.bind = bind;
+    server_config.network.auth_bind = bind;
+    server_config.network.tls_dir = config.host.tls_dir.clone();
+    // Tokens are only checked by this same process, so a fresh random key per session is fine.
+    server_config.network.private_key = rand::random::<[u8; 32]>().iter().map(|b| format!("{b:02x}")).collect();
     server_config.database.url = format!("sqlite://{}", config.host.save_file);
-    server_config.chat.admins = vec![host_name.to_string()];
+    server_config.chat.admins = vec![host_account.to_string()];
     let server = server::EmbeddedServer::start(server_config)?;
     let port = server.port();
-    commands.insert_resource(HostedServer { _server: server, port, lan_ip: lan_ip() });
-    Ok(port)
+    let fingerprint = server.fingerprint().to_string();
+    commands.insert_resource(HostedServer { _server: server, port, fingerprint: fingerprint.clone(), lan_ip: lan_ip() });
+    Ok((port, fingerprint))
 }
 
 #[cfg(not(feature = "host"))]
-fn start_server(_: &mut Commands, _: &ClientConfig, _: &str) -> Result<u16, String> {
+fn start_server(_: &mut Commands, _: &ClientConfig, _: &str) -> Result<(u16, String), String> {
     Err("this build can't host games (compiled without the `host` feature)".into())
 }
 

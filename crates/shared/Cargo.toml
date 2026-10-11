@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bevy = { workspace = true, features = ["std", "bevy_log", "bevy_state", "serialize"] }
+bevy = { workspace = true, features = ["std", "bevy_log", "bevy_state", "serialize", "bevy_color"] }
 lightyear = { workspace = true, features = [
   "std", "client", "server", "netcode", "udp",
   "replication", "prediction", "interpolation", "input_native",
@@ -13,3 +13,7 @@ serde.workspace = true
 toml.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+postcard.workspace = true
+ron.workspace = true
+rustls.workspace = true
+sha2.workspace = true

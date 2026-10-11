@@ -16,8 +16,14 @@ pub struct ServerConfig {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(default)]
 pub struct NetworkConfig {
+    /// UDP address of the game server.
     pub bind: SocketAddr,
-    /// 64 hex chars shared with clients. Empty = all-zero development key.
+    /// TCP address of the TLS login service (usually the same port number as `bind`).
+    pub auth_bind: SocketAddr,
+    /// Where the login service's self-signed certificate and key are kept.
+    pub tls_dir: String,
+    /// 64 hex chars used to sign connect tokens. Only the server needs it (clients get tokens from
+    /// the login service). Empty = all-zero development key.
     pub private_key: String,
     pub max_clients: usize,
 }
@@ -26,6 +32,8 @@ impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
             bind: SocketAddr::from(([0, 0, 0, 0], shared::DEFAULT_SERVER_PORT)),
+            auth_bind: SocketAddr::from(([0, 0, 0, 0], shared::DEFAULT_SERVER_PORT)),
+            tls_dir: "saves/tls".into(),
             private_key: String::new(),
             max_clients: 64,
         }
@@ -61,7 +69,7 @@ pub struct ChatConfig {
     pub history_global: i64,
     pub history_whispers: i64,
     pub blocked_words: Vec<String>,
-    /// Usernames allowed to /mute and /unmute.
+    /// Account names allowed to /mute and /unmute.
     pub admins: Vec<String>,
 }
 

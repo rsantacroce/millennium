@@ -21,6 +21,11 @@ thiserror.workspace = true
 chrono.workspace = true
 tokio.workspace = true
 crossbeam-channel = "0.5"
+rcgen.workspace = true
+argon2.workspace = true
+rustls.workspace = true
+postcard.workspace = true
+rand.workspace = true
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "sqlite", "migrate", "macros", "chrono"] }
 
 [dev-dependencies]

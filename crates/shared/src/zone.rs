@@ -98,7 +98,7 @@ pub fn downtown_block() -> ZoneLayout {
         id: ZoneId::DOWNTOWN,
         name: "Downtown - Maple & 5th",
         bounds: Rect::new(-48.0, -48.0, 48.0, 48.0),
-        spawn: Vec2::new(-7.5, -7.5),
+        spawn: Vec2::new(-6.5, -6.0),
         streets: vec![
             rect(0.0, 0.0, 96.0, 9.0), // Maple St (east-west)
             rect(0.0, 0.0, 9.0, 96.0), // 5th Ave (north-south)
@@ -140,6 +140,19 @@ mod tests {
         assert!(zone.bounds.contains(zone.spawn));
         for o in &zone.obstacles {
             assert!(!o.rect.inflate(1.0).contains(zone.spawn), "spawn blocked by {}", o.name);
+        }
+    }
+
+    #[test]
+    fn spawn_ring_is_walkable() {
+        // The server spreads new characters 1.5 m around the spawn point.
+        let zone = downtown_block();
+        for deg in (0..360).step_by(10) {
+            let p = zone.spawn + Vec2::from_angle((deg as f32).to_radians()) * 1.5;
+            for o in &zone.obstacles {
+                let blocked = o.rect.inflate(crate::movement::PLAYER_RADIUS).contains(p);
+                assert!(!blocked, "spawn ring at {deg} degrees is inside {}", o.name);
+            }
         }
     }
 

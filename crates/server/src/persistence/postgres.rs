@@ -1,18 +1,17 @@
 //! PostgreSQL store (sqlx, runtime-checked queries so the project builds without a live DB).
+//! Mirrors `sqlite.rs`; the SQL differs in placeholders, `citext` and timestamps.
 
 use super::worker::HistoryLimits;
-use super::{
-    finish_history, history_lines, CharacterRecord, ChatRecord, DbCommand, DbResult, HistoryRow, LoginData,
-    SavedPosition,
-};
-use bevy::math::Vec2;
-use shared::zone::ZoneId;
+use super::*;
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::{Postgres, Transaction};
 use std::time::Duration;
 
 pub struct PgStore {
     pool: PgPool,
 }
+
+type CharacterRow = (i64, String, i32, i16, i16, i16, i16, i16);
 
 impl PgStore {
     pub async fn connect(url: &str, max_connections: u32) -> Result<Self, sqlx::Error> {
@@ -26,97 +25,189 @@ impl PgStore {
     }
 
     pub async fn handle(&mut self, cmd: DbCommand, history: HistoryLimits) -> Option<DbResult> {
-        match cmd {
-            DbCommand::Login { link, username, spawn_zone, spawn_pos } => {
-                Some(match self.login(&username, spawn_zone, spawn_pos, history).await {
-                    Ok(data) => DbResult::LoggedIn { link, data: Box::new(data) },
+        let result: Result<Option<DbResult>, sqlx::Error> = match cmd {
+            DbCommand::GetCredentials { username, reply } => {
+                let _ = reply.send(self.credentials(&username).await.map_err(|e| e.to_string()));
+                Ok(None)
+            }
+            DbCommand::CreateAccount { username, password_hash, reply } => {
+                let _ = reply.send(self.create_account(&username, &password_hash).await.map_err(|e| e.to_string()));
+                Ok(None)
+            }
+            DbCommand::SetPasswordHash { account_id, password_hash } => sqlx::query("UPDATE accounts SET password_hash = $1 WHERE id = $2")
+                .bind(password_hash)
+                .bind(account_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| None),
+            DbCommand::ListCharacters { link, account_id } => self.list(link, account_id).await.map(Some),
+            DbCommand::CreateCharacter { link, account_id, character } => {
+                let result = self.create_character(account_id, &character).await;
+                Ok(Some(match result {
+                    Ok(r) => DbResult::CharacterCreated { link, account_id, result: r },
                     Err(e) => {
-                        tracing::error!("login query for {username} failed: {e}");
-                        DbResult::LoginFailed { link, username, reason: "database error, try again".into() }
+                        tracing::error!("creating character failed: {e}");
+                        DbResult::CharacterCreated { link, account_id, result: Err("database error, try again".into()) }
                     }
-                })
+                }))
             }
-            DbCommand::SavePositions(positions) => {
-                if let Err(e) = self.save_positions(&positions).await {
-                    tracing::error!("saving {} positions failed: {e}", positions.len());
-                }
-                None
-            }
-            DbCommand::InsertChat(record) => {
-                if let Err(e) = self.insert_chat(&record).await {
-                    tracing::error!("saving chat message failed: {e}");
-                }
-                None
-            }
-            DbCommand::SetIgnore { link, character_id, target_name, ignore } => {
-                match self.set_ignore(character_id, &target_name, ignore).await {
-                    Ok(target) => Some(DbResult::IgnoreUpdated { link, target_name, target, ignore }),
+            DbCommand::LoadCharacter { link, account_id, character_id } => {
+                Ok(Some(match self.load(account_id, character_id, history).await {
+                    Ok(Some(data)) => DbResult::LoggedIn { link, data: Box::new(data) },
+                    Ok(None) => DbResult::LoginFailed { link, reason: "That character doesn't exist.".into() },
                     Err(e) => {
-                        tracing::error!("updating ignore list failed: {e}");
-                        None
+                        tracing::error!("loading character {character_id} failed: {e}");
+                        DbResult::LoginFailed { link, reason: "database error, try again".into() }
                     }
-                }
+                }))
             }
-            DbCommand::SetMute { link, target_name, until_ms } => {
-                match self.set_mute(&target_name, until_ms).await {
-                    Ok(found) => Some(DbResult::MuteUpdated { link, target_name, found, until_ms }),
-                    Err(e) => {
-                        tracing::error!("updating mute failed: {e}");
-                        None
-                    }
+            DbCommand::SavePositions(positions) => self.save_positions(&positions).await.map(|_| None),
+            DbCommand::SaveState { character_id, state } => {
+                async {
+                    let mut tx = self.pool.begin().await?;
+                    write_state(&mut tx, character_id, &state).await?;
+                    tx.commit().await
                 }
+                .await
+                .map(|_| None)
             }
+            DbCommand::InsertChat(record) => self.insert_chat(&record).await.map(|_| None),
+            DbCommand::SetIgnore { link, character_id, target_name, ignore } => self
+                .set_ignore(character_id, &target_name, ignore)
+                .await
+                .map(|target| Some(DbResult::IgnoreUpdated { link, target_name, target, ignore })),
+            DbCommand::SetMute { link, target_name, until_ms } => self
+                .set_mute(&target_name, until_ms)
+                .await
+                .map(|found| Some(DbResult::MuteUpdated { link, target_name, found, until_ms })),
             DbCommand::Flush(done) => {
                 let _ = done.send(());
-                None
-            }
-        }
-    }
-
-    async fn login(
-        &self,
-        username: &str,
-        spawn_zone: ZoneId,
-        spawn_pos: Vec2,
-        history: HistoryLimits,
-    ) -> Result<LoginData, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let (account_id, muted_until_ms): (i64, Option<i64>) = sqlx::query_as(
-            "INSERT INTO accounts (username, last_login_at) VALUES ($1::citext, now())
-             ON CONFLICT (username) DO UPDATE SET last_login_at = now()
-             RETURNING id, (extract(epoch FROM muted_until) * 1000)::bigint",
-        )
-        .bind(username)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        type Row = (i64, String, i32, f32, f32);
-        let existing: Option<Row> = sqlx::query_as(
-            "SELECT id, name::text, zone_id, pos_x, pos_z FROM characters
-             WHERE account_id = $1 ORDER BY id LIMIT 1",
-        )
-        .bind(account_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let (character_id, name, zone_id, x, z) = match existing {
-            Some(row) => row,
-            None => {
-                tracing::info!("creating character {username}");
-                sqlx::query_as(
-                    "INSERT INTO characters (account_id, name, zone_id, pos_x, pos_z)
-                     VALUES ($1, $2::citext, $3, $4, $5)
-                     RETURNING id, name::text, zone_id, pos_x, pos_z",
-                )
-                .bind(account_id)
-                .bind(username)
-                .bind(spawn_zone.0 as i32)
-                .bind(spawn_pos.x)
-                .bind(spawn_pos.y)
-                .fetch_one(&mut *tx)
-                .await?
+                Ok(None)
             }
         };
+        result.unwrap_or_else(|e| {
+            tracing::error!("postgres query failed: {e}");
+            None
+        })
+    }
+
+    async fn credentials(&self, username: &str) -> Result<Option<Credentials>, sqlx::Error> {
+        let row: Option<(i64, String, Option<String>)> =
+            sqlx::query_as("SELECT id, username::text, password_hash FROM accounts WHERE username = $1::citext")
+                .bind(username)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(account_id, username, password_hash)| Credentials { account_id, username, password_hash }))
+    }
+
+    async fn create_account(&self, username: &str, hash: &str) -> Result<Option<Credentials>, sqlx::Error> {
+        let row: Option<(i64, String)> = sqlx::query_as(
+            "INSERT INTO accounts (username, password_hash) VALUES ($1::citext, $2)
+             ON CONFLICT (username) DO NOTHING RETURNING id, username::text",
+        )
+        .bind(username)
+        .bind(hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()) }))
+    }
+
+    async fn list(&self, link: Entity, account_id: i64) -> Result<DbResult, sqlx::Error> {
+        let (account,): (String,) = sqlx::query_as("SELECT username::text FROM accounts WHERE id = $1")
+            .bind(account_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let rows: Vec<CharacterRow> = sqlx::query_as(
+            "SELECT id, name::text, zone_id, body, skin, jacket, pants, cap FROM characters WHERE account_id = $1 ORDER BY id",
+        )
+        .bind(account_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let characters = rows
+            .into_iter()
+            .map(|(id, name, zone, body, skin, jacket, pants, cap)| CharacterSummary {
+                id: id as u64,
+                name,
+                appearance: appearance_from(body.into(), skin.into(), jacket.into(), pants.into(), cap.into()),
+                zone: ZoneId(zone as u16),
+            })
+            .collect();
+        Ok(DbResult::CharacterList { link, account, characters })
+    }
+
+    async fn create_character(&self, account_id: i64, c: &NewCharacter) -> Result<Result<(), String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        // Lock the account row so two simultaneous creates can't both pass the limit check.
+        sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE").bind(account_id).execute(&mut *tx).await?;
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM characters WHERE account_id = $1")
+            .bind(account_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if count as usize >= MAX_CHARACTERS {
+            return Ok(Err(format!("You can have at most {MAX_CHARACTERS} characters.")));
+        }
+        let a = c.appearance;
+        let id: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO characters (account_id, name, zone_id, pos_x, pos_z, body, skin, jacket, pants, cap, cash)
+             VALUES ($1, $2::citext, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             ON CONFLICT (name) DO NOTHING RETURNING id",
+        )
+        .bind(account_id)
+        .bind(&c.name)
+        .bind(c.zone.0 as i32)
+        .bind(c.position.x)
+        .bind(c.position.y)
+        .bind(a.body as i16)
+        .bind(a.skin as i16)
+        .bind(a.jacket as i16)
+        .bind(a.pants as i16)
+        .bind(a.cap as i16)
+        .bind(c.state.cash)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((id,)) = id else {
+            return Ok(Err(format!("The name {} is taken.", c.name)));
+        };
+        write_state(&mut tx, id, &c.state).await?;
         tx.commit().await?;
+        tracing::info!("created character {} (account {account_id})", c.name);
+        Ok(Ok(()))
+    }
+
+    async fn load(&self, account_id: i64, character_id: i64, history: HistoryLimits) -> Result<Option<LoginData>, sqlx::Error> {
+        type Row = (String, i32, f32, f32, i16, i16, i16, i16, i16, i64, Option<i64>, String);
+        let row: Option<Row> = sqlx::query_as(
+            "SELECT c.name::text, c.zone_id, c.pos_x, c.pos_z, c.body, c.skin, c.jacket, c.pants, c.cap, c.cash,
+                    (extract(epoch FROM a.muted_until) * 1000)::bigint, a.username::text
+             FROM characters c JOIN accounts a ON a.id = c.account_id
+             WHERE c.id = $1 AND c.account_id = $2",
+        )
+        .bind(character_id)
+        .bind(account_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((name, zone, x, z, body, skin, jacket, pants, cap, cash, muted_until_ms, account_name)) = row else {
+            return Ok(None);
+        };
+        sqlx::query("UPDATE accounts SET last_login_at = now() WHERE id = $1")
+            .bind(account_id)
+            .execute(&self.pool)
+            .await?;
+
+        let items: Vec<(i16, String, i32)> =
+            sqlx::query_as("SELECT slot, item, quantity FROM inventory_items WHERE character_id = $1")
+                .bind(character_id)
+                .fetch_all(&self.pool)
+                .await?;
+        let quests: Vec<(String, i32, bool)> =
+            sqlx::query_as("SELECT quest, stage, completed FROM quest_progress WHERE character_id = $1")
+                .bind(character_id)
+                .fetch_all(&self.pool)
+                .await?;
+        let skills: Vec<(String, i64)> = sqlx::query_as("SELECT skill, xp FROM skills WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
 
         let ignores: Vec<(i64, String)> = sqlx::query_as(
             "SELECT i.ignored_id, c.name::text FROM ignores i
@@ -149,19 +240,24 @@ impl PgStore {
         .bind(history.whispers)
         .fetch_all(&self.pool)
         .await?;
-        let lines = history_lines(rows);
 
-        Ok(LoginData {
+        let items = items.into_iter().map(|(slot, item, qty)| (slot.into(), item, qty.into())).collect();
+        let quests = quests.into_iter().map(|(q, stage, done)| (q, stage.into(), done)).collect();
+        Ok(Some(LoginData {
             character: CharacterRecord {
+                account_id,
+                account_name,
                 character_id,
                 name,
-                zone: ZoneId(zone_id as u16),
+                zone: ZoneId(zone as u16),
                 position: Vec2::new(x, z),
+                appearance: appearance_from(body.into(), skin.into(), jacket.into(), pants.into(), cap.into()),
                 muted_until_ms,
+                state: assemble_state(cash, items, quests, skills),
             },
-            history: finish_history(lines, &ignores),
+            history: finish_history(history_lines(rows), &ignores),
             ignores,
-        })
+        }))
     }
 
     async fn save_positions(&self, positions: &[SavedPosition]) -> Result<(), sqlx::Error> {
@@ -204,12 +300,7 @@ impl PgStore {
         Ok(())
     }
 
-    async fn set_ignore(
-        &self,
-        character_id: i64,
-        target_name: &str,
-        ignore: bool,
-    ) -> Result<Option<(u64, String)>, sqlx::Error> {
+    async fn set_ignore(&self, character_id: i64, target_name: &str, ignore: bool) -> Result<Option<(u64, String)>, sqlx::Error> {
         let target: Option<(i64, String)> =
             sqlx::query_as("SELECT id, name::text FROM characters WHERE name = $1::citext")
                 .bind(target_name)
@@ -241,4 +332,48 @@ impl PgStore {
         .await?;
         Ok(result.rows_affected() > 0)
     }
+}
+
+/// Replaces a character's cash, inventory, quests and skills.
+async fn write_state(tx: &mut Transaction<'_, Postgres>, character_id: i64, state: &PlayerState) -> Result<(), sqlx::Error> {
+    let (items, quests, skills) = state_rows(state);
+    sqlx::query("UPDATE characters SET cash = $1, updated_at = now() WHERE id = $2")
+        .bind(state.cash)
+        .bind(character_id)
+        .execute(&mut **tx)
+        .await?;
+    for sql in [
+        "DELETE FROM inventory_items WHERE character_id = $1",
+        "DELETE FROM quest_progress WHERE character_id = $1",
+        "DELETE FROM skills WHERE character_id = $1",
+    ] {
+        sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
+    }
+    for (slot, item, qty) in items {
+        sqlx::query("INSERT INTO inventory_items (character_id, slot, item, quantity) VALUES ($1, $2, $3, $4)")
+            .bind(character_id)
+            .bind(slot as i16)
+            .bind(item)
+            .bind(qty as i32)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (quest, stage, completed) in quests {
+        sqlx::query("INSERT INTO quest_progress (character_id, quest, stage, completed) VALUES ($1, $2, $3, $4)")
+            .bind(character_id)
+            .bind(quest)
+            .bind(stage as i32)
+            .bind(completed)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (skill, xp) in skills {
+        sqlx::query("INSERT INTO skills (character_id, skill, xp) VALUES ($1, $2, $3)")
+            .bind(character_id)
+            .bind(skill)
+            .bind(xp)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
 }

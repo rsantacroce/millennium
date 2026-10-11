@@ -1,6 +1,5 @@
 //! The database thread.
 
-use super::memory::MemoryStore;
 use super::postgres::PgStore;
 use super::sqlite::SqliteStore;
 use super::{DbCommand, DbResult};
@@ -16,7 +15,6 @@ pub struct HistoryLimits {
 enum Store {
     Postgres(PgStore),
     Sqlite(SqliteStore),
-    Memory(MemoryStore),
 }
 
 pub type Channels = (mpsc::UnboundedSender<DbCommand>, crossbeam_channel::Receiver<DbResult>);
@@ -33,13 +31,16 @@ pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<C
 
     let url = std::env::var("DATABASE_URL").ok().filter(|u| !u.is_empty()).unwrap_or(config.url.clone());
     // The URL scheme picks the store: postgres:// for a dedicated server, sqlite:// for a
-    // self-contained save file (hosted games), empty for throwaway in-memory data.
-    let store = if url.is_empty() {
-        tracing::warn!("no database configured: using the in-memory store (data is lost on restart)");
-        Store::Memory(MemoryStore::default())
-    } else if url.starts_with("sqlite:") {
+    // self-contained save file (Host Game). Empty = an in-memory SQLite database (nothing is saved).
+    let store = if url.is_empty() || url.starts_with("sqlite:") {
+        let url = if url.is_empty() {
+            tracing::warn!("no database configured: using an in-memory database (data is lost on restart)");
+            "sqlite::memory:".to_string()
+        } else {
+            url
+        };
         let store = runtime.block_on(SqliteStore::open(&url)).map_err(|e| format!("{url}: {e}"))?;
-        tracing::info!("opened save file {url}");
+        tracing::info!("opened {url}");
         Store::Sqlite(store)
     } else {
         let pg = runtime
@@ -61,7 +62,6 @@ pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<C
                     let result = match &mut store {
                         Store::Postgres(pg) => pg.handle(cmd, history).await,
                         Store::Sqlite(db) => db.handle(cmd, history).await,
-                        Store::Memory(mem) => mem.handle(cmd, history),
                     };
                     if let Some(result) = result
                         && res_tx.send(result).is_err()

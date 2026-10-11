@@ -1,7 +1,7 @@
 //! Cameras.
 //!
 //! The main view is a single camera "rig" with switchable modes:
-//! - **Isometric** (default): orthographic, classic 35° tilt, rotate in 45° steps with Q/E.
+//! - **Isometric** (default): orthographic, classic 35° tilt, rotate in 45° steps with Z/C.
 //! - **Third person**: perspective orbit camera; right-drag to orbit, wheel to zoom.
 //! - **Top-down**: orthographic straight down, like a map.
 //!
@@ -12,6 +12,7 @@
 //! WASD movement is relative to the rig's yaw — see [`CameraRig::ground_basis`].
 
 use crate::avatars::LocalAvatar;
+use crate::char_select::PreviewAvatar;
 use crate::chat_ui::ChatFocus;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ScalingMode, Viewport};
@@ -186,10 +187,10 @@ fn camera_controls(
         if keys.just_pressed(KeyCode::KeyM) {
             rig.minimap = !rig.minimap;
         }
-        if keys.just_pressed(KeyCode::KeyQ) {
+        if keys.just_pressed(KeyCode::KeyZ) {
             rig.target_yaw -= FRAC_PI_4;
         }
-        if keys.just_pressed(KeyCode::KeyE) {
+        if keys.just_pressed(KeyCode::KeyC) {
             rig.target_yaw += FRAC_PI_4;
         }
     }
@@ -223,9 +224,23 @@ fn update_main_camera(
     mut rig: ResMut<CameraRig>,
     time: Res<Time>,
     avatar: Query<&Transform, (With<LocalAvatar>, Without<MainCamera>)>,
+    preview: Query<&Transform, (With<PreviewAvatar>, Without<MainCamera>)>,
     mut camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
     let (transform, projection) = &mut *camera;
+    // Character select: a close-up of the preview, slightly to the side.
+    if let Ok(p) = preview.single() {
+        if !matches!(**projection, Projection::Perspective(_)) {
+            **projection = Projection::Perspective(PerspectiveProjection { fov: PI / 4.0, ..default() });
+        }
+        let focus = p.translation + Vec3::Y * 0.95;
+        **transform = Transform::from_translation(focus + Vec3::new(-1.1, 0.35, 4.6)).looking_at(focus + Vec3::X * -0.8, Vec3::Y);
+        rig.focus = p.translation;
+        return;
+    }
+    if rig.mode != CameraMode::ThirdPerson && matches!(**projection, Projection::Perspective(_)) {
+        set_ortho(projection, rig.iso_zoom);
+    }
     let target = match avatar.single() {
         Ok(t) => t.translation,
         // Login screen: slowly circle the city.
