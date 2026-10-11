@@ -9,6 +9,7 @@
 
 use crate::auth::account_from_user_data;
 use crate::chat::ChatState;
+use crate::combat::Fighter;
 use crate::config::ServerConfig;
 use crate::persistence::{Db, DbCommand, DbEvent, DbResult, NewCharacter, SavedPosition, MAX_CHARACTERS};
 use crate::zones::ZoneRooms;
@@ -21,7 +22,7 @@ use shared::content::Content;
 use shared::game::PlayerState;
 use shared::names::validate_name;
 use shared::protocol::{
-    ChatHistory, ChatNetChannel, ControlChannel, DisplayName, GameChannel, GameUpdate, PlayerId, Position,
+    ChatHistory, ChatNetChannel, ControlChannel, DisplayName, GameChannel, GameUpdate, Health, PlayerId, Position,
     SessionAction, SessionUpdate,
 };
 use shared::zone::{ZoneId, ZoneRegistry};
@@ -276,6 +277,8 @@ fn handle_db_results(
                         CharacterIds { character_id: c.character_id },
                         LastSaved(position),
                         Progress(c.state.clone()),
+                        Health::full(shared::combat::max_hp(&c.state)),
+                        Fighter::default(),
                         ChatState::new(&config.chat, &c.account_name, c.muted_until_ms, &data.ignores, time.elapsed_secs_f64()),
                     ))
                     .id();

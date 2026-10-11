@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use lightyear::prelude::input::native::InputMarker;
 use shared::appearance::Appearance;
 use shared::content::Content;
-use shared::protocol::{DisplayName, MoveIntent, NpcTag, PlayerId, Position};
+use shared::protocol::{DisplayName, MobTag, MoveIntent, NpcTag, PlayerId, Position};
 
 /// Our own character.
 #[derive(Component)]
@@ -53,7 +53,7 @@ impl Plugin for AvatarPlugin {
             .add_systems(
                 Update,
                 (
-                    (spawn_player_visuals.run_if(resource_exists::<LocalPlayer>), spawn_npc_visuals),
+                    (spawn_player_visuals.run_if(resource_exists::<LocalPlayer>), spawn_npc_visuals, spawn_mob_visuals),
                     rebuild_changed_looks,
                     sync_transforms,
                 )
@@ -171,6 +171,23 @@ fn spawn_npc_visuals(
         spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials);
         minimap_dot(&mut commands, entity, Color::srgb(1.0, 0.6, 0.1), &mut meshes, &mut materials);
         name_tag(&mut commands, entity, &name.0, Color::srgb(1.0, 0.75, 0.3));
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn spawn_mob_visuals(
+    mut commands: Commands,
+    new_mobs: Query<(Entity, &MobTag, &DisplayName, &Position, Option<&Appearance>), Without<Avatar>>,
+    content: Res<Content>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, tag, name, pos, appearance) in &new_mobs {
+        commands.entity(entity).insert((Avatar, Transform::from_xyz(pos.x, 0.0, pos.y), Visibility::default()));
+        spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials);
+        minimap_dot(&mut commands, entity, Color::srgb(0.9, 0.1, 0.1), &mut meshes, &mut materials);
+        let level = content.mobs.get(&tag.kind).map_or(1, |d| d.level);
+        name_tag(&mut commands, entity, &format!("{} ({level})", name.0), Color::srgb(1.0, 0.4, 0.35));
     }
 }
 

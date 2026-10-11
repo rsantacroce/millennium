@@ -9,7 +9,7 @@
 //! `--bot` makes the character wander and chat by itself (for testing with a second client).
 
 // Bevy queries routinely trip this lint; the Bevy project recommends allowing it.
-#![allow(clippy::type_complexity)]
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
 
 mod avatars;
 mod bot;
@@ -17,6 +17,7 @@ mod bubbles;
 mod camera;
 mod char_select;
 mod chat_ui;
+mod combat_ui;
 mod config;
 mod game_ui;
 mod host;
@@ -136,6 +137,7 @@ fn main() {
             login_ui::LoginUiPlugin,
             char_select::CharSelectPlugin,
             game_ui::GameUiPlugin,
+            combat_ui::CombatUiPlugin,
             chat_ui::ChatUiPlugin,
             bubbles::BubblePlugin,
             hud::HudPlugin,

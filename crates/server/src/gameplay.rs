@@ -5,6 +5,7 @@
 //! in `shared::game`. Changing `Progress` automatically sends the new state to the player and
 //! saves it (see `session::sync_progress`), so nothing here deals with persistence.
 
+use crate::combat::{Fighter, Mobs};
 use crate::session::{PlayerLink, Progress, Session};
 use crate::zones::ZoneRooms;
 use bevy::ecs::system::SystemParam;
@@ -13,7 +14,8 @@ use lightyear::prelude::*;
 use shared::content::{Content, RecipeDef};
 use shared::game::{GameError, GameEvent, UseOutcome};
 use shared::protocol::{
-    ChatNetChannel, DisplayName, GameAction, GameChannel, GameUpdate, NpcTag, Position, SystemNotice,
+    ChatNetChannel, CombatTarget, DisplayName, FloatKind, GameAction, GameChannel, GameUpdate, Health, MobTag, NpcTag,
+    PlayerId, Position, SystemNotice,
 };
 use shared::zone::ZoneId;
 
@@ -93,6 +95,8 @@ fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::Xp(skill, xp) => format!("+{xp} {} XP", skill.name()),
         GameEvent::LevelUp(skill, level) => format!("*** {} level {level}! ***", skill.name()),
         GameEvent::OpenShop(_) => return None,
+        GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
+        GameEvent::Unequipped(item) => format!("You put away the {}.", content.item_name(item)),
     })
 }
 
@@ -142,7 +146,12 @@ fn handle_actions(
         Option<&ActiveDialogue>,
         Option<&ActiveShop>,
         Has<Channeling>,
+        &mut Fighter,
+        &mut Health,
+        &PlayerId,
     )>,
+    mobs: Res<Mobs>,
+    mob_info: Query<(&Position, &ZoneId, &Health), (With<MobTag>, Without<Fighter>)>,
     mut out: Outbox,
     content: Res<Content>,
     time: Res<Time<Real>>,
@@ -157,7 +166,7 @@ fn handle_actions(
     }
 
     for (link, player, action) in incoming {
-        let Ok((name, pos, zone, mut progress, dialogue, shop, channeling)) = players.get_mut(player) else { continue };
+        let Ok((name, pos, zone, mut progress, dialogue, shop, channeling, mut fighter, mut health, me)) = players.get_mut(player) else { continue };
         let near = |npc_id: &str| {
             content.npc(npc_id).filter(|n| n.zone_id() == *zone && n.pos().distance(pos.0) <= INTERACT_RANGE)
         };
@@ -259,6 +268,11 @@ fn handle_actions(
                     out.notice(link, SystemNotice::info("You're busy."));
                     continue;
                 }
+                let item = progress.inventory.get(slot as usize).cloned().flatten();
+                if item.and_then(|s| content.item(&s.item).and_then(|d| d.heal)).is_some() && health.current >= health.max {
+                    out.notice(link, SystemNotice::info("You're already in great shape."));
+                    continue;
+                }
                 match progress.use_item(slot as usize, &content) {
                     Ok(UseOutcome::StartRecipe(recipe)) => {
                         out.update(link, GameUpdate::ActionStarted { label: recipe.verb.clone(), seconds: recipe.seconds });
@@ -268,7 +282,34 @@ fn handle_actions(
                         out.notice(link, SystemNotice::info(text));
                         out.events(link, &events, &content);
                     }
+                    Ok(UseOutcome::Heal(amount, text, _)) => {
+                        let healed = crate::combat::heal(&mut health, amount);
+                        out.notice(link, SystemNotice::info(format!("{text} (+{healed} health)")));
+                        out.update(link, GameUpdate::Float { at: CombatTarget::Player(me.0), text: format!("+{healed}"), kind: FloatKind::Heal });
+                    }
+                    Ok(UseOutcome::Equipped(events)) => out.events(link, &events, &content),
                     Err(e) => out.error(link, e),
+                }
+            }
+            GameAction::Unequip => match progress.unequip(&content) {
+                Ok(events) => out.events(link, &events, &content),
+                Err(e) => out.error(link, e),
+            },
+            GameAction::Attack { target: CombatTarget::Mob(id) } => {
+                let target = mobs.get(id).and_then(|e| mob_info.get(e).ok());
+                match target {
+                    Some((_, mob_zone, h)) if mob_zone == zone && h.current > 0 => fighter.attack(CombatTarget::Mob(id)),
+                    _ => out.update(link, GameUpdate::CombatEnded),
+                }
+            }
+            GameAction::Attack { target: CombatTarget::Player(_) } => {
+                out.notice(link, SystemNotice::info("Fighting other players isn't allowed here."));
+                out.update(link, GameUpdate::CombatEnded);
+            }
+            GameAction::StopAttack => fighter.stop(),
+            GameAction::PowerSwing => {
+                if fighter.target.is_some() {
+                    fighter.queue_power_swing();
                 }
             }
             GameAction::MoveItem { from, to } => {

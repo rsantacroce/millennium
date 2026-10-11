@@ -14,6 +14,7 @@ use core::time::Duration;
 pub mod appearance;
 pub mod auth;
 pub mod chat;
+pub mod combat;
 pub mod config;
 pub mod content;
 pub mod game;
@@ -30,7 +31,7 @@ pub const TICK_HZ: f64 = 30.0;
 pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Bumped whenever the wire protocol changes; netcode rejects mismatched clients.
-pub const PROTOCOL_ID: u64 = 2000_0002;
+pub const PROTOCOL_ID: u64 = 2000_0003;
 
 /// Default UDP port of the game server.
 pub const DEFAULT_SERVER_PORT: u16 = 5888;

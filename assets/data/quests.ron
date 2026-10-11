@@ -12,4 +12,16 @@
         ],
         rewards: (cash: 40, xp: [(Electronics, 150)], items: [("pager", 1)]),
     ),
+    (
+        id: "rat_problem",
+        name: "Rat Problem",
+        stages: [
+            (
+                log: "Foreman Rizzo wants you to knock out 5 Dock Rats around the containers at Harbor Docks.",
+                advance_when: [Kills("dock_rat", 5)],
+            ),
+            (log: "Tell Foreman Rizzo, by the Metro exit, that the Dock Rats got the message."),
+        ],
+        rewards: (cash: 30, xp: [(Fitness, 120)], items: [("first_aid_kit", 2)]),
+    ),
 ]

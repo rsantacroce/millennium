@@ -194,9 +194,9 @@ impl SqliteStore {
     }
 
     async fn load(&self, account_id: i64, character_id: i64, history: HistoryLimits) -> Result<Option<LoginData>, sqlx::Error> {
-        type Row = (String, i64, f64, f64, i64, i64, i64, i64, i64, i64, Option<i64>, String);
+        type Row = (String, i64, f64, f64, i64, i64, i64, i64, i64, i64, Option<i64>, String, Option<String>);
         let row: Option<Row> = sqlx::query_as(
-            "SELECT c.name, c.zone_id, c.pos_x, c.pos_z, c.body, c.skin, c.jacket, c.pants, c.cap, c.cash, a.muted_until_ms, a.username
+            "SELECT c.name, c.zone_id, c.pos_x, c.pos_z, c.body, c.skin, c.jacket, c.pants, c.cap, c.cash, a.muted_until_ms, a.username, c.weapon
              FROM characters c JOIN accounts a ON a.id = c.account_id
              WHERE c.id = ? AND c.account_id = ?",
         )
@@ -204,7 +204,7 @@ impl SqliteStore {
         .bind(account_id)
         .fetch_optional(&self.pool)
         .await?;
-        let Some((name, zone, x, z, body, skin, jacket, pants, cap, cash, muted_until_ms, account_name)) = row else {
+        let Some((name, zone, x, z, body, skin, jacket, pants, cap, cash, muted_until_ms, account_name, weapon)) = row else {
             return Ok(None);
         };
         sqlx::query("UPDATE accounts SET last_login_at_ms = ? WHERE id = ?")
@@ -227,6 +227,13 @@ impl SqliteStore {
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
+        let kills: Vec<(String, i64)> = sqlx::query_as("SELECT mob, kills FROM kill_counters WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut state = assemble_state(cash, items, quests, skills);
+        state.weapon = weapon;
+        state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
 
         let ignores: Vec<(i64, String)> = sqlx::query_as(
             "SELECT i.ignored_id, c.name FROM ignores i
@@ -271,7 +278,7 @@ impl SqliteStore {
                 position: Vec2::new(x as f32, z as f32),
                 appearance: appearance_from(body, skin, jacket, pants, cap),
                 muted_until_ms,
-                state: assemble_state(cash, items, quests, skills),
+                state,
             },
             history: finish_history(history_lines(rows), &ignores),
             ignores,
@@ -351,8 +358,9 @@ impl SqliteStore {
 /// Replaces a character's cash, inventory, quests and skills.
 async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state: &PlayerState) -> Result<(), sqlx::Error> {
     let (items, quests, skills) = state_rows(state);
-    sqlx::query("UPDATE characters SET cash = ?, updated_at_ms = ? WHERE id = ?")
+    sqlx::query("UPDATE characters SET cash = ?, weapon = ?, updated_at_ms = ? WHERE id = ?")
         .bind(state.cash)
+        .bind(&state.weapon)
         .bind(now_ms())
         .bind(character_id)
         .execute(&mut **tx)
@@ -361,6 +369,7 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
         "DELETE FROM inventory_items WHERE character_id = ?",
         "DELETE FROM quest_progress WHERE character_id = ?",
         "DELETE FROM skills WHERE character_id = ?",
+        "DELETE FROM kill_counters WHERE character_id = ?",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -387,6 +396,14 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
             .bind(character_id)
             .bind(skill)
             .bind(xp)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (mob, kills) in &state.kills {
+        sqlx::query("INSERT INTO kill_counters (character_id, mob, kills) VALUES (?, ?, ?)")
+            .bind(character_id)
+            .bind(mob)
+            .bind(*kills as i64)
             .execute(&mut **tx)
             .await?;
     }
@@ -477,6 +494,8 @@ mod tests {
             )
             .unwrap();
         state.skills.insert(Skill::Electronics, 123);
+        state.weapon = Some("baseball_bat".into());
+        state.kills.insert("dock_rat".into(), 4);
         s.handle(DbCommand::SaveState { character_id: id, state: state.clone() }, LIMITS).await;
         s.handle(
             DbCommand::SavePositions(vec![SavedPosition { character_id: id, zone: ZoneId(1), position: Vec2::new(5.0, -6.0) }]),

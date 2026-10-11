@@ -175,10 +175,10 @@ impl PgStore {
     }
 
     async fn load(&self, account_id: i64, character_id: i64, history: HistoryLimits) -> Result<Option<LoginData>, sqlx::Error> {
-        type Row = (String, i32, f32, f32, i16, i16, i16, i16, i16, i64, Option<i64>, String);
+        type Row = (String, i32, f32, f32, i16, i16, i16, i16, i16, i64, Option<i64>, String, Option<String>);
         let row: Option<Row> = sqlx::query_as(
             "SELECT c.name::text, c.zone_id, c.pos_x, c.pos_z, c.body, c.skin, c.jacket, c.pants, c.cap, c.cash,
-                    (extract(epoch FROM a.muted_until) * 1000)::bigint, a.username::text
+                    (extract(epoch FROM a.muted_until) * 1000)::bigint, a.username::text, c.weapon
              FROM characters c JOIN accounts a ON a.id = c.account_id
              WHERE c.id = $1 AND c.account_id = $2",
         )
@@ -186,7 +186,7 @@ impl PgStore {
         .bind(account_id)
         .fetch_optional(&self.pool)
         .await?;
-        let Some((name, zone, x, z, body, skin, jacket, pants, cap, cash, muted_until_ms, account_name)) = row else {
+        let Some((name, zone, x, z, body, skin, jacket, pants, cap, cash, muted_until_ms, account_name, weapon)) = row else {
             return Ok(None);
         };
         sqlx::query("UPDATE accounts SET last_login_at = now() WHERE id = $1")
@@ -205,6 +205,10 @@ impl PgStore {
                 .fetch_all(&self.pool)
                 .await?;
         let skills: Vec<(String, i64)> = sqlx::query_as("SELECT skill, xp FROM skills WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
+        let kills: Vec<(String, i32)> = sqlx::query_as("SELECT mob, kills FROM kill_counters WHERE character_id = $1")
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
@@ -253,7 +257,12 @@ impl PgStore {
                 position: Vec2::new(x, z),
                 appearance: appearance_from(body.into(), skin.into(), jacket.into(), pants.into(), cap.into()),
                 muted_until_ms,
-                state: assemble_state(cash, items, quests, skills),
+                state: {
+                    let mut state = assemble_state(cash, items, quests, skills);
+                    state.weapon = weapon;
+                    state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
+                    state
+                },
             },
             history: finish_history(history_lines(rows), &ignores),
             ignores,
@@ -337,8 +346,9 @@ impl PgStore {
 /// Replaces a character's cash, inventory, quests and skills.
 async fn write_state(tx: &mut Transaction<'_, Postgres>, character_id: i64, state: &PlayerState) -> Result<(), sqlx::Error> {
     let (items, quests, skills) = state_rows(state);
-    sqlx::query("UPDATE characters SET cash = $1, updated_at = now() WHERE id = $2")
+    sqlx::query("UPDATE characters SET cash = $1, weapon = $2, updated_at = now() WHERE id = $3")
         .bind(state.cash)
+        .bind(&state.weapon)
         .bind(character_id)
         .execute(&mut **tx)
         .await?;
@@ -346,6 +356,7 @@ async fn write_state(tx: &mut Transaction<'_, Postgres>, character_id: i64, stat
         "DELETE FROM inventory_items WHERE character_id = $1",
         "DELETE FROM quest_progress WHERE character_id = $1",
         "DELETE FROM skills WHERE character_id = $1",
+        "DELETE FROM kill_counters WHERE character_id = $1",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -372,6 +383,14 @@ async fn write_state(tx: &mut Transaction<'_, Postgres>, character_id: i64, stat
             .bind(character_id)
             .bind(skill)
             .bind(xp)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (mob, kills) in &state.kills {
+        sqlx::query("INSERT INTO kill_counters (character_id, mob, kills) VALUES ($1, $2, $3)")
+            .bind(character_id)
+            .bind(mob)
+            .bind(*kills as i32)
             .execute(&mut **tx)
             .await?;
     }

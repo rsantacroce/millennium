@@ -56,6 +56,31 @@ pub enum GameAction {
     CloseShop,
     UseItem { slot: u8 },
     MoveItem { from: u8, to: u8 },
+    Unequip,
+    /// Start auto-attacking (you must walk into range yourself).
+    Attack { target: CombatTarget },
+    StopAttack,
+    /// A big hit on the current target, on a cooldown.
+    PowerSwing,
+}
+
+/// Something that can be fought, by its stable id (entities differ between client and server).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CombatTarget {
+    Mob(u32),
+    Player(u64),
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FloatKind {
+    /// Damage dealt by you.
+    Hit,
+    /// Damage you took.
+    Hurt,
+    Heal,
+    Miss,
+    /// XP, cash and loot gained.
+    Gain,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -101,6 +126,12 @@ pub enum GameUpdate {
     /// A timed action (e.g. a repair) started; it's cancelled if you move.
     ActionStarted { label: String, seconds: f32 },
     ActionEnded { completed: bool },
+    /// Floating text above a character ("12", "+38 Fitness XP").
+    Float { at: CombatTarget, text: String, kind: FloatKind },
+    /// Your auto-attack stopped (target down, out of reach...).
+    CombatEnded,
+    /// You got knocked out and woke up somewhere safe.
+    KnockedOut,
 }
 
 /// Recent chat sent once, right after login.
@@ -141,6 +172,29 @@ pub struct PlayerId(pub u64);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DisplayName(pub String);
+
+/// Current and maximum health of a character or mob.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Health {
+    pub current: u32,
+    pub max: u32,
+}
+
+impl Health {
+    pub fn full(max: u32) -> Self {
+        Self { current: max, max }
+    }
+    pub fn fraction(&self) -> f32 {
+        if self.max == 0 { 0.0 } else { self.current as f32 / self.max as f32 }
+    }
+}
+
+/// A fightable rival: stable id plus content id (see `assets/data/mobs.ron`).
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MobTag {
+    pub id: u32,
+    pub kind: String,
+}
 
 /// Marks an NPC; the value is its content id (see `assets/data/npcs.ron`).
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
@@ -232,6 +286,8 @@ impl Plugin for ProtocolPlugin {
         app.component::<ZoneId>().replicate();
         app.component::<Appearance>().replicate();
         app.component::<NpcTag>().replicate();
+        app.component::<MobTag>().replicate();
+        app.component::<Health>().replicate();
         // Position is predicted for the local player and interpolated for everyone else.
         app.component::<Position>()
             .replicate()

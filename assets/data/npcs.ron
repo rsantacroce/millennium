@@ -27,4 +27,13 @@
         appearance: (body: 1, skin: 2, jacket: 2, pants: 9, cap: 0),
         dialogue: "kim",
     ),
+    (
+        id: "rizzo",
+        name: "Foreman Rizzo",
+        zone: 2,
+        position: (-18.0, 26.0),
+        facing: 300.0,
+        appearance: (body: 2, skin: 3, jacket: 9, pants: 0, cap: 9),
+        dialogue: "rizzo",
+    ),
 ]

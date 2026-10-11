@@ -77,6 +77,7 @@ enum Click {
     Slot(usize),
     Use,
     Sell,
+    Unequip,
     Close(Window),
 }
 
@@ -141,6 +142,7 @@ fn receive(
     mut shop: ResMut<ShopView>,
     mut action: ResMut<ActionView>,
     mut panels: ResMut<Panels>,
+    mut combat: ResMut<crate::combat_ui::CombatInbox>,
     time: Res<Time>,
 ) {
     let Ok(Some(mut receiver)) = client.single_mut() else { return };
@@ -162,6 +164,7 @@ fn receive(
             GameUpdate::ShopClosed => shop.0 = None,
             GameUpdate::ActionStarted { label, seconds } => action.0 = Some((label, seconds, time.elapsed_secs())),
             GameUpdate::ActionEnded { .. } => action.0 = None,
+            update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
         }
     }
 }
@@ -278,6 +281,7 @@ fn clicks(
                     act(&mut client, GameAction::UseItem { slot: slot as u8 });
                 }
             }
+            Click::Unequip => act(&mut client, GameAction::Unequip),
             Click::Sell => {
                 if let Some(slot) = panels.selected {
                     act(&mut client, GameAction::Sell { slot: slot as u8, qty: 1 });
@@ -457,6 +461,12 @@ fn render_inventory(
             commands.spawn((ChildOf(body), label("Click an item to select it; click another slot to move it.", 12.0, theme::MUTED_TEXT)));
         }
     }
+    let weapon_row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() })).id();
+    let weapon = state.weapon.as_deref().map_or("Fists", |w| content.item_name(w)).to_string();
+    commands.spawn((ChildOf(weapon_row), label(format!("Weapon: {weapon}"), theme::FONT_SMALL, theme::TEXT)));
+    if state.weapon.is_some() {
+        commands.spawn((ChildOf(weapon_row), Click::Unequip, button("Unequip")));
+    }
     commands.spawn((ChildOf(body), label(format!("Cash: ${}", state.cash), theme::FONT_SMALL, theme::TEXT)));
 }
 
@@ -474,7 +484,7 @@ fn render_quests(
     if !panels.quests {
         return;
     }
-    let node = Node { left: Val::Px(12.0), top: Val::Px(84.0), width: Val::Px(320.0), ..default() };
+    let node = Node { left: Val::Px(12.0), top: Val::Px(150.0), width: Val::Px(320.0), ..default() };
     let body = spawn_window(&mut commands, QuestRoot, node, "Quest Log", Click::Close(Window::Quests));
     if state.quests.is_empty() {
         commands.spawn((ChildOf(body), label("No quests yet. Look for people with a ! over their head.", theme::FONT_SMALL, theme::MUTED_TEXT)));
@@ -498,14 +508,14 @@ fn render_skills(mut commands: Commands, panels: Res<Panels>, state: Res<LocalSt
     if !panels.skills {
         return;
     }
-    let node = Node { left: Val::Px(344.0), top: Val::Px(84.0), width: Val::Px(260.0), ..default() };
+    let node = Node { left: Val::Px(344.0), top: Val::Px(150.0), width: Val::Px(260.0), ..default() };
     let body = spawn_window(&mut commands, SkillsRoot, node, "Skills", Click::Close(Window::Skills));
     for skill in Skill::ALL {
         let xp = state.xp(skill);
         let level = level_for_xp(xp);
         let (from, to) = (xp_for_level(level), xp_for_level((level + 1).min(MAX_LEVEL)));
         let frac = if to > from { (xp - from) as f32 / (to - from) as f32 } else { 1.0 };
-        let trainable = skill == Skill::Electronics;
+        let trainable = matches!(skill, Skill::Electronics | Skill::Fitness);
         let color = if trainable { theme::TEXT } else { theme::MUTED_TEXT };
         commands.spawn((ChildOf(body), label(format!("{:<12} Lv {level:<2}  {xp} xp", skill.name()), theme::FONT_SMALL, color)));
         commands.spawn((
@@ -516,7 +526,7 @@ fn render_skills(mut commands: Commands, panels: Res<Panels>, state: Res<LocalSt
             children![(Node { width: Val::Percent(frac * 100.0), ..default() }, BackgroundColor(theme::TITLE_LEFT))],
         ));
     }
-    commands.spawn((ChildOf(body), label("Only Electronics can be trained so far.", 12.0, theme::MUTED_TEXT)));
+    commands.spawn((ChildOf(body), label("Electronics: repair things. Fitness: win fights.", 12.0, theme::MUTED_TEXT)));
 }
 
 fn render_progress(

@@ -71,4 +71,28 @@
         max_stack: 20,
         on_use: Some("You'd need a CD player for that."),
     ),
+    (
+        id: "baseball_bat",
+        name: "Baseball Bat",
+        description: "Louisville Slugger, 1987. A little chipped.",
+        value: 25,
+        weapon: Some((min_damage: 3, max_damage: 6, speed: 1.8)),
+    ),
+    (
+        id: "tire_iron",
+        name: "Tire Iron",
+        description: "Heavy, and it's technically a tool.",
+        value: 18,
+        weapon: Some((min_damage: 4, max_damage: 7, speed: 2.1)),
+    ),
+    (
+        id: "first_aid_kit",
+        name: "First Aid Kit",
+        description: "Bandages, antiseptic, and a sticker of a cartoon bear.",
+        value: 4,
+        max_stack: 5,
+        consumable: true,
+        heal: Some(35),
+        on_use: Some("You patch yourself up."),
+    ),
 ]

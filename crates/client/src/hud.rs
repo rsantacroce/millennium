@@ -51,7 +51,7 @@ fn update_hud(
 ) {
     let zone = zones.get(local.zone).map_or("?", |z| z.name);
     let mut content = format!(
-        "{} - {}    ${}\nWASD move | E talk | I inventory | L quests | K skills\nZ/C rotate | V camera: {} | M minimap | Enter chat | /help",
+        "{} - {}    ${}\nClick/WASD move | E talk | Enter chat\nI inventory | L quests | K skills\nTab target | R attack | F power swing\nZ/C rotate | V camera: {} | M map",
         local.name,
         zone,
         state.cash,

@@ -83,7 +83,7 @@ impl NavGrid {
     fn cell_of(&self, p: Vec2) -> Option<(usize, usize)> {
         let c = ((p - self.origin) / CELL).floor();
         (c.x >= 0.0 && c.y >= 0.0 && (c.x as usize) < self.width && (c.y as usize) < self.height)
-            .then(|| (c.x as usize, c.y as usize))
+            .then_some((c.x as usize, c.y as usize))
     }
 
     fn center(&self, idx: usize) -> Vec2 {

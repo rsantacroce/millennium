@@ -12,7 +12,8 @@
 //! - chat input, exactly as typed in the game (`hello`, `/w Bob hi`, `/ignore Bob`)
 //! - `!goto X Z`: walk there (waits until arrived)
 //! - `!talk NPC`, `!choose TEXT` (first option starting with TEXT), `!bye`
-//! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!closeshop`
+//! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!equip ITEM`, `!closeshop`
+//! - `!fight MOB` (attack the nearest one, chase it, wait until it's down), `!power`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
@@ -48,6 +49,8 @@ struct Script {
     in_world: bool,
     character_requested: bool,
     goto: Option<Vec2>,
+    /// Mob we're fighting (chased until `CombatEnded`).
+    fight: Option<u32>,
     options: Vec<String>,
     state: PlayerState,
     idle_after: f32,
@@ -109,6 +112,7 @@ fn main() {
         in_world: false,
         character_requested: false,
         goto: None,
+        fight: None,
         options: Vec::new(),
         state: PlayerState::default(),
         idle_after: 3.0,
@@ -154,9 +158,21 @@ fn predict(
     }
 }
 
-/// Walks straight toward the `!goto` target.
-fn walk(mut script: ResMut<Script>, mut me: Query<(&Position, &mut ActionState<MoveIntent>), With<InputMarker<MoveIntent>>>) {
+/// Walks straight toward the `!goto` target, or keeps in reach of the mob we're fighting.
+fn walk(
+    mut script: ResMut<Script>,
+    mut me: Query<(&Position, &mut ActionState<MoveIntent>), With<InputMarker<MoveIntent>>>,
+    mobs: Query<(&MobTag, &Position), Without<InputMarker<MoveIntent>>>,
+) {
     let Ok((pos, mut action)) = me.single_mut() else { return };
+    if let Some(id) = script.fight {
+        let target = mobs.iter().find(|(t, _)| t.id == id).map(|(_, p)| p.0);
+        action.0 = match target {
+            Some(t) if t.distance(pos.0) > 1.4 => MoveIntent::from_direction((t - pos.0).normalize()),
+            _ => MoveIntent::default(),
+        };
+        return;
+    }
     let Some(target) = script.goto else {
         action.0 = MoveIntent::default();
         return;
@@ -243,6 +259,15 @@ fn receive(
             GameUpdate::ShopClosed => println!("SHOP   closed"),
             GameUpdate::ActionStarted { label, seconds } => println!("ACTION {label} ({seconds}s)"),
             GameUpdate::ActionEnded { completed } => println!("ACTION ended, completed={completed}"),
+            GameUpdate::Float { text, kind, .. } => println!("FLOAT  {kind:?} {text}"),
+            GameUpdate::CombatEnded => {
+                println!("COMBAT ended");
+                script.fight = None;
+            }
+            GameUpdate::KnockedOut => {
+                println!("KO     knocked out!");
+                script.fight = None;
+            }
         }
     }
     for h in drain(history) {
@@ -285,10 +310,11 @@ fn run_script(
         With<Client>,
     >,
     content: Res<Content>,
-    me: Query<(&Position, &shared::zone::ZoneId), With<InputMarker<MoveIntent>>>,
+    me: Query<(&Position, &shared::zone::ZoneId, Option<&Health>), With<InputMarker<MoveIntent>>>,
+    mobs: Query<(&MobTag, &Position), Without<InputMarker<MoveIntent>>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if !script.in_world || script.goto.is_some() {
+    if !script.in_world || script.goto.is_some() || script.fight.is_some() {
         return;
     }
     if let Some(wait) = script.wait.as_mut() {
@@ -335,10 +361,26 @@ fn run_script(
             None => println!("       (no {item} in inventory)"),
         },
         ["!closeshop"] => send(GameAction::CloseShop),
+        ["!equip", item] => match slot_of(&script.state, item) {
+            Some(slot) => send(GameAction::UseItem { slot }),
+            None => println!("       (no {item} in inventory)"),
+        },
+        ["!fight", kind] => {
+            let here = me.single().map(|(p, ..)| p.0).unwrap_or_default();
+            let nearest = mobs.iter().filter(|(t, _)| t.kind == *kind).min_by(|a, b| a.1.0.distance(here).total_cmp(&b.1.0.distance(here)));
+            match nearest {
+                Some((tag, _)) => {
+                    script.fight = Some(tag.id);
+                    send(GameAction::Attack { target: CombatTarget::Mob(tag.id) });
+                }
+                None => println!("       (no {kind} in sight)"),
+            }
+        }
+        ["!power"] => send(GameAction::PowerSwing),
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
         ["!state"] => print_state(&script.state, &content),
         ["!where"] => match me.single() {
-            Ok((pos, zone)) => println!("WHERE  {zone:?} at ({:.1}, {:.1})", pos.x, pos.y),
+            Ok((pos, zone, hp)) => println!("WHERE  {zone:?} at ({:.1}, {:.1}), health {:?}", pos.x, pos.y, hp.map(|h| (h.current, h.max))),
             Err(_) => println!("WHERE  (no character)"),
         },
         _ => match parse_input(&step) {

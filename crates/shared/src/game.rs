@@ -9,7 +9,7 @@
 //! if every step succeeds, so a failed purchase can never take your cash without giving you
 //! the item.
 
-use crate::content::{Condition, Content, Effect, ItemId, QuestId, RecipeDef, ShopDef, ShopId, Skill};
+use crate::content::{Condition, Content, Effect, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
@@ -37,6 +37,12 @@ pub struct PlayerState {
     pub quests: BTreeMap<QuestId, QuestProgress>,
     /// Total XP per skill. Missing = 0.
     pub skills: BTreeMap<Skill, u64>,
+    /// The equipped weapon (not in the inventory while equipped).
+    #[serde(default)]
+    pub weapon: Option<ItemId>,
+    /// Kills per mob since its counter was last reset (for "knock out 5 ..." quests).
+    #[serde(default)]
+    pub kills: BTreeMap<MobId, u32>,
 }
 
 /// Something the player should be told about.
@@ -51,6 +57,8 @@ pub enum GameEvent {
     Xp(Skill, u64),
     LevelUp(Skill, u32),
     OpenShop(ShopId),
+    Equipped(ItemId),
+    Unequipped(ItemId),
 }
 
 /// A rule said no. The text is shown to the player.
@@ -79,6 +87,10 @@ pub enum UseOutcome {
     StartRecipe(RecipeDef),
     /// Just a message; the item may have been consumed (events say so).
     Message(String, Vec<GameEvent>),
+    /// Restore this much health. The item has been used up (events say so).
+    Heal(u32, String, Vec<GameEvent>),
+    /// The item is now the equipped weapon.
+    Equipped(Vec<GameEvent>),
 }
 
 /// Quest marker above an NPC's head.
@@ -98,7 +110,14 @@ impl Default for PlayerState {
 
 impl PlayerState {
     pub fn new(cash: i64) -> Self {
-        Self { cash, inventory: vec![None; INVENTORY_SLOTS], quests: BTreeMap::new(), skills: BTreeMap::new() }
+        Self {
+            cash,
+            inventory: vec![None; INVENTORY_SLOTS],
+            quests: BTreeMap::new(),
+            skills: BTreeMap::new(),
+            weapon: None,
+            kills: BTreeMap::new(),
+        }
     }
 
     /// Fixes up state loaded from storage (wrong slot count, zero-quantity stacks).
@@ -137,6 +156,7 @@ impl PlayerState {
             Condition::HasItem(item, qty) => self.count(item) >= *qty,
             Condition::Cash(amount) => self.cash >= *amount,
             Condition::SkillLevel(skill, level) => self.level(*skill) >= *level,
+            Condition::Kills(mob, n) => self.kills.get(mob).copied().unwrap_or(0) >= *n,
             Condition::Not(inner) => !self.check(inner),
         }
     }
@@ -307,6 +327,9 @@ impl PlayerState {
             Effect::GiveCash(amount) => self.change_cash(*amount, events)?,
             Effect::TakeCash(amount) => self.change_cash(-*amount, events)?,
             Effect::OpenShop(shop) => events.push(GameEvent::OpenShop(shop.clone())),
+            Effect::ResetKills(mob) => {
+                self.kills.insert(mob.clone(), 0);
+            }
         }
         Ok(())
     }
@@ -395,6 +418,15 @@ impl PlayerState {
             return Ok(UseOutcome::StartRecipe(recipe.clone()));
         }
         let Some(def) = content.item(&stack.item) else { return err("Unknown item.") };
+        if def.weapon.is_some() {
+            return self.equip(slot, content).map(UseOutcome::Equipped);
+        }
+        if let Some(amount) = def.heal {
+            let text = def.on_use.clone().unwrap_or_default();
+            let item = stack.item.clone();
+            let events = self.transact(content, |s, events| s.take_item(&item, 1, content, events))?;
+            return Ok(UseOutcome::Heal(amount, text, events));
+        }
         let text = def.on_use.clone().unwrap_or_else(|| format!("You fiddle with the {}. Nothing happens.", def.name));
         let events = if def.consumable {
             let item = stack.item.clone();
@@ -403,6 +435,52 @@ impl PlayerState {
             Vec::new()
         };
         Ok(UseOutcome::Message(text, events))
+    }
+
+    /// Equips the weapon in `slot`; the previously equipped one goes into that slot.
+    pub fn equip(&mut self, slot: usize, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(stack) = self.inventory.get(slot).cloned().flatten() else { return err("That slot is empty.") };
+        if content.item(&stack.item).and_then(|d| d.weapon).is_none() {
+            return err("You can't wield that.");
+        }
+        let mut events = vec![GameEvent::Equipped(stack.item.clone())];
+        let previous = self.weapon.replace(stack.item.clone());
+        self.inventory[slot] = previous.clone().map(|item| ItemStack { item, qty: 1 });
+        if let Some(prev) = previous {
+            events.push(GameEvent::Unequipped(prev));
+        }
+        Ok(events)
+    }
+
+    /// Puts the equipped weapon back into the inventory.
+    pub fn unequip(&mut self, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(weapon) = self.weapon.clone() else { return err("You're not holding anything.") };
+        let mut events = self.transact(content, |s, events| s.add_item(&weapon, 1, content, events))?;
+        self.weapon = None;
+        events.retain(|e| !matches!(e, GameEvent::Gained(..)));
+        events.push(GameEvent::Unequipped(weapon));
+        Ok(events)
+    }
+
+    /// Credit for knocking out a mob: XP, cash, loot (already rolled by the server) and quest
+    /// kill counters. Loot that doesn't fit is lost (with an event saying so is overkill here).
+    pub fn reward_kill(&mut self, mob: &str, xp: u64, cash: i64, loot: &[ItemId], content: &Content) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        *self.kills.entry(mob.to_string()).or_insert(0) += 1;
+        self.add_xp(Skill::Fitness, xp, &mut events);
+        if cash > 0 && self.change_cash(cash, &mut events).is_err() {
+            events.retain(|e| !matches!(e, GameEvent::Cash(_)));
+        }
+        for item in loot {
+            let mut copy = self.clone();
+            let mut item_events = Vec::new();
+            if copy.add_item(item, 1, content, &mut item_events).is_ok() {
+                *self = copy;
+                events.extend(item_events);
+            }
+        }
+        events.extend(self.refresh_quests(content));
+        events
     }
 
     pub fn can_craft(&self, recipe: &RecipeDef, content: &Content) -> Result<(), GameError> {
@@ -589,6 +667,64 @@ mod tests {
         assert_eq!(s.npc_marker("dot", &c), None);
         // Can't start it twice.
         assert!(s.apply(&[Effect::StartQuest(q.into())], &c).is_err());
+    }
+
+    #[test]
+    fn equipping_weapons() {
+        let c = content();
+        let mut s = PlayerState::new(100);
+        s.buy(shop(&c, "pawn_shop"), "baseball_bat", 1, &c).unwrap();
+        s.apply(&[Effect::GiveItem("tire_iron".into(), 1)], &c).unwrap();
+        assert!(matches!(s.use_item(0, &c).unwrap(), UseOutcome::Equipped(_)));
+        assert_eq!(s.weapon.as_deref(), Some("baseball_bat"));
+        assert!(s.inventory[0].is_none());
+        // Equipping the tire iron puts the bat where the tire iron was.
+        s.use_item(1, &c).unwrap();
+        assert_eq!(s.weapon.as_deref(), Some("tire_iron"));
+        assert_eq!(s.inventory[1].as_ref().unwrap().item, "baseball_bat");
+        s.unequip(&c).unwrap();
+        assert_eq!(s.weapon, None);
+        assert_eq!(s.count("tire_iron"), 1);
+        // A soda isn't a weapon.
+        s.buy(shop(&c, "corner_store"), "soda", 1, &c).unwrap();
+        let soda = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "soda")).unwrap();
+        assert!(s.equip(soda, &c).is_err());
+    }
+
+    #[test]
+    fn healing_items_are_used_up() {
+        let c = content();
+        let mut s = PlayerState::new(100);
+        s.buy(shop(&c, "corner_store"), "first_aid_kit", 2, &c).unwrap();
+        match s.use_item(0, &c).unwrap() {
+            UseOutcome::Heal(amount, _, _) => assert_eq!(amount, 35),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(s.count("first_aid_kit"), 1);
+    }
+
+    #[test]
+    fn kill_quest_counts_from_acceptance() {
+        let c = content();
+        let mut s = PlayerState::new(0);
+        // Kills before taking the quest don't count.
+        for _ in 0..3 {
+            s.reward_kill("dock_rat", 14, 2, &[], &c);
+        }
+        let accept = &c.node("rizzo", "problem").unwrap().options[0];
+        s.apply(&accept.effects, &c).unwrap();
+        for i in 0..5 {
+            let events = s.reward_kill("dock_rat", 14, 2, &["burned_cd".into()], &c);
+            assert_eq!(events.contains(&GameEvent::QuestAdvanced("rat_problem".into(), 1)), i == 4);
+        }
+        assert_eq!(s.cash, 16);
+        assert_eq!(s.count("burned_cd"), 5);
+        assert_eq!(s.xp(Skill::Fitness), 14 * 8);
+        let turn_in = c.node("rizzo", "hello").unwrap().options.iter().find(|o| o.text.starts_with("The Dock Rats")).unwrap();
+        assert!(s.check_all(&turn_in.when));
+        s.apply(&turn_in.effects, &c).unwrap();
+        assert_eq!(s.quest("rat_problem"), Some(QuestProgress::Done));
+        assert_eq!(s.count("first_aid_kit"), 2);
     }
 
     #[test]

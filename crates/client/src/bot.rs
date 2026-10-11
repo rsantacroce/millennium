@@ -3,14 +3,15 @@
 //! - `--bot`: wanders around the block and chats (to test with a second, human-driven client).
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
 //!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
-//!   `!choose TEXT`, `!open inventory|quests|skills`, `!select SLOT`, `!wait SECS`, or any chat
-//!   input (`/g hello`).
+//!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`, `!wait SECS`,
+//!   or any chat input (`/g hello`).
 //!
 //! Both write into the same `ActionState`/messages the keyboard and mouse use, so the server
 //! treats the bot exactly like a player.
 
 use crate::avatars::LocalAvatar;
 use crate::game_ui::{DialogueView, Panels};
+use crate::combat_ui::{engage, CombatState};
 use crate::input::{Arrival, ClickPath};
 use shared::nav::NavGrids;
 use crate::{AppState, Cli};
@@ -105,12 +106,14 @@ fn run_script(
     mut path: ResMut<ClickPath>,
     me: Query<(&Position, &shared::zone::ZoneId), With<LocalAvatar>>,
     npcs: Query<(&shared::protocol::NpcTag, &Position)>,
+    mobs: Query<(Entity, &shared::protocol::MobTag, &Position)>,
+    mut combat: ResMut<CombatState>,
     navs: Res<NavGrids>,
     mut game: Query<&mut MessageSender<GameAction>, With<Client>>,
     mut chat: Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>), With<Client>>,
 ) {
-    // Wait while walking.
-    if !path.waypoints.is_empty() || path.arrival.is_some() {
+    // Wait while walking or fighting.
+    if !path.waypoints.is_empty() || path.arrival.is_some() || combat.attacking {
         return;
     }
     if let Some(wait) = script.wait.as_mut() {
@@ -148,6 +151,14 @@ fn run_script(
             }
         }
         ["!talk", npc] => act(GameAction::Interact { npc: npc.to_string() }),
+        ["!fight", kind] => {
+            let here = me.single().map(|(p, _)| p.0).unwrap_or_default();
+            let nearest = mobs.iter().filter(|(_, t, _)| t.kind == *kind).min_by(|a, b| a.2.0.distance(here).total_cmp(&b.2.0.distance(here)));
+            match nearest {
+                Some((entity, tag, _)) => engage(&mut combat, &mut game, tag.id, entity),
+                None => warn!("script: no {kind} in sight"),
+            }
+        }
         ["!choose", ..] => {
             let prefix = step["!choose".len()..].trim();
             let index = dialogue.0.as_ref().and_then(|(_, _, options)| options.iter().position(|o| o.starts_with(prefix)));

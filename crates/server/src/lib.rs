@@ -7,10 +7,11 @@
 //!   else. One code path, no host-specific special cases.
 
 // Bevy queries routinely trip this lint; the Bevy project recommends allowing it.
-#![allow(clippy::type_complexity)]
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
 
 pub mod auth;
 mod chat;
+mod combat;
 pub mod config;
 mod gameplay;
 mod movement;
@@ -85,6 +86,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         movement::MovementPlugin,
         chat::ChatPlugin,
         gameplay::GameplayPlugin,
+        combat::CombatPlugin,
     ));
     Ok(app)
 }

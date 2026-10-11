@@ -12,12 +12,14 @@
 use crate::avatars::LocalAvatar;
 use crate::camera::{CameraRig, MainCamera};
 use crate::chat_ui::ChatFocus;
+use crate::combat_ui::{engage, CombatState};
 use crate::theme::pointer_over_ui;
 use crate::AppState;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use shared::nav::NavGrids;
-use shared::protocol::{GameAction, GameChannel, NpcTag};
+use shared::protocol::{GameAction, GameChannel, Health, MobTag, NpcTag};
+use shared::combat::MELEE_RANGE;
 use std::collections::VecDeque;
 use lightyear::prelude::client::input::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
@@ -87,6 +89,9 @@ fn click_to_move(
     interactions: Query<&Interaction>,
     me: Query<(&Position, &ZoneId), With<LocalAvatar>>,
     npcs: Query<(&NpcTag, &Position)>,
+    mobs: Query<(Entity, &MobTag, &Position, &Health)>,
+    mut combat: ResMut<CombatState>,
+    mut client: Query<&mut MessageSender<GameAction>, With<lightyear::prelude::client::Client>>,
     navs: Res<NavGrids>,
     mut path: ResMut<ClickPath>,
     mut commands: Commands,
@@ -100,6 +105,17 @@ fn click_to_move(
     let Some(point) = cursor_ground_point(&window, camera, cam_transform) else { return };
     let Ok((me, zone)) = me.single() else { return };
     let Some(grid) = navs.get(*zone) else { return };
+
+    // Clicked a rival? Target it and start attacking; the chase happens in `buffer_input`.
+    let rival = mobs
+        .iter()
+        .filter(|(.., p, h)| h.current > 0 && p.0.distance(point) < 1.2)
+        .min_by(|a, b| a.2.0.distance(point).total_cmp(&b.2.0.distance(point)));
+    if let Some((entity, tag, ..)) = rival {
+        path.clear();
+        engage(&mut combat, &mut client, tag.id, entity);
+        return;
+    }
 
     // Clicked (near) an NPC? Walk up to them and start talking.
     let npc = npcs.iter().filter(|(_, p)| p.0.distance(point) < 1.5).min_by(|a, b| a.1.0.distance(point).total_cmp(&b.1.0.distance(point)));
@@ -166,9 +182,12 @@ fn buffer_input(
     chat: Res<ChatFocus>,
     rig: Res<CameraRig>,
     mut path: ResMut<ClickPath>,
-    mut query: Query<(&mut ActionState<MoveIntent>, &Position), With<InputMarker<MoveIntent>>>,
+    combat: Res<CombatState>,
+    targets: Query<&Position, (With<MobTag>, Without<InputMarker<MoveIntent>>)>,
+    navs: Res<NavGrids>,
+    mut query: Query<(&mut ActionState<MoveIntent>, &Position, &ZoneId), With<InputMarker<MoveIntent>>>,
 ) {
-    let Ok((mut action, pos)) = query.single_mut() else { return };
+    let Ok((mut action, pos, zone)) = query.single_mut() else { return };
     let mut axis = Vec2::ZERO;
     // While typing in the chat box, keys belong to the text field.
     if !chat.0 {
@@ -188,9 +207,23 @@ fn buffer_input(
     }
     let (forward, right) = rig.ground_basis();
     let mut world_dir = (forward * axis.y + right * axis.x).normalize_or_zero();
+    let chase = combat.attacking.then_some(combat.target).flatten().and_then(|(_, e)| targets.get(e).ok());
     if world_dir != Vec2::ZERO {
         // The keyboard always wins over a click-to-move path.
         path.clear();
+    } else if let Some(target) = chase {
+        // Attacking: walk into reach, around obstacles if needed.
+        if pos.0.distance(target.0) > MELEE_RANGE - 0.5 {
+            let grid = navs.get(*zone);
+            let next = if grid.is_none_or(|g| g.line_clear(pos.0, target.0)) {
+                Some(target.0)
+            } else {
+                grid.and_then(|g| g.find_path(pos.0, target.0)).and_then(|p| p.first().copied())
+            };
+            if let Some(next) = next {
+                world_dir = (next - pos.0).normalize_or_zero();
+            }
+        }
     } else {
         while let Some(&wp) = path.waypoints.front() {
             if pos.0.distance(wp) > 0.3 {

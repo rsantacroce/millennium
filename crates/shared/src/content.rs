@@ -15,8 +15,9 @@ pub type ItemId = String;
 pub type NpcId = String;
 pub type QuestId = String;
 pub type ShopId = String;
+pub type MobId = String;
 
-/// Era-appropriate skills. Only Electronics can be trained in Milestone 2.
+/// Era-appropriate skills. Electronics (repairs) and Fitness (fighting) can be trained so far.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Skill {
     Electronics,
@@ -87,6 +88,71 @@ pub struct ItemDef {
     /// Used up when used.
     #[serde(default)]
     pub consumable: bool,
+    /// Can be equipped as a weapon.
+    #[serde(default)]
+    pub weapon: Option<WeaponStats>,
+    /// Using it restores this much health (and uses it up).
+    #[serde(default)]
+    pub heal: Option<u32>,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WeaponStats {
+    pub min_damage: u32,
+    pub max_damage: u32,
+    /// Seconds between swings.
+    pub speed: f32,
+}
+
+/// A rival you can fight.
+#[derive(Deserialize, Clone, Debug)]
+pub struct MobDef {
+    pub id: MobId,
+    pub name: String,
+    pub level: u32,
+    pub max_hp: u32,
+    pub min_damage: u32,
+    pub max_damage: u32,
+    /// Seconds between attacks.
+    pub attack_speed: f32,
+    /// Attacks players who come this close. 0 = only fights back.
+    #[serde(default)]
+    pub aggro_radius: f32,
+    /// Gives up the chase this far from its spawn point.
+    pub leash: f32,
+    pub respawn_secs: f32,
+    /// Fitness XP for knocking one out.
+    pub xp: u64,
+    pub cash: (i64, i64),
+    /// (item, chance 0..1)
+    #[serde(default)]
+    pub loot: Vec<(ItemId, f32)>,
+    pub appearance: Appearance,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct MobSpawn {
+    pub mob: MobId,
+    pub zone: u16,
+    pub position: (f32, f32),
+    /// Wanders up to this far from its spawn point while idle.
+    #[serde(default)]
+    pub wander: f32,
+}
+
+impl MobSpawn {
+    pub fn pos(&self) -> Vec2 {
+        Vec2::new(self.position.0, self.position.1)
+    }
+    pub fn zone_id(&self) -> ZoneId {
+        ZoneId(self.zone)
+    }
+}
+
+#[derive(Deserialize)]
+struct MobFile {
+    mobs: Vec<MobDef>,
+    spawns: Vec<MobSpawn>,
 }
 
 fn one() -> u32 {
@@ -153,6 +219,8 @@ pub enum Condition {
     HasItem(ItemId, u32),
     Cash(i64),
     SkillLevel(Skill, u32),
+    /// Knocked out at least this many of a mob since the last `ResetKills` of it.
+    Kills(MobId, u32),
     Not(Box<Condition>),
 }
 
@@ -166,6 +234,8 @@ pub enum Effect {
     GiveCash(i64),
     TakeCash(i64),
     OpenShop(ShopId),
+    /// Starts counting kills of a mob from zero (for "knock out 5 ..." quests).
+    ResetKills(MobId),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -246,6 +316,8 @@ pub struct Content {
     pub quests: HashMap<QuestId, QuestDef>,
     pub shops: HashMap<ShopId, ShopDef>,
     pub recipes: Vec<RecipeDef>,
+    pub mobs: HashMap<MobId, MobDef>,
+    pub spawns: Vec<MobSpawn>,
     /// What new characters start with.
     pub starting_cash: i64,
 }
@@ -256,6 +328,7 @@ const DIALOGUES: &str = include_str!("../../../assets/data/dialogues.ron");
 const QUESTS: &str = include_str!("../../../assets/data/quests.ron");
 const SHOPS: &str = include_str!("../../../assets/data/shops.ron");
 const RECIPES: &str = include_str!("../../../assets/data/recipes.ron");
+const MOBS: &str = include_str!("../../../assets/data/mobs.ron");
 
 fn parse<T: for<'de> Deserialize<'de>>(name: &str, text: &str) -> Result<T, String> {
     ron::from_str(text).map_err(|e| format!("assets/data/{name}: {e}"))
@@ -274,6 +347,7 @@ impl Content {
         let quests: Vec<QuestDef> = parse("quests.ron", QUESTS)?;
         let shops: Vec<ShopDef> = parse("shops.ron", SHOPS)?;
         let recipes: Vec<RecipeDef> = parse("recipes.ron", RECIPES)?;
+        let mobs: MobFile = parse("mobs.ron", MOBS)?;
         Ok(Self {
             items: items.into_iter().map(|i| (i.id.clone(), i)).collect(),
             npcs,
@@ -281,6 +355,8 @@ impl Content {
             quests: quests.into_iter().map(|q| (q.id.clone(), q)).collect(),
             shops: shops.into_iter().map(|s| (s.id.clone(), s)).collect(),
             recipes,
+            mobs: mobs.mobs.into_iter().map(|m| (m.id.clone(), m)).collect(),
+            spawns: mobs.spawns,
             starting_cash: 25,
         })
     }
@@ -341,6 +417,7 @@ impl Content {
                         }
                     }
                     Condition::HasItem(i, _) => item(errors, ctx, i),
+                    Condition::Kills(m, _) if !self.mobs.contains_key(m) => errors.push(format!("{ctx}: unknown mob `{m}`")),
                     _ => {}
                 }
             }
@@ -388,6 +465,9 @@ impl Content {
                             Effect::OpenShop(s) if !self.shops.contains_key(s) => {
                                 errors.push(format!("{ctx}: unknown shop `{s}`"))
                             }
+                            Effect::ResetKills(m) if !self.mobs.contains_key(m) => {
+                                errors.push(format!("{ctx}: unknown mob `{m}`"))
+                            }
                             _ => {}
                         }
                     }
@@ -412,6 +492,27 @@ impl Content {
                 if *price == 0 {
                     errors.push(format!("shop `{}`: `{i}` is free", s.id));
                 }
+            }
+        }
+        for (id, m) in &self.mobs {
+            for (i, chance) in &m.loot {
+                item(&mut errors, &format!("mob `{id}`"), i);
+                if !(0.0..=1.0).contains(chance) {
+                    errors.push(format!("mob `{id}`: loot chance {chance} out of range"));
+                }
+            }
+            if m.min_damage > m.max_damage || m.cash.0 > m.cash.1 || m.max_hp == 0 {
+                errors.push(format!("mob `{id}`: bad stats"));
+            }
+        }
+        for s in &self.spawns {
+            if !self.mobs.contains_key(&s.mob) {
+                errors.push(format!("spawn: unknown mob `{}`", s.mob));
+            }
+        }
+        for (id, def) in &self.items {
+            if def.weapon.is_some_and(|w| w.min_damage > w.max_damage || w.speed <= 0.0) {
+                errors.push(format!("item `{id}`: bad weapon stats"));
             }
         }
         for r in &self.recipes {
@@ -447,6 +548,16 @@ mod tests {
             for o in &zone.obstacles {
                 assert!(!o.rect.contains(npc.pos()), "{} stands inside {}", npc.id, o.name);
             }
+        }
+    }
+
+    #[test]
+    fn mobs_spawn_somewhere_walkable() {
+        let content = Content::builtin();
+        let zones = crate::zone::ZoneRegistry::default();
+        for spawn in &content.spawns {
+            let zone = zones.get(spawn.zone_id()).expect("spawn zone exists");
+            assert!(crate::nav::NavGrid::build(zone).walkable(spawn.pos()), "{} spawns in a wall", spawn.mob);
         }
     }
 

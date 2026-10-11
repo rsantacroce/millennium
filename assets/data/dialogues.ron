@@ -112,4 +112,49 @@
             ),
         ],
     ),
+    (
+        id: "rizzo",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Watch your step, kid. The docks ain't Maple Street.",
+                options: [
+                    (text: "Anything I can help with?", when: [QuestNotStarted("rat_problem")], goto: Some("problem")),
+                    (text: "Still working on those Dock Rats.", when: [QuestAt("rat_problem", 0)], goto: Some("reminder")),
+                    (
+                        text: "The Dock Rats won't bother your containers anymore.",
+                        when: [QuestAt("rat_problem", 1)],
+                        effects: [CompleteQuest("rat_problem")],
+                        goto: Some("reward"),
+                    ),
+                    (text: "Who's the big guy by the cranes?", goto: Some("sully")),
+                    (text: "See you around.", goto: None),
+                ],
+            ),
+            (
+                id: "problem",
+                text: "The Dock Rats keep swiping stuff off my containers. Knock five of 'em down a peg and they'll get the message. You'll want something better than your fists. Sal sells bats.",
+                options: [
+                    (text: "Consider it done.", effects: [StartQuest("rat_problem"), ResetKills("dock_rat")], goto: None),
+                    (text: "Not my fight.", goto: None),
+                ],
+            ),
+            (
+                id: "reminder",
+                text: "They hang around the containers in the middle of the yard. Five of 'em.",
+                options: [(text: "On it.", goto: None)],
+            ),
+            (
+                id: "reward",
+                text: "Ha! Quietest it's been all week. Here, for your trouble. And take a couple of these, you look like you need 'em.",
+                options: [(text: "Thanks, Rizzo.", goto: None)],
+            ),
+            (
+                id: "sully",
+                text: "Big Sully. Runs the Wharf Hounds. Don't go near him unless you've got friends and a first aid kit.",
+                options: [(text: "Noted.", goto: Some("hello"))],
+            ),
+        ],
+    ),
 ]
