@@ -25,6 +25,7 @@ mod hud;
 mod input;
 mod login_ui;
 mod net;
+mod social_ui;
 mod theme;
 mod world;
 
@@ -138,6 +139,7 @@ fn main() {
             char_select::CharSelectPlugin,
             game_ui::GameUiPlugin,
             combat_ui::CombatUiPlugin,
+            social_ui::SocialUiPlugin,
             chat_ui::ChatUiPlugin,
             bubbles::BubblePlugin,
             hud::HudPlugin,

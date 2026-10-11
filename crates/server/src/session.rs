@@ -10,6 +10,7 @@
 use crate::auth::account_from_user_data;
 use crate::chat::ChatState;
 use crate::combat::Fighter;
+use crate::social::friends::{CrewMembership, Friends};
 use crate::config::ServerConfig;
 use crate::persistence::{Db, DbCommand, DbEvent, DbResult, NewCharacter, SavedPosition, MAX_CHARACTERS};
 use crate::zones::ZoneRooms;
@@ -83,6 +84,10 @@ pub struct OnlinePlayers {
 impl OnlinePlayers {
     pub fn by_name(&self, name: &str) -> Option<Entity> {
         self.by_name.get(&name.to_lowercase()).copied()
+    }
+
+    pub fn by_id(&self, id: u64) -> Option<Entity> {
+        self.by_id.get(&id).copied()
     }
 
     pub fn count(&self) -> usize {
@@ -279,6 +284,8 @@ fn handle_db_results(
                         Progress(c.state.clone()),
                         Health::full(shared::combat::max_hp(&c.state)),
                         Fighter::default(),
+                        Friends(data.friends.clone()),
+                        CrewMembership(data.crew),
                         ChatState::new(&config.chat, &c.account_name, c.muted_until_ms, &data.ignores, time.elapsed_secs_f64()),
                     ))
                     .id();

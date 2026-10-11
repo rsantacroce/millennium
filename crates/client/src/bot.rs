@@ -21,7 +21,7 @@ use lightyear::prelude::client::Client;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::*;
 use shared::chat::{parse_input, ChatAction, ChatInput, ChatTarget};
-use shared::protocol::{ChatNetChannel, ChatSend, GameAction, GameChannel, MoveIntent, Position};
+use shared::protocol::{ChatNetChannel, ChatSend, GameAction, GameChannel, MoveIntent, Position, SocialAction};
 use std::collections::VecDeque;
 
 enum To {
@@ -104,13 +104,14 @@ fn run_script(
     dialogue: Res<DialogueView>,
     mut panels: ResMut<Panels>,
     mut path: ResMut<ClickPath>,
+    mut social_window: ResMut<crate::social_ui::SocialWindow>,
     me: Query<(&Position, &shared::zone::ZoneId), With<LocalAvatar>>,
     npcs: Query<(&shared::protocol::NpcTag, &Position)>,
     mobs: Query<(Entity, &shared::protocol::MobTag, &Position)>,
     mut combat: ResMut<CombatState>,
     navs: Res<NavGrids>,
     mut game: Query<&mut MessageSender<GameAction>, With<Client>>,
-    mut chat: Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>), With<Client>>,
+    mut chat: Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>, &mut MessageSender<SocialAction>), With<Client>>,
 ) {
     // Wait while walking or fighting.
     if !path.waypoints.is_empty() || path.arrival.is_some() || combat.attacking {
@@ -170,22 +171,42 @@ fn run_script(
         ["!open", "inventory"] => panels.inventory = true,
         ["!open", "quests"] => panels.quests = true,
         ["!open", "skills"] => panels.skills = true,
+        ["!open", "social"] => social_window.open = true,
+        ["!open", "crew"] => {
+            social_window.open = true;
+            social_window.crew_tab = true;
+        }
+        ["!accept", what] => {
+            let action = match *what {
+                "trade" => SocialAction::TradeRespond { accept: true },
+                "party" => SocialAction::PartyRespond { accept: true },
+                _ => SocialAction::CrewRespond { accept: true },
+            };
+            if let Ok((.., mut tx)) = chat.single_mut() {
+                tx.send::<GameChannel>(action);
+            }
+        }
         ["!select", slot] => panels.selected = slot.parse().ok(),
         ["!wait", secs] => script.wait = secs.parse().ok().map(|s| Timer::from_seconds(s, TimerMode::Once)),
         _ => match parse_input(&step) {
             Ok(ChatInput::Send { target, text }) => {
-                if let Ok((mut tx, _)) = chat.single_mut() {
+                if let Ok((mut tx, ..)) = chat.single_mut() {
                     tx.send::<ChatNetChannel>(ChatSend { target, text });
                 }
             }
             Ok(ChatInput::Default(text)) => {
-                if let Ok((mut tx, _)) = chat.single_mut() {
+                if let Ok((mut tx, ..)) = chat.single_mut() {
                     tx.send::<ChatNetChannel>(ChatSend { target: ChatTarget::Say, text });
                 }
             }
             Ok(ChatInput::Action(action)) => {
-                if let Ok((_, mut tx)) = chat.single_mut() {
+                if let Ok((_, mut tx, _)) = chat.single_mut() {
                     tx.send::<ChatNetChannel>(action);
+                }
+            }
+            Ok(ChatInput::Social(action)) => {
+                if let Ok((.., mut tx)) = chat.single_mut() {
+                    tx.send::<GameChannel>(action);
                 }
             }
             other => warn!("script: can't run {step:?}: {other:?}"),

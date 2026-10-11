@@ -22,7 +22,7 @@ use shared::appearance::Appearance;
 use shared::chat::{ChatChannel, ChatLine};
 use shared::content::Skill;
 use shared::game::{ItemStack, PlayerState, QuestProgress};
-use shared::protocol::CharacterSummary;
+use shared::protocol::{CharacterSummary, CrewRank};
 use shared::zone::ZoneId;
 use std::sync::mpsc::Sender;
 
@@ -53,6 +53,19 @@ pub struct LoginData {
     /// (character id, name) pairs this character ignores.
     pub ignores: Vec<(u64, String)>,
     pub history: Vec<ChatLine>,
+    /// (character id, name) on this character's friends list.
+    pub friends: Vec<(u64, String)>,
+    /// The crew this character belongs to, if any.
+    pub crew: Option<i64>,
+}
+
+/// A crew and its members, as stored.
+#[derive(Debug, Clone)]
+pub struct CrewRoster {
+    pub name: String,
+    pub tag: String,
+    /// (character id, name, rank)
+    pub members: Vec<(i64, String, CrewRank)>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +127,14 @@ pub enum DbCommand {
     InsertChat(ChatRecord),
     SetIgnore { link: Entity, character_id: i64, target_name: String, ignore: bool },
     SetMute { link: Entity, target_name: String, until_ms: Option<i64> },
+    /// Several characters' states in ONE transaction (trades: both sides or neither).
+    SaveStates(Vec<(i64, PlayerState)>),
+    SetFriend { link: Entity, character_id: i64, target_name: String, add: bool },
+    CreateCrew { link: Entity, character_id: i64, name: String, tag: String },
+    JoinCrew { link: Entity, character_id: i64, crew_id: i64 },
+    LeaveCrew { link: Entity, character_id: i64, crew_id: i64 },
+    DisbandCrew { link: Entity, crew_id: i64 },
+    LoadCrew { crew_id: i64 },
     /// Replies once every earlier command has been processed (used at shutdown).
     Flush(Sender<()>),
 }
@@ -128,6 +149,16 @@ pub enum DbResult {
     /// `target` is `None` if no such character exists.
     IgnoreUpdated { link: Entity, target_name: String, target: Option<(u64, String)>, ignore: bool },
     MuteUpdated { link: Entity, target_name: String, found: bool, until_ms: Option<i64> },
+    /// `target` is `None` if no such character exists.
+    FriendUpdated { link: Entity, target_name: String, target: Option<(u64, String)>, add: bool },
+    /// A crew change finished: `Ok(crew id)` to reload, or a message for the player.
+    CrewChanged { link: Entity, result: Result<i64, String> },
+    /// `None` = the crew no longer exists.
+    CrewRoster { crew_id: i64, roster: Option<CrewRoster> },
+}
+
+fn crew_rank(rank: i64) -> CrewRank {
+    if rank >= 1 { CrewRank::Leader } else { CrewRank::Member }
 }
 
 /// Bevy-side handle to the database worker. Cloneable for the login service.

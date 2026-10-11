@@ -80,6 +80,49 @@ impl PgStore {
                 .set_mute(&target_name, until_ms)
                 .await
                 .map(|found| Some(DbResult::MuteUpdated { link, target_name, found, until_ms })),
+            DbCommand::SaveStates(states) => {
+                async {
+                    let mut tx = self.pool.begin().await?;
+                    for (id, state) in &states {
+                        write_state(&mut tx, *id, state).await?;
+                    }
+                    tx.commit().await
+                }
+                .await
+                .map(|_| None)
+            }
+            DbCommand::SetFriend { link, character_id, target_name, add } => self
+                .set_friend(character_id, &target_name, add)
+                .await
+                .map(|target| Some(DbResult::FriendUpdated { link, target_name, target, add })),
+            DbCommand::CreateCrew { link, character_id, name, tag } => {
+                self.create_crew(character_id, &name, &tag).await.map(|result| Some(DbResult::CrewChanged { link, result }))
+            }
+            DbCommand::JoinCrew { link, character_id, crew_id } => {
+                sqlx::query("INSERT INTO crew_members (character_id, crew_id, rank) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING")
+                    .bind(character_id)
+                    .bind(crew_id)
+                    .execute(&self.pool)
+                    .await
+                    .map(|r| {
+                        let result = if r.rows_affected() > 0 { Ok(crew_id) } else { Err("They're already in a crew.".to_string()) };
+                        Some(DbResult::CrewChanged { link, result })
+                    })
+            }
+            DbCommand::LeaveCrew { link, character_id, crew_id } => sqlx::query("DELETE FROM crew_members WHERE character_id = $1 AND crew_id = $2")
+                .bind(character_id)
+                .bind(crew_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| Some(DbResult::CrewChanged { link, result: Ok(crew_id) })),
+            DbCommand::DisbandCrew { link, crew_id } => sqlx::query("DELETE FROM crews WHERE id = $1")
+                .bind(crew_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| Some(DbResult::CrewChanged { link, result: Ok(crew_id) })),
+            DbCommand::LoadCrew { crew_id } => {
+                self.load_crew(crew_id).await.map(|roster| Some(DbResult::CrewRoster { crew_id, roster }))
+            }
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -222,6 +265,18 @@ impl PgStore {
         .await?;
         let ignores: Vec<(u64, String)> = ignores.into_iter().map(|(id, n)| (id as u64, n)).collect();
 
+        let friends: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT f.friend_id, c.name::text FROM friends f JOIN characters c ON c.id = f.friend_id
+             WHERE f.character_id = $1 ORDER BY c.name",
+        )
+        .bind(character_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let crew: Option<(i64,)> = sqlx::query_as("SELECT crew_id FROM crew_members WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
         let rows: Vec<HistoryRow> = sqlx::query_as(
             "(SELECT m.channel, s.name::text, m.sender_id, r.name::text, m.body,
                      (extract(epoch FROM m.sent_at) * 1000)::bigint
@@ -266,6 +321,8 @@ impl PgStore {
             },
             history: finish_history(history_lines(rows), &ignores),
             ignores,
+            friends: friends.into_iter().map(|(id, n)| (id as u64, n)).collect(),
+            crew: crew.map(|(c,)| c),
         }))
     }
 
@@ -325,6 +382,63 @@ impl PgStore {
         };
         sqlx::query(sql).bind(character_id).bind(target_id).execute(&self.pool).await?;
         Ok(Some((target_id as u64, name)))
+    }
+
+    async fn set_friend(&self, character_id: i64, target_name: &str, add: bool) -> Result<Option<(u64, String)>, sqlx::Error> {
+        let target: Option<(i64, String)> =
+            sqlx::query_as("SELECT id, name::text FROM characters WHERE name = $1::citext")
+                .bind(target_name)
+                .fetch_optional(&self.pool)
+                .await?;
+        let Some((target_id, name)) = target else { return Ok(None) };
+        let sql = if add {
+            "INSERT INTO friends (character_id, friend_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+        } else {
+            "DELETE FROM friends WHERE character_id = $1 AND friend_id = $2"
+        };
+        sqlx::query(sql).bind(character_id).bind(target_id).execute(&self.pool).await?;
+        Ok(Some((target_id as u64, name)))
+    }
+
+    async fn create_crew(&self, character_id: i64, name: &str, tag: &str) -> Result<Result<i64, String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let already: Option<(i64,)> = sqlx::query_as("SELECT crew_id FROM crew_members WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if already.is_some() {
+            return Ok(Err("Leave your current crew first.".into()));
+        }
+        let id: Option<(i64,)> =
+            sqlx::query_as("INSERT INTO crews (name, tag) VALUES ($1::citext, $2::citext) ON CONFLICT DO NOTHING RETURNING id")
+                .bind(name)
+                .bind(tag)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some((crew_id,)) = id else { return Ok(Err("That crew name or tag is taken.".into())) };
+        sqlx::query("INSERT INTO crew_members (character_id, crew_id, rank) VALUES ($1, $2, 1)")
+            .bind(character_id)
+            .bind(crew_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(Ok(crew_id))
+    }
+
+    async fn load_crew(&self, crew_id: i64) -> Result<Option<CrewRoster>, sqlx::Error> {
+        let crew: Option<(String, String)> = sqlx::query_as("SELECT name::text, tag::text FROM crews WHERE id = $1")
+            .bind(crew_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some((name, tag)) = crew else { return Ok(None) };
+        let members: Vec<(i64, String, i16)> = sqlx::query_as(
+            "SELECT m.character_id, c.name::text, m.rank FROM crew_members m JOIN characters c ON c.id = m.character_id
+             WHERE m.crew_id = $1 ORDER BY m.rank DESC, c.name",
+        )
+        .bind(crew_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(CrewRoster { name, tag, members: members.into_iter().map(|(id, n, r)| (id, n, crew_rank(r.into()))).collect() }))
     }
 
     async fn set_mute(&self, target_name: &str, until_ms: Option<i64>) -> Result<bool, sqlx::Error> {

@@ -14,6 +14,8 @@
 //! - `!talk NPC`, `!choose TEXT` (first option starting with TEXT), `!bye`
 //! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!equip ITEM`, `!closeshop`
 //! - `!fight MOB` (attack the nearest one, chase it, wait until it's down), `!power`
+//! - social: `/trade NAME`, `/invite NAME`, `/friend add NAME`, `/crew ...` (as in the game), plus
+//!   `!accept trade|party|crew`, `!decline ...`, `!offer ITEM QTY CASH` (`-` for no item), `!tradeaccept`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
@@ -202,6 +204,7 @@ fn receive(
             Option<&mut MessageReceiver<ChatLine>>,
             Option<&mut MessageReceiver<SystemNotice>>,
             Option<&mut MessageReceiver<ChatHistory>>,
+            Option<&mut MessageReceiver<SocialUpdate>>,
         ),
         With<Client>,
     >,
@@ -216,7 +219,16 @@ fn receive(
         exit.write(AppExit::from_code(3));
     }
     *was_connected |= is_connected;
-    let Ok((mut session_tx, session, game, lines, notices, history)) = client.single_mut() else { return };
+    let Ok((mut session_tx, session, game, lines, notices, history, social)) = client.single_mut() else { return };
+    for update in drain(social) {
+        match update {
+            SocialUpdate::TradeState { mine, theirs, i_accepted, they_accepted } => {
+                let show = |o: &shared::game::TradeOffer| format!("{:?} + ${}", o.items.iter().map(|s| format!("{} x{}", s.item, s.qty)).collect::<Vec<_>>(), o.cash);
+                println!("TRADE  mine {} ({i_accepted}) | theirs {} ({they_accepted})", show(&mine), show(&theirs));
+            }
+            other => println!("SOCIAL {other:?}"),
+        }
+    }
     for update in drain(session) {
         match update {
             SessionUpdate::CharacterList { account, characters, max } => {
@@ -306,7 +318,7 @@ fn run_script(
     time: Res<Time>,
     mut script: ResMut<Script>,
     mut client: Query<
-        (&mut MessageSender<GameAction>, &mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>),
+        (&mut MessageSender<GameAction>, &mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>, &mut MessageSender<SocialAction>),
         With<Client>,
     >,
     content: Res<Content>,
@@ -326,7 +338,7 @@ fn run_script(
     if !script.pause.tick(time.delta()).just_finished() {
         return;
     }
-    let Ok((mut game, mut chat, mut chat_action)) = client.single_mut() else { return };
+    let Ok((mut game, mut chat, mut chat_action, mut social)) = client.single_mut() else { return };
     let Some(step) = script.steps.pop_front() else {
         script.idle_after -= script.pause.duration().as_secs_f32();
         if script.idle_after <= 0.0 {
@@ -377,6 +389,20 @@ fn run_script(
             }
         }
         ["!power"] => send(GameAction::PowerSwing),
+        ["!accept", what] | ["!decline", what] => {
+            let accept = words[0] == "!accept";
+            let action = match *what {
+                "trade" => SocialAction::TradeRespond { accept },
+                "party" => SocialAction::PartyRespond { accept },
+                _ => SocialAction::CrewRespond { accept },
+            };
+            social.send::<GameChannel>(action);
+        }
+        ["!offer", item, qty, cash] => {
+            let items = if *item == "-" { vec![] } else { vec![shared::game::ItemStack { item: item.to_string(), qty: qty.parse().unwrap() }] };
+            social.send::<GameChannel>(SocialAction::TradeOffer(shared::game::TradeOffer { items, cash: cash.parse().unwrap() }));
+        }
+        ["!tradeaccept"] => social.send::<GameChannel>(SocialAction::TradeAccept),
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
         ["!state"] => print_state(&script.state, &content),
         ["!where"] => match me.single() {
@@ -387,6 +413,7 @@ fn run_script(
             Ok(ChatInput::Default(text)) => chat.send::<ChatNetChannel>(ChatSend { target: ChatTarget::Say, text }),
             Ok(ChatInput::Send { target, text }) => chat.send::<ChatNetChannel>(ChatSend { target, text }),
             Ok(ChatInput::Action(a)) => chat_action.send::<ChatNetChannel>(a),
+            Ok(ChatInput::Social(a)) => social.send::<GameChannel>(a),
             other => println!("       (not sent: {other:?})"),
         },
     }

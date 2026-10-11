@@ -8,6 +8,8 @@ mod rate_limit;
 use crate::config::{ChatConfig, ServerConfig};
 use crate::persistence::{now_ms, ChatRecord, Db, DbCommand, DbEvent, DbResult};
 use crate::session::{CharacterIds, OnlinePlayers, PlayerLink, Session};
+use crate::social::friends::{CrewMembership, Crews};
+use crate::social::party::Parties;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use rate_limit::RateLimiter;
@@ -91,6 +93,9 @@ fn handle_chat_send(
     mut line_tx: Query<&mut MessageSender<ChatLine>>,
     mut notice_tx: Query<&mut MessageSender<SystemNotice>>,
     online: Res<OnlinePlayers>,
+    parties: Res<Parties>,
+    crews: Res<Crews>,
+    memberships: Query<&CrewMembership>,
     filter: Res<ChatFilter>,
     config: Res<ServerConfig>,
     time: Res<Time<Real>>,
@@ -172,9 +177,20 @@ fn handle_chat_send(
                 .filter(|(_, _, _, z, _, _, s)| **z == sender_zone && !s.ignores(sender_id))
                 .map(|(.., l, _, _)| l.0)
                 .collect(),
-            ChatTarget::Party | ChatTarget::Crew => {
-                notify(&mut notice_tx, sender_link, SystemNotice::info("Not available yet."));
-                continue;
+            ChatTarget::Party => {
+                let members = parties.members_of(sender_entity);
+                if members.is_empty() {
+                    notify(&mut notice_tx, sender_link, SystemNotice::info("You're not in a party. /invite <name> to start one."));
+                    continue;
+                }
+                members.into_iter().filter_map(|e| players.get(e).ok().map(|p| p.4.0)).collect()
+            }
+            ChatTarget::Crew => {
+                let Some(crew) = memberships.get(sender_entity).ok().and_then(|m| m.0) else {
+                    notify(&mut notice_tx, sender_link, SystemNotice::info("You're not in a crew."));
+                    continue;
+                };
+                crews.online_members(crew, &online).into_iter().filter_map(|e| players.get(e).ok().map(|p| p.4.0)).collect()
             }
             ChatTarget::Whisper { to } => {
                 let target = online.by_name(to).and_then(|e| players.get(e).ok());

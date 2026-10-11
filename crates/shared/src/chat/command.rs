@@ -15,6 +15,7 @@
 //! ```
 
 use super::{ChatAction, ChatTarget};
+use crate::protocol::SocialAction;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatInput {
@@ -24,6 +25,8 @@ pub enum ChatInput {
     /// Reply to the last whisper sender (resolved on the client).
     Reply(String),
     Action(ChatAction),
+    /// Trading, party, friend and crew commands.
+    Social(SocialAction),
     Help,
     Clear,
 }
@@ -58,8 +61,40 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
         }
         "z" | "zone" => Ok(ChatInput::Send { target: ChatTarget::Zone, text: text("/z <message>")? }),
         "p" | "party" => Ok(ChatInput::Send { target: ChatTarget::Party, text: text("/p <message>")? }),
-        "c" | "crew" if !matches!(split_word(args).0, "create" | "invite" | "accept" | "leave" | "kick" | "disband" | "info") => {
+        "c" | "crew" if !matches!(split_word(args).0, "create" | "invite" | "leave" | "kick" | "disband") => {
             Ok(ChatInput::Send { target: ChatTarget::Crew, text: text("/c <message>")? })
+        }
+        "crew" | "c" => {
+            let (sub, rest) = split_word(args);
+            let social = match sub {
+                "create" => {
+                    const USAGE: &str = "/crew create <Name> <TAG>";
+                    // The tag is the last word, so names can have spaces ("Wharf Rats WRC").
+                    let (name, tag) = rest.trim().rsplit_once(' ').ok_or(ParseError::Usage(USAGE))?;
+                    let tag = non_empty(tag).ok_or(ParseError::Usage(USAGE))?;
+                    let name = non_empty(name).ok_or(ParseError::Usage(USAGE))?;
+                    SocialAction::CrewCreate { name, tag }
+                }
+                "invite" => SocialAction::CrewInvite { name: one_name(rest, "/crew invite <name>")? },
+                "kick" => SocialAction::CrewKick { name: one_name(rest, "/crew kick <name>")? },
+                "leave" => SocialAction::CrewLeave,
+                _ => SocialAction::CrewDisband,
+            };
+            Ok(ChatInput::Social(social))
+        }
+        "trade" => Ok(ChatInput::Social(SocialAction::TradeRequest { name: one_name(args, "/trade <name>")? })),
+        "invite" | "inv" => Ok(ChatInput::Social(SocialAction::PartyInvite { name: one_name(args, "/invite <name>")? })),
+        "leave" => Ok(ChatInput::Social(SocialAction::PartyLeave)),
+        "kick" => Ok(ChatInput::Social(SocialAction::PartyKick { name: one_name(args, "/kick <name>")? })),
+        "friend" | "f" => {
+            const USAGE: &str = "/friend add|remove <name>";
+            let (sub, rest) = split_word(args);
+            let name = one_name(rest, USAGE)?;
+            match sub {
+                "add" => Ok(ChatInput::Social(SocialAction::FriendAdd { name })),
+                "remove" | "rm" => Ok(ChatInput::Social(SocialAction::FriendRemove { name })),
+                _ => Err(ParseError::Usage(USAGE)),
+            }
         }
         "w" | "whisper" | "t" | "tell" => {
             const USAGE: &str = "/w <name> <message>";
@@ -94,6 +129,8 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
 pub const HELP_TEXT: &[&str] = &[
     "/s <msg> - say (nearby)   /z <msg> - zone   /g <msg> - global",
     "/p <msg> - party   /c <msg> - crew",
+    "/trade <name>   /invite <name>, /leave, /kick <name> (party)",
+    "/friend add|remove <name>   /crew create <Name> <TAG>, /crew invite|kick <name>, /crew leave|disband",
     "/w <name> <msg> - whisper   /r <msg> - reply",
     "/ignore <name>, /unignore <name>, /ignorelist",
     "/clear - clear this window   Tab - switch channel",
@@ -145,6 +182,24 @@ mod tests {
         assert_eq!(parse_input("/z anyone at the docks?"), send(ChatTarget::Zone, "anyone at the docks?"));
         assert_eq!(parse_input("/p pull the next one"), send(ChatTarget::Party, "pull the next one"));
         assert_eq!(parse_input("/c meeting at 9"), send(ChatTarget::Crew, "meeting at 9"));
+    }
+
+    #[test]
+    fn social_commands_parse() {
+        let social = |a| Ok(ChatInput::Social(a));
+        assert_eq!(parse_input("/trade Bob"), social(SocialAction::TradeRequest { name: "Bob".into() }));
+        assert_eq!(parse_input("/invite Bob"), social(SocialAction::PartyInvite { name: "Bob".into() }));
+        assert_eq!(parse_input("/leave"), social(SocialAction::PartyLeave));
+        assert_eq!(parse_input("/friend add Bob"), social(SocialAction::FriendAdd { name: "Bob".into() }));
+        assert!(matches!(parse_input("/friend hug Bob"), Err(ParseError::Usage(_))));
+        assert_eq!(
+            parse_input("/crew create Wharf Rats WRC"),
+            social(SocialAction::CrewCreate { name: "Wharf Rats".into(), tag: "WRC".into() })
+        );
+        assert_eq!(parse_input("/crew invite Bob"), social(SocialAction::CrewInvite { name: "Bob".into() }));
+        assert_eq!(parse_input("/crew leave"), social(SocialAction::CrewLeave));
+        // `/c` followed by anything else is crew chat.
+        assert_eq!(parse_input("/c who's online?"), send(ChatTarget::Crew, "who's online?"));
     }
 
     #[test]

@@ -9,6 +9,7 @@
 //! itself; it waits for the server's new `State`.
 
 use crate::avatars::{ScreenAnchor, LocalAvatar};
+use crate::social_ui::{offer_stack, SocialState};
 use crate::chat_ui::ChatFocus;
 use crate::theme::{self, button, window_frame};
 use crate::AppState;
@@ -17,7 +18,7 @@ use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
 use shared::content::{Content, Skill};
 use shared::game::{level_for_xp, xp_for_level, NpcMarker, PlayerState, QuestProgress, INVENTORY_SLOTS, MAX_LEVEL};
-use shared::protocol::{GameAction, GameChannel, GameUpdate, NpcTag, Position};
+use shared::protocol::{GameAction, GameChannel, GameUpdate, NpcTag, Position, SocialAction};
 
 /// Talk range on the client. The server allows a bit more, to absorb latency.
 const TALK_RANGE: f32 = 3.0;
@@ -78,6 +79,7 @@ enum Click {
     Use,
     Sell,
     Unequip,
+    Offer,
     Close(Window),
 }
 
@@ -249,6 +251,8 @@ fn clicks(
     state: Res<LocalState>,
     content: Res<Content>,
     mut panels: ResMut<Panels>,
+    mut social: ResMut<SocialState>,
+    mut social_client: Query<&mut MessageSender<SocialAction>, With<Client>>,
     mut client: Query<&mut MessageSender<GameAction>, With<Client>>,
 ) {
     for (interaction, click) in &pressed {
@@ -282,6 +286,11 @@ fn clicks(
                 }
             }
             Click::Unequip => act(&mut client, GameAction::Unequip),
+            Click::Offer => {
+                if let Some(stack) = panels.selected.and_then(|i| state.inventory.get(i).cloned().flatten()) {
+                    offer_stack(&mut social, &mut social_client, stack);
+                }
+            }
             Click::Sell => {
                 if let Some(slot) = panels.selected {
                     act(&mut client, GameAction::Sell { slot: slot as u8, qty: 1 });
@@ -401,10 +410,11 @@ fn render_inventory(
     panels: Res<Panels>,
     state: Res<LocalState>,
     shop: Res<ShopView>,
+    social: Res<SocialState>,
     content: Res<Content>,
     roots: Query<Entity, With<InventoryRoot>>,
 ) {
-    if !panels.is_changed() && !state.is_changed() && !shop.is_changed() {
+    if !panels.is_changed() && !state.is_changed() && !shop.is_changed() && !social.is_changed() {
         return;
     }
     clear(&mut commands, &roots);
@@ -455,6 +465,9 @@ fn render_inventory(
             commands.spawn((ChildOf(row), Click::Use, button("Use")));
             if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.buy_price(&def)) {
                 commands.spawn((ChildOf(row), Click::Sell, button(format!("Sell ${price}"))));
+            }
+            if social.trade.is_some() && !def.quest_item {
+                commands.spawn((ChildOf(row), Click::Offer, button("Offer")));
             }
         }
         None => {

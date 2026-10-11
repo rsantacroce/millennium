@@ -20,7 +20,7 @@ use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
 use shared::chat::command::HELP_TEXT;
 use shared::chat::{parse_input, ChatAction, ChatChannel, ChatInput, ChatLine, ChatTarget, MAX_CHAT_LEN};
-use shared::protocol::{ChatHistory, ChatNetChannel, ChatSend, NoticeLevel, SystemNotice};
+use shared::protocol::{ChatHistory, ChatNetChannel, ChatSend, GameChannel, NoticeLevel, SocialAction, SystemNotice};
 
 const MAX_LOG: usize = 300;
 
@@ -219,13 +219,15 @@ fn receive(
     }
 }
 
-fn send(
-    input: &str,
-    tab: Tab,
-    log: &mut ChatLog,
-    client: &mut Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>), With<Client>>,
-) {
-    let Ok((mut chat_tx, mut action_tx)) = client.single_mut() else { return };
+type ChatSenders<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut MessageSender<ChatSend>, &'static mut MessageSender<ChatAction>, &'static mut MessageSender<SocialAction>),
+    With<Client>,
+>;
+
+fn send(input: &str, tab: Tab, log: &mut ChatLog, client: &mut ChatSenders) {
+    let Ok((mut chat_tx, mut action_tx, mut social_tx)) = client.single_mut() else { return };
     let mut send_to = |target: ChatTarget, text: String| {
         chat_tx.send::<ChatNetChannel>(ChatSend { target, text });
     };
@@ -246,6 +248,7 @@ fn send(
             None => log.notice(NoticeLevel::Info, "Nobody has whispered you yet."),
         },
         Ok(ChatInput::Action(action)) => action_tx.send::<ChatNetChannel>(action),
+        Ok(ChatInput::Social(action)) => social_tx.send::<GameChannel>(action),
         Ok(ChatInput::Help) => {
             for line in HELP_TEXT {
                 log.notice(NoticeLevel::Info, *line);
@@ -270,7 +273,7 @@ fn keyboard(
     mut field: Single<(Entity, &mut EditableText), With<ChatInputField>>,
     mut tab: ResMut<ActiveTab>,
     mut log: ResMut<ChatLog>,
-    mut client: Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>), With<Client>>,
+    mut client: ChatSenders,
 ) {
     let (field_entity, ref mut text) = *field;
     let focused = focus.get() == Some(field_entity);
@@ -310,7 +313,7 @@ fn click_send(
     mut field: Single<&mut EditableText, With<ChatInputField>>,
     tab: Res<ActiveTab>,
     mut log: ResMut<ChatLog>,
-    mut client: Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>), With<Client>>,
+    mut client: ChatSenders,
 ) {
     if buttons.iter().any(|i| *i == Interaction::Pressed) {
         let typed = field.value().to_string();

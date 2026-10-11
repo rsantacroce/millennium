@@ -28,6 +28,29 @@ pub fn validate_name(name: &str) -> Result<(), NameError> {
     Ok(())
 }
 
+/// Crew names: 3-20 letters, digits, `_` or spaces, starting with a letter.
+pub fn validate_crew_name(name: &str) -> Result<(), &'static str> {
+    let len = name.chars().count();
+    if !(3..=20).contains(&len) {
+        return Err("crew names are 3-20 characters");
+    }
+    if !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return Err("crew names start with a letter");
+    }
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ' ') || name.contains("  ") {
+        return Err("crew names may use letters, digits, _ and single spaces");
+    }
+    Ok(())
+}
+
+/// Crew tags: 2-4 letters or digits, shown in capitals.
+pub fn validate_crew_tag(tag: &str) -> Result<(), &'static str> {
+    if !(2..=4).contains(&tag.len()) || !tag.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("crew tags are 2-4 letters or digits");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -36,6 +59,17 @@ mod tests {
     fn accepts_normal_names() {
         assert_eq!(validate_name("Neo"), Ok(()));
         assert_eq!(validate_name("dial_up_kid99"), Ok(()));
+    }
+
+    #[test]
+    fn crew_names_and_tags() {
+        assert!(validate_crew_name("Wharf Rats").is_ok());
+        assert!(validate_crew_name("WR").is_err());
+        assert!(validate_crew_name("9 Lives").is_err());
+        assert!(validate_crew_name("Bad  Spacing").is_err());
+        assert!(validate_crew_tag("WRC").is_ok());
+        assert!(validate_crew_tag("W").is_err());
+        assert!(validate_crew_tag("W-RC").is_err());
     }
 
     #[test]

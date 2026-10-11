@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use lightyear::prelude::input::native::InputMarker;
 use shared::appearance::Appearance;
 use shared::content::Content;
-use shared::protocol::{DisplayName, MobTag, MoveIntent, NpcTag, PlayerId, Position};
+use shared::protocol::{CrewTag, DisplayName, MobTag, MoveIntent, NpcTag, PlayerId, Position};
 
 /// Our own character.
 #[derive(Component)]
@@ -28,6 +28,12 @@ pub struct Avatar;
 /// The child entity holding the meshes, so the look can be rebuilt.
 #[derive(Component)]
 pub struct AvatarBody;
+
+/// A character's name tag (so the crew tag can be added later).
+#[derive(Component)]
+struct NameTag {
+    name: String,
+}
 
 /// A UI node that follows a world entity on screen (name tags, speech bubbles).
 #[derive(Component)]
@@ -55,6 +61,7 @@ impl Plugin for AvatarPlugin {
                 (
                     (spawn_player_visuals.run_if(resource_exists::<LocalPlayer>), spawn_npc_visuals, spawn_mob_visuals),
                     rebuild_changed_looks,
+                    show_crew_tags,
                     sync_transforms,
                 )
                     .chain()
@@ -118,6 +125,7 @@ fn minimap_dot(commands: &mut Commands, parent: Entity, color: Color, meshes: &m
 
 fn name_tag(commands: &mut Commands, target: Entity, name: &str, color: Color) {
     commands.spawn((
+        NameTag { name: name.to_string() },
         ScreenAnchor { target, height: 2.0, lift_px: 0.0 },
         Node { position_type: PositionType::Absolute, ..default() },
         Text::new(name),
@@ -188,6 +196,33 @@ fn spawn_mob_visuals(
         minimap_dot(&mut commands, entity, Color::srgb(0.9, 0.1, 0.1), &mut meshes, &mut materials);
         let level = content.mobs.get(&tag.kind).map_or(1, |d| d.level);
         name_tag(&mut commands, entity, &format!("{} ({level})", name.0), Color::srgb(1.0, 0.4, 0.35));
+    }
+}
+
+/// "Ann <CKS>": keeps name tags in sync with crew tags.
+fn show_crew_tags(
+    characters: Query<(Entity, Option<&CrewTag>), With<PlayerId>>,
+    changed: Query<(), Or<(Changed<CrewTag>, Added<Avatar>)>>,
+    mut removed: RemovedComponents<CrewTag>,
+    mut tags: Query<(&NameTag, &ScreenAnchor, &mut Text)>,
+) {
+    let mut dirty: Vec<Entity> = removed.read().collect();
+    dirty.extend(characters.iter().filter(|(e, _)| changed.contains(*e)).map(|(e, _)| e));
+    if dirty.is_empty() {
+        return;
+    }
+    for (tag, anchor, mut text) in &mut tags {
+        if !dirty.contains(&anchor.target) {
+            continue;
+        }
+        let crew = characters.get(anchor.target).ok().and_then(|(_, c)| c);
+        let wanted = match crew {
+            Some(c) => format!("{} <{}>", tag.name, c.0),
+            None => tag.name.clone(),
+        };
+        if text.0 != wanted {
+            text.0 = wanted;
+        }
     }
 }
 

@@ -18,6 +18,7 @@ mod movement;
 mod net;
 mod persistence;
 mod session;
+mod social;
 mod zones;
 
 use bevy::app::{ScheduleRunnerPlugin, TerminalCtrlCHandlerPlugin};
@@ -87,6 +88,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         chat::ChatPlugin,
         gameplay::GameplayPlugin,
         combat::CombatPlugin,
+        social::SocialPlugin,
     ));
     Ok(app)
 }

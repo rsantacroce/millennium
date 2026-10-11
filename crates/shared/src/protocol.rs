@@ -14,7 +14,7 @@
 
 use crate::appearance::Appearance;
 use crate::chat::{ChatAction, ChatLine, ChatTarget};
-use crate::game::PlayerState;
+use crate::game::{PlayerState, TradeOffer};
 use crate::zone::ZoneId;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
@@ -62,6 +62,86 @@ pub enum GameAction {
     StopAttack,
     /// A big hit on the current target, on a cooldown.
     PowerSwing,
+}
+
+/// Trading, parties, friends and crews.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum SocialAction {
+    TradeRequest { name: String },
+    TradeRespond { accept: bool },
+    /// Replaces your whole offer (and un-accepts both sides).
+    TradeOffer(TradeOffer),
+    TradeAccept,
+    TradeCancel,
+
+    PartyInvite { name: String },
+    PartyRespond { accept: bool },
+    PartyLeave,
+    PartyKick { name: String },
+
+    FriendAdd { name: String },
+    FriendRemove { name: String },
+
+    CrewCreate { name: String, tag: String },
+    CrewInvite { name: String },
+    CrewRespond { accept: bool },
+    CrewLeave,
+    CrewKick { name: String },
+    CrewDisband,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PartyMember {
+    pub id: u64,
+    pub name: String,
+    pub leader: bool,
+    pub zone: ZoneId,
+    pub health: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct FriendInfo {
+    pub name: String,
+    /// `None` = offline.
+    pub zone: Option<ZoneId>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CrewRank {
+    Member,
+    Leader,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CrewMember {
+    pub name: String,
+    pub rank: CrewRank,
+    pub online: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CrewInfo {
+    pub name: String,
+    pub tag: String,
+    pub members: Vec<CrewMember>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum SocialUpdate {
+    TradeInvite { from: String },
+    TradeOpened { with: String },
+    TradeState { mine: TradeOffer, theirs: TradeOffer, i_accepted: bool, they_accepted: bool },
+    TradeClosed { reason: String },
+
+    PartyInvite { from: String },
+    /// Empty = not in a party.
+    Party { members: Vec<PartyMember> },
+
+    Friends { friends: Vec<FriendInfo> },
+
+    CrewInvite { from: String, crew: String },
+    /// `None` = not in a crew.
+    Crew { info: Option<CrewInfo> },
 }
 
 /// Something that can be fought, by its stable id (entities differ between client and server).
@@ -196,6 +276,10 @@ pub struct MobTag {
     pub kind: String,
 }
 
+/// A crew tag shown next to a player's name, e.g. "WRC".
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CrewTag(pub String);
+
 /// Marks an NPC; the value is its content id (see `assets/data/npcs.ron`).
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NpcTag(pub String);
@@ -263,6 +347,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<GameAction>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<SocialAction>()
+            .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ChatSend>()
             .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ChatAction>()
@@ -271,6 +357,8 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<SessionUpdate>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<GameUpdate>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<SocialUpdate>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<ChatLine>()
             .add_direction(NetworkDirection::ServerToClient);
@@ -288,6 +376,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<NpcTag>().replicate();
         app.component::<MobTag>().replicate();
         app.component::<Health>().replicate();
+        app.component::<CrewTag>().replicate();
         // Position is predicted for the local player and interpolated for everyone else.
         app.component::<Position>()
             .replicate()

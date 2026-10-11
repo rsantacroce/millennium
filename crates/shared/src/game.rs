@@ -80,6 +80,19 @@ pub fn level_for_xp(xp: u64) -> u32 {
     (1..=MAX_LEVEL).rev().find(|&l| xp_for_level(l) <= xp).unwrap_or(1)
 }
 
+/// One side of a trade: items (by id and quantity) plus cash.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub struct TradeOffer {
+    pub items: Vec<ItemStack>,
+    pub cash: i64,
+}
+
+impl TradeOffer {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty() && self.cash == 0
+    }
+}
+
 /// What happens when an item is used.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UseOutcome {
@@ -483,6 +496,64 @@ impl PlayerState {
         events
     }
 
+    /// Checks that this player can actually give `offer` (owns it, nothing untradeable).
+    pub fn can_offer(&self, offer: &TradeOffer, content: &Content) -> Result<(), GameError> {
+        if offer.cash < 0 {
+            return err("Nice try.");
+        }
+        if offer.cash > self.cash {
+            return err("You don't have that much cash.");
+        }
+        let mut totals: BTreeMap<&str, u32> = BTreeMap::new();
+        for stack in &offer.items {
+            if stack.qty == 0 {
+                return err("Invalid quantity.");
+            }
+            let Some(def) = content.item(&stack.item) else { return err("Unknown item.") };
+            if def.quest_item {
+                return err(format!("You can't trade the {}.", def.name));
+            }
+            *totals.entry(&stack.item).or_insert(0) += stack.qty;
+        }
+        for (item, qty) in totals {
+            if self.count(item) < qty {
+                return err(format!("You don't have enough {}.", content.item_name(item)));
+            }
+        }
+        Ok(())
+    }
+
+    /// Swaps two offers between two players. All-or-nothing: if either side can't pay or has
+    /// no room, neither inventory changes.
+    pub fn trade(&mut self, other: &mut PlayerState, mine: &TradeOffer, theirs: &TradeOffer, content: &Content) -> Result<(), GameError> {
+        self.can_offer(mine, content)?;
+        other.can_offer(theirs, content).map_err(|_| GameError("The other player can't afford their side any more.".into()))?;
+        let (mut a, mut b) = (self.clone(), other.clone());
+        let mut events = Vec::new();
+        for stack in &mine.items {
+            a.take_item(&stack.item, stack.qty, content, &mut events)?;
+        }
+        for stack in &theirs.items {
+            b.take_item(&stack.item, stack.qty, content, &mut events)?;
+        }
+        a.change_cash(-mine.cash, &mut events)?;
+        b.change_cash(-theirs.cash, &mut events)?;
+        for stack in &theirs.items {
+            a.add_item(&stack.item, stack.qty, content, &mut events).map_err(|_| GameError("You don't have room for that.".into()))?;
+        }
+        for stack in &mine.items {
+            b.add_item(&stack.item, stack.qty, content, &mut events)
+                .map_err(|_| GameError("The other player doesn't have room for that.".into()))?;
+        }
+        a.change_cash(theirs.cash, &mut events)?;
+        b.change_cash(mine.cash, &mut events)?;
+        a.refresh_quests(content);
+        b.refresh_quests(content);
+        *self = a;
+        *other = b;
+        Ok(())
+    }
+
     pub fn can_craft(&self, recipe: &RecipeDef, content: &Content) -> Result<(), GameError> {
         if self.count(&recipe.input) == 0 {
             return err(format!("You need a {}.", content.item_name(&recipe.input)));
@@ -725,6 +796,56 @@ mod tests {
         s.apply(&turn_in.effects, &c).unwrap();
         assert_eq!(s.quest("rat_problem"), Some(QuestProgress::Done));
         assert_eq!(s.count("first_aid_kit"), 2);
+    }
+
+    fn stack(item: &str, qty: u32) -> ItemStack {
+        ItemStack { item: item.into(), qty }
+    }
+
+    #[test]
+    fn trading_swaps_items_and_cash() {
+        let c = content();
+        let mut alice = PlayerState::new(50);
+        let mut bob = PlayerState::new(10);
+        alice.buy(shop(&c, "corner_store"), "soda", 6, &c).unwrap();
+        bob.buy(shop(&c, "pawn_shop"), "broken_walkman", 1, &c).unwrap();
+        let mine = TradeOffer { items: vec![stack("soda", 4)], cash: 20 };
+        let theirs = TradeOffer { items: vec![stack("broken_walkman", 1)], cash: 0 };
+        alice.trade(&mut bob, &mine, &theirs, &c).unwrap();
+        assert_eq!((alice.count("soda"), alice.count("broken_walkman"), alice.cash), (2, 1, 24));
+        assert_eq!((bob.count("soda"), bob.count("broken_walkman"), bob.cash), (4, 0, 22));
+    }
+
+    #[test]
+    fn trades_are_all_or_nothing() {
+        let c = content();
+        let mut alice = PlayerState::new(5);
+        let mut bob = PlayerState::new(200);
+        // Bob's inventory is full of screwdriver sets: no room for Alice's soda.
+        for _ in 0..INVENTORY_SLOTS {
+            bob.buy(shop(&c, "corner_store"), "screwdriver_set", 1, &c).unwrap();
+        }
+        alice.buy(shop(&c, "corner_store"), "soda", 1, &c).unwrap();
+        let (a0, b0) = (alice.clone(), bob.clone());
+        let err = alice
+            .trade(&mut bob, &TradeOffer { items: vec![stack("soda", 1)], cash: 0 }, &TradeOffer { items: vec![], cash: 10 }, &c)
+            .unwrap_err();
+        assert!(err.0.contains("room"), "{err}");
+        assert_eq!((alice, bob), (a0, b0));
+    }
+
+    #[test]
+    fn offers_are_validated() {
+        let c = content();
+        let mut s = PlayerState::new(10);
+        s.buy(shop(&c, "corner_store"), "soda", 2, &c).unwrap();
+        assert!(s.can_offer(&TradeOffer { items: vec![stack("soda", 2)], cash: 5 }, &c).is_ok());
+        // Listing the same item twice can't double-spend it.
+        assert!(s.can_offer(&TradeOffer { items: vec![stack("soda", 2), stack("soda", 1)], cash: 0 }, &c).is_err());
+        assert!(s.can_offer(&TradeOffer { items: vec![], cash: 50 }, &c).is_err());
+        assert!(s.can_offer(&TradeOffer { items: vec![], cash: -5 }, &c).is_err());
+        s.apply(&[Effect::GiveItem("broken_modem".into(), 1)], &c).unwrap();
+        assert!(s.can_offer(&TradeOffer { items: vec![stack("broken_modem", 1)], cash: 0 }, &c).is_err());
     }
 
     #[test]

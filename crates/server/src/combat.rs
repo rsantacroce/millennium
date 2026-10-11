@@ -10,6 +10,7 @@
 //!   quest kill counters and saving happen the same way as everything else.
 
 use crate::session::{PlayerLink, Progress};
+use crate::social::party::Parties;
 use crate::zones::ZoneRooms;
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -24,6 +25,8 @@ use shared::protocol::{
 use shared::zone::{ZoneId, ZoneRegistry};
 use std::collections::{HashMap, VecDeque};
 
+/// Party members within this distance of a kill share its XP.
+const PARTY_SHARE_RANGE: f32 = 30.0;
 /// Server slack on melee range, to absorb latency.
 const RANGE_SLACK: f32 = 0.6;
 /// Mobs stop this close to their target.
@@ -235,13 +238,27 @@ fn player_attacks(
 fn apply_kills(
     mut kills: MessageReader<MobKnockedOut>,
     content: Res<Content>,
-    mut players: Query<(&PlayerLink, &mut Progress)>,
+    parties: Res<Parties>,
+    mut players: Query<(&PlayerLink, &mut Progress, &Position, &ZoneId), Without<MobBrain>>,
     mut updates: Query<&mut MessageSender<GameUpdate>>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
 ) {
     for kill in kills.read() {
         let Some(def) = content.mobs.get(&kill.mob) else { continue };
-        let Ok((link, mut progress)) = players.get_mut(kill.killer) else { continue };
+        // Party members close by share the XP and the quest kill credit (loot stays with the killer).
+        let killer_spot = players.get(kill.killer).ok().map(|(_, _, p, z)| (p.0, *z));
+        for member in parties.members_of(kill.killer).into_iter().filter(|m| *m != kill.killer) {
+            let Ok((link, mut progress, pos, zone)) = players.get_mut(member) else { continue };
+            if killer_spot.is_some_and(|(kp, kz)| kz == *zone && kp.distance(pos.0) <= PARTY_SHARE_RANGE) {
+                let events = progress.reward_kill(&def.id, def.xp, 0, &[], &content);
+                for e in &events {
+                    if let GameEvent::Xp(skill, xp) = e {
+                        float(&mut updates, link.0, kill.at, format!("+{xp} {} XP", skill.name()), FloatKind::Gain);
+                    }
+                }
+            }
+        }
+        let Ok((link, mut progress, _, _)) = players.get_mut(kill.killer) else { continue };
         let (cash, loot) = roll_loot(def);
         let events = progress.reward_kill(&def.id, def.xp, cash, &loot, &content);
         for e in &events {

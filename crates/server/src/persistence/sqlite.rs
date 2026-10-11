@@ -99,6 +99,50 @@ impl SqliteStore {
                 .set_mute(&target_name, until_ms)
                 .await
                 .map(|found| Some(DbResult::MuteUpdated { link, target_name, found, until_ms })),
+            DbCommand::SaveStates(states) => {
+                async {
+                    let mut tx = self.pool.begin().await?;
+                    for (id, state) in &states {
+                        write_state(&mut tx, *id, state).await?;
+                    }
+                    tx.commit().await
+                }
+                .await
+                .map(|_| None)
+            }
+            DbCommand::SetFriend { link, character_id, target_name, add } => self
+                .set_friend(character_id, &target_name, add)
+                .await
+                .map(|target| Some(DbResult::FriendUpdated { link, target_name, target, add })),
+            DbCommand::CreateCrew { link, character_id, name, tag } => {
+                self.create_crew(character_id, &name, &tag).await.map(|result| Some(DbResult::CrewChanged { link, result }))
+            }
+            DbCommand::JoinCrew { link, character_id, crew_id } => sqlx::query(
+                "INSERT INTO crew_members (character_id, crew_id, rank, joined_at_ms) VALUES (?, ?, 0, ?) ON CONFLICT DO NOTHING",
+            )
+            .bind(character_id)
+            .bind(crew_id)
+            .bind(now_ms())
+            .execute(&self.pool)
+            .await
+            .map(|r| {
+                let result = if r.rows_affected() > 0 { Ok(crew_id) } else { Err("They're already in a crew.".to_string()) };
+                Some(DbResult::CrewChanged { link, result })
+            }),
+            DbCommand::LeaveCrew { link, character_id, crew_id } => sqlx::query("DELETE FROM crew_members WHERE character_id = ? AND crew_id = ?")
+                .bind(character_id)
+                .bind(crew_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| Some(DbResult::CrewChanged { link, result: Ok(crew_id) })),
+            DbCommand::DisbandCrew { link, crew_id } => sqlx::query("DELETE FROM crews WHERE id = ?")
+                .bind(crew_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| Some(DbResult::CrewChanged { link, result: Ok(crew_id) })),
+            DbCommand::LoadCrew { crew_id } => {
+                self.load_crew(crew_id).await.map(|roster| Some(DbResult::CrewRoster { crew_id, roster }))
+            }
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -244,6 +288,17 @@ impl SqliteStore {
         .await?;
         let ignores: Vec<(u64, String)> = ignores.into_iter().map(|(id, n)| (id as u64, n)).collect();
 
+        let friends: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT f.friend_id, c.name FROM friends f JOIN characters c ON c.id = f.friend_id WHERE f.character_id = ? ORDER BY c.name",
+        )
+        .bind(character_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let crew: Option<(i64,)> = sqlx::query_as("SELECT crew_id FROM crew_members WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
         // SQLite doesn't allow ORDER BY/LIMIT directly on UNION members, hence the sub-selects.
         let rows: Vec<HistoryRow> = sqlx::query_as(
             "SELECT * FROM (
@@ -282,6 +337,8 @@ impl SqliteStore {
             },
             history: finish_history(history_lines(rows), &ignores),
             ignores,
+            friends: friends.into_iter().map(|(id, n)| (id as u64, n)).collect(),
+            crew: crew.map(|(c,)| c),
         }))
     }
 
@@ -340,6 +397,73 @@ impl SqliteStore {
                 .await?;
         }
         Ok(Some((target_id as u64, name)))
+    }
+
+    async fn set_friend(&self, character_id: i64, target_name: &str, add: bool) -> Result<Option<(u64, String)>, sqlx::Error> {
+        let target: Option<(i64, String)> = sqlx::query_as("SELECT id, name FROM characters WHERE name = ?")
+            .bind(target_name)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some((target_id, name)) = target else { return Ok(None) };
+        if add {
+            sqlx::query("INSERT INTO friends (character_id, friend_id, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING")
+                .bind(character_id)
+                .bind(target_id)
+                .bind(now_ms())
+                .execute(&self.pool)
+                .await?;
+        } else {
+            sqlx::query("DELETE FROM friends WHERE character_id = ? AND friend_id = ?")
+                .bind(character_id)
+                .bind(target_id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(Some((target_id as u64, name)))
+    }
+
+    async fn create_crew(&self, character_id: i64, name: &str, tag: &str) -> Result<Result<i64, String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let already: Option<(i64,)> = sqlx::query_as("SELECT crew_id FROM crew_members WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if already.is_some() {
+            return Ok(Err("Leave your current crew first.".into()));
+        }
+        let id: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO crews (name, tag, created_at_ms) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING id",
+        )
+        .bind(name)
+        .bind(tag)
+        .bind(now_ms())
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((crew_id,)) = id else { return Ok(Err("That crew name or tag is taken.".into())) };
+        sqlx::query("INSERT INTO crew_members (character_id, crew_id, rank, joined_at_ms) VALUES (?, ?, 1, ?)")
+            .bind(character_id)
+            .bind(crew_id)
+            .bind(now_ms())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(Ok(crew_id))
+    }
+
+    async fn load_crew(&self, crew_id: i64) -> Result<Option<CrewRoster>, sqlx::Error> {
+        let crew: Option<(String, String)> = sqlx::query_as("SELECT name, tag FROM crews WHERE id = ?")
+            .bind(crew_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some((name, tag)) = crew else { return Ok(None) };
+        let members: Vec<(i64, String, i64)> = sqlx::query_as(
+            "SELECT m.character_id, c.name, m.rank FROM crew_members m JOIN characters c ON c.id = m.character_id
+             WHERE m.crew_id = ? ORDER BY m.rank DESC, c.name",
+        )
+        .bind(crew_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(CrewRoster { name, tag, members: members.into_iter().map(|(id, n, r)| (id, n, crew_rank(r))).collect() }))
     }
 
     async fn set_mute(&self, target_name: &str, until_ms: Option<i64>) -> Result<bool, sqlx::Error> {
@@ -534,6 +658,33 @@ mod tests {
         let data = load(&mut s, a, alice).await;
         assert_eq!(data.ignores, vec![(carol as u64, "Carol".to_string())]);
         assert_eq!(texts(&data), ["msg1", "msg2"]);
+    }
+
+    #[tokio::test]
+    async fn friends_and_crews() {
+        let mut s = store().await;
+        let a = account(&mut s, "Alice").await;
+        let b = account(&mut s, "Bob").await;
+        let alice = character(&mut s, a, "Alice").await.unwrap();
+        let bob = character(&mut s, b, "Bob").await.unwrap();
+
+        assert_eq!(s.set_friend(alice, "bob", true).await.unwrap(), Some((bob as u64, "Bob".into())));
+        assert_eq!(s.set_friend(alice, "nobody", true).await.unwrap(), None);
+        assert_eq!(load(&mut s, a, alice).await.friends, vec![(bob as u64, "Bob".to_string())]);
+
+        let crew = s.create_crew(alice, "Wharf Rats", "WRC").await.unwrap().unwrap();
+        assert!(s.create_crew(bob, "wharf rats", "XYZ").await.unwrap().is_err(), "names are unique");
+        assert!(s.create_crew(alice, "Other", "OTH").await.unwrap().is_err(), "one crew at a time");
+        s.handle(DbCommand::JoinCrew { link: Entity::PLACEHOLDER, character_id: bob, crew_id: crew }, LIMITS).await;
+        let roster = s.load_crew(crew).await.unwrap().unwrap();
+        assert_eq!(roster.tag, "WRC");
+        assert_eq!(roster.members[0], (alice, "Alice".to_string(), CrewRank::Leader));
+        assert_eq!(roster.members[1], (bob, "Bob".to_string(), CrewRank::Member));
+        assert_eq!(load(&mut s, b, bob).await.crew, Some(crew));
+
+        s.handle(DbCommand::DisbandCrew { link: Entity::PLACEHOLDER, crew_id: crew }, LIMITS).await;
+        assert!(s.load_crew(crew).await.unwrap().is_none());
+        assert_eq!(load(&mut s, b, bob).await.crew, None);
     }
 
     #[tokio::test]
