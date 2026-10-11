@@ -4,16 +4,23 @@ An online RPG set around the year 2000: a persistent city of CRT monitors, pager
 cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 [lightyear](https://github.com/cBournhonesque/lightyear).
 
-**What's playable (Milestones 1 and 2):**
+**What's playable (Milestones 1–3):**
 
 - **Accounts:** passwords hashed with argon2id, sent through a TLS login service. Up to 3
   characters per account, created with a body type, skin tone and outfit (jacket, pants, cap).
-- **The world:** one zone, *Downtown – Maple & 5th*, a city block with placeholder buildings and
-  three NPCs. Players see each other move in real time.
+- **The world:** two zones linked by the subway: *Downtown – Maple & 5th* (shops, NPCs) and the
+  *Harbor Docks* (warehouses, containers, rival crews). Click to walk anywhere, or use WASD.
 - **NPCs and quests:** dialogue trees, a quest log, and a first quest, **56k Dreams**.
 - **Economy:** a 20-slot inventory, cash, and two shops (one buys your stuff back).
-- **Skills:** **Electronics** is trainable. Repair broken gadgets, then sell them back at a profit.
-- **Chat:** Say, Global and Whisper, in an instant-messenger-style window with speech bubbles.
+- **Skills:** **Electronics** (repair broken gadgets, sell them back at a profit) and **Fitness**
+  (fighting).
+- **Combat:** Dock Rats, Wharf Hounds and Big Sully at the docks. Tab or click to target,
+  auto-attack, power swing, weapons (baseball bat, tire iron), first aid kits, loot. Getting
+  knocked out just sends you back to the Metro. A second quest, **Rat Problem**.
+- **Social:** a player-to-player trade window, parties (shared kill XP and quest credit), a
+  friends list with online notices, and crews (guilds) with tags shown on name tags.
+- **Chat:** Say, Zone, Global, Whisper, Party and Crew, in an instant-messenger-style window
+  with speech bubbles.
   Moderation includes ignore lists, admin mutes, rate limiting and a word filter.
 - **Persistence:** everything is saved in PostgreSQL, or in a SQLite file.
 - **Host Game:** run a world on your own computer and let friends join, with no server to rent.
@@ -46,9 +53,13 @@ cargo run --release -p client -- --name Alice --password secret123
 With `--name` and `--password`, the client signs in straight away. It creates the account if it
 doesn't exist, and creates or picks a character with the same name.
 
-**Your first quest:** walk up to **Dot** outside the Byte Cafe (the one with the **!**) and press
-**E**. She'll point you to Sal at Pawn & Pager and Mr. Kim's Corner Store. Use the fried modem
+**Your first quest:** click **Dot** outside the Byte Cafe (the one with the **!**) to walk over and
+talk. She'll point you to Sal at Pawn & Pager and Mr. Kim's Corner Store. Use the fried modem
 from your inventory to repair it.
+
+**Then the docks:** the green glowing doorway of the Metro station (south-east corner) takes you to
+the Harbor Docks. Foreman Rizzo, by the Metro exit there, has trouble with the Dock Rats. Sal
+sells a baseball bat ($30), and Mr. Kim sells first aid kits.
 
 > **No Docker?** Use **Host Game** (below), or point the server at a SQLite file: set
 > `url = "sqlite://saves/server.db"` under `[database]` in `config/server.toml`. `url = ""`
@@ -108,15 +119,19 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
   sends back. Steps:
   - `!goto X Z`
   - `!talk NPC`, `!choose TEXT`
-  - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`
-  - `!wait SECS`, `!state`
-  - any chat input
+  - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!equip ITEM`
+  - `!fight MOB` (target the nearest one, chase it, wait until it's down), `!power`
+  - `!accept trade|party|crew`, `!offer ITEM QTY CASH`, `!tradeaccept`
+  - `!wait SECS`, `!state`, `!where`
+  - any chat input, including `/trade`, `/invite`, `/crew ...`
   
   The full quest as a script is in [Appendix: quest script](#appendix-quest-script).
-- **Scripted GUI client:** `--step` works in the real client too, so you can watch the windows:
+- **Scripted GUI client:** `--step` works in the real client too, so you can watch the windows.
+  `!goto` uses the real click-to-move pathfinding; there's also `!walkto NPC`, `!fight MOB`,
+  `!open inventory|quests|skills|social|crew` and `!accept ...`:
   ```sh
   cargo run -p client -- --name Trinity --password password123 \
-      --step "!goto -15 -5.2" --step "!talk dot" --step "!open inventory"
+      --step "!walkto dot" --step "!choose Why" --step "!open inventory"
   ```
 - **Wandering bot:** `cargo run -p client -- --name Bob --password password123 --bot` walks around
   and chats (Say, Global, and whispers to "Alice"). Run one, then join as Alice.
@@ -125,10 +140,13 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 
 | Key | Action |
 |---|---|
-| W A S D / arrows | Move (relative to the camera) |
+| Left-click | Walk there (around obstacles). On an NPC: walk up and talk. On a rival: attack |
+| W A S D / arrows | Move (relative to the camera); cancels click-to-move |
 | E | Talk to the nearest NPC (when "[E] Talk to ..." shows) |
-| 1–9, Esc | Choose a dialogue option / close the dialogue or shop |
-| I / L / K | Inventory / quest log / skills |
+| Tab | Target the nearest rival (again: next one) |
+| R / F | Attack the target (toggle) / power swing (8 s cooldown) |
+| 1–9, Esc | Choose a dialogue option / close the dialogue or shop / drop your target |
+| I / L / K / O | Inventory / quest log / skills / social (friends, crew) |
 | V, or F1 / F2 / F3 | Camera: isometric / third person / top-down |
 | Z / C | Rotate the camera 45° |
 | Right-drag | Orbit (and tilt, in third person) |
@@ -149,10 +167,17 @@ Electronics level). Moving cancels it.
 |---|---|
 | `hello` | Send on the current tab's channel (All/Say → Say, Global → Global, Whispers → last partner) |
 | `/s msg`, `/say` | Say: players within 20 m, same zone. Shows a speech bubble |
+| `/z msg`, `/zone` | Everyone in your zone |
+| `/p msg`, `/party` | Your party |
+| `/c msg`, `/crew` | Your crew |
 | `/g msg`, `/global` | Everyone online |
 | `/w name msg`, `/whisper`, `/t`, `/tell` | Private message (to a character name) |
 | `/r msg`, `/reply` | Reply to whoever last whispered you |
 | `/ignore name`, `/unignore name`, `/ignorelist` | Ignore list (saved in the database) |
+| `/trade name` | Ask someone nearby (8 m) to trade |
+| `/invite name`, `/leave`, `/kick name` | Parties (up to 5) |
+| `/friend add name`, `/friend remove name` | Friends list (saved) |
+| `/crew create Name TAG`, `/crew invite name`, `/crew kick name`, `/crew leave`, `/crew disband` | Crews (saved) |
 | `/mute name [minutes]`, `/unmute name` | Admins only (`chat.admins` in the server config: account names) |
 | `/help`, `/clear` | Local |
 
@@ -185,16 +210,18 @@ hosted saves) goes in `saves/`, which is git-ignored.
 ## Project layout
 
 ```
-assets/data/  game content in RON: items, npcs, dialogues, quests, shops, recipes
+assets/data/  game content in RON: items, npcs, dialogues, quests, shops, recipes, mobs (+ spawns)
 crates/
-  shared/   protocol, deterministic movement, zone data, chat rules, content definitions,
-            game rules (PlayerState: inventory/cash/quests/skills), login protocol + TLS client
-            (+ examples/smoke.rs)
+  shared/   protocol, deterministic movement, zones + portals, nav grid (A*), chat rules,
+            content definitions, game rules (PlayerState: inventory, cash, quests, skills, weapon,
+            trades), combat numbers, login protocol + TLS client (+ examples/smoke.rs)
   server/   headless Bevy app (library + binary): login service (TLS, argon2, tokens), session
-            (character select, saving), movement, zones (rooms), chat, gameplay (NPCs,
-            dialogue, shops, repairs), persistence (Postgres / SQLite); EmbeddedServer
-  client/   rendering, cameras, input + prediction, avatars, sign-on & character select,
-            messenger, game windows, speech bubbles, Host Game, scripted bot
+            (character select, saving), movement + portals, zones (rooms), chat, gameplay (NPCs,
+            dialogue, shops, repairs), combat (mobs, AI, loot), social (trade, party, friends,
+            crews), persistence (Postgres / SQLite); EmbeddedServer
+  client/   rendering, cameras, input (WASD, click-to-move, chase) + prediction, avatars,
+            sign-on & character select, messenger, game windows, combat UI, social UI, speech
+            bubbles, Host Game, scripted bot
 migrations/ postgres/ and sqlite/ schemas, applied automatically by the server (sqlx::migrate!)
 config/     server.toml, client.toml
 ```
@@ -254,6 +281,44 @@ The server is authoritative and talks to clients over lightyear (netcode.io on U
 - **Zones.** Every character and NPC has a `ZoneId`, and each zone is a lightyear *room*. A client
   only receives entities in its own zone. This is the seam for running each zone in its own server
   process later.
+
+### Zones and the subway
+
+Each zone is a layout (bounds, buildings, props, *portals*) plus a lightyear room. Walking into a
+portal makes the server change your `ZoneId`, `Position` and room in one step. Lightyear then
+stops replicating the old zone's entities to you and starts on the new zone's, and the client
+rebuilds the scenery for the zone you're in. That function (`movement::use_portals`) is the seam
+for running zones as separate server processes later: it would become a hand-off to another
+server.
+
+Click-to-move plans a path on a half-meter walkability grid (`shared::nav`, A* plus
+string-pulling), built from the same obstacles the movement code collides with. The path only
+steers the per-tick `MoveIntent`, so clicking gives no advantage over WASD. Mobs use the same
+grid to chase you around containers.
+
+### Combat
+
+The server runs everything:
+- **Swings:** auto-attacks on the weapon's swing timer, with damage rolled from the weapon plus a
+  Fitness bonus.
+- **Mob AI:** idle and wander; chase when attacked (or on sight, for aggressive mobs); leash home
+  and heal.
+- **Rewards:** knockouts give the killer Fitness XP, cash and loot through `PlayerState`.
+  Party members within 30 m get the XP and quest credit too.
+
+The client only sends `Attack`, `StopAttack` and `PowerSwing`, walks you into reach, and draws
+the `Float` numbers the server sends back. Health is a replicated component; mobs are
+interpolated like other players.
+
+### Trading and social
+
+- **Trades:** both players see both offers. Any change un-accepts *both* sides, so nobody can
+  swap an item out at the last second. When both accept, `PlayerState::trade` swaps everything
+  all-or-nothing (it checks ownership, quest items and inventory space on both sides), and both
+  characters are written in **one** database transaction.
+- **Parties** live in memory, as in most MMOs.
+- **Friends and crews** are stored. Crew rosters are cached and reloaded from the database after
+  every change, so the database stays the single source of truth.
 
 ### ECS and persistence
 
@@ -326,6 +391,7 @@ haven't been a reason to switch.
   `[host] port` (Host Game).
 - **`failed to start database ... is Postgres running?`**: run `docker compose up -d`, or use a
   SQLite URL (above).
+- **Stuck on a click-to-move path?** Press any movement key. WASD always wins.
 - **Reset all data**: `docker compose down -v` (dedicated server) or delete `saves/` (hosted games,
   certificates, known servers).
 

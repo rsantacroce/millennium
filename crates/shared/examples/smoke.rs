@@ -10,7 +10,7 @@
 //!
 //! Steps:
 //! - chat input, exactly as typed in the game (`hello`, `/w Bob hi`, `/ignore Bob`)
-//! - `!goto X Z`: walk there (waits until arrived)
+//! - `!goto X Z`: walk there around obstacles, like click-to-move (waits until arrived)
 //! - `!talk NPC`, `!choose TEXT` (first option starting with TEXT), `!bye`
 //! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!equip ITEM`, `!closeshop`
 //! - `!fight MOB` (attack the nearest one, chase it, wait until it's down), `!power`
@@ -20,6 +20,9 @@
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
 //! (pause between steps), `--known FILE` (pinned certificates).
+
+// Bevy queries routinely trip this lint.
+#![allow(clippy::type_complexity)]
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::log::LogPlugin;
@@ -51,6 +54,8 @@ struct Script {
     in_world: bool,
     character_requested: bool,
     goto: Option<Vec2>,
+    /// Waypoints to `goto` (from the shared nav grid, like click-to-move).
+    path: VecDeque<Vec2>,
     /// Mob we're fighting (chased until `CombatEnded`).
     fight: Option<u32>,
     options: Vec<String>,
@@ -114,6 +119,7 @@ fn main() {
         in_world: false,
         character_requested: false,
         goto: None,
+        path: VecDeque::new(),
         fight: None,
         options: Vec::new(),
         state: PlayerState::default(),
@@ -162,11 +168,17 @@ fn predict(
 
 /// Walks straight toward the `!goto` target, or keeps in reach of the mob we're fighting.
 fn walk(
+    navs: Res<shared::nav::NavGrids>,
     mut script: ResMut<Script>,
-    mut me: Query<(&Position, &mut ActionState<MoveIntent>), With<InputMarker<MoveIntent>>>,
+    mut me: Query<(&Position, &mut ActionState<MoveIntent>, Ref<shared::zone::ZoneId>), With<InputMarker<MoveIntent>>>,
     mobs: Query<(&MobTag, &Position), Without<InputMarker<MoveIntent>>>,
 ) {
-    let Ok((pos, mut action)) = me.single_mut() else { return };
+    let Ok((pos, mut action, zone)) = me.single_mut() else { return };
+    // Riding the subway ends the walk (the target was in the old zone's coordinates).
+    if zone.is_changed() && !zone.is_added() && script.goto.take().is_some() {
+        script.path.clear();
+        println!("MOVE   changed zone; stopping");
+    }
     if let Some(id) = script.fight {
         let target = mobs.iter().find(|(t, _)| t.id == id).map(|(_, p)| p.0);
         action.0 = match target {
@@ -179,13 +191,19 @@ fn walk(
         action.0 = MoveIntent::default();
         return;
     };
-    let delta = target - pos.0;
-    if delta.length() < 0.3 {
-        action.0 = MoveIntent::default();
-        println!("MOVE   arrived at ({:.1}, {:.1})", pos.x, pos.y);
-        script.goto = None;
-    } else {
-        action.0 = MoveIntent::from_direction(delta.normalize());
+    if script.path.is_empty() {
+        script.path = navs.get(*zone).and_then(|g| g.find_path(pos.0, target)).unwrap_or_else(|| vec![target]).into();
+    }
+    while script.path.front().is_some_and(|wp| wp.distance(pos.0) < 0.3) {
+        script.path.pop_front();
+    }
+    match script.path.front() {
+        None => {
+            action.0 = MoveIntent::default();
+            println!("MOVE   arrived at ({:.1}, {:.1})", pos.x, pos.y);
+            script.goto = None;
+        }
+        Some(wp) => action.0 = MoveIntent::from_direction((*wp - pos.0).normalize()),
     }
 }
 
@@ -193,7 +211,6 @@ fn drain<M: lightyear::prelude::Message>(r: Option<Mut<MessageReceiver<M>>>) -> 
     r.map(|mut r| r.receive().collect()).unwrap_or_default()
 }
 
-#[allow(clippy::type_complexity)]
 fn receive(
     mut script: ResMut<Script>,
     mut client: Query<
@@ -313,7 +330,6 @@ fn print_state(state: &PlayerState, content: &Content) {
     println!("STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?}", state.cash);
 }
 
-#[allow(clippy::type_complexity)]
 fn run_script(
     time: Res<Time>,
     mut script: ResMut<Script>,
@@ -353,7 +369,10 @@ fn run_script(
     let mut send = |a: GameAction| game.send::<GameChannel>(a);
     let words: Vec<&str> = step.split_whitespace().collect();
     match words.as_slice() {
-        ["!goto", x, z] => script.goto = Some(Vec2::new(x.parse().unwrap(), z.parse().unwrap())),
+        ["!goto", x, z] => {
+            script.path.clear();
+            script.goto = Some(Vec2::new(x.parse().unwrap(), z.parse().unwrap()));
+        }
         ["!talk", npc] => send(GameAction::Interact { npc: npc.to_string() }),
         ["!choose", ..] => {
             let prefix = step["!choose".len()..].trim();

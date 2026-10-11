@@ -68,8 +68,15 @@ impl Plugin for MovementInputPlugin {
                 buffer_input.in_set(InputSystems::WriteClientInputs).in_set(BufferInput),
             )
             .add_systems(FixedUpdate, predict_movement)
-            .add_systems(Update, (click_to_move, arrive, fade_markers).chain().run_if(in_state(AppState::InGame)))
+            .add_systems(Update, (cancel_on_zone_change, click_to_move, arrive, fade_markers).chain().run_if(in_state(AppState::InGame)))
             .add_systems(OnExit(AppState::InGame), |mut path: ResMut<ClickPath>| path.clear());
+    }
+}
+
+/// A path planned in one zone means nothing in another: stop walking after a subway ride.
+fn cancel_on_zone_change(me: Query<&ZoneId, (With<LocalAvatar>, Changed<ZoneId>)>, mut path: ResMut<ClickPath>) {
+    if me.single().is_ok() {
+        path.clear();
     }
 }
 
