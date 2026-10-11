@@ -13,12 +13,16 @@ pub use command::{parse_input, ChatInput, ParseError};
 pub use filter::WordFilter;
 pub use rules::{sanitize, RejectReason, MAX_CHAT_LEN, SAY_RANGE};
 
-/// Where a message is delivered. `Zone`, `Party` and `Crew` arrive in later milestones.
+/// Where a message is delivered.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChatChannel {
     Say,
     Global,
     Whisper,
+    /// Everyone in your zone.
+    Zone,
+    Party,
+    Crew,
 }
 
 impl ChatChannel {
@@ -27,6 +31,9 @@ impl ChatChannel {
             ChatChannel::Say => "Say",
             ChatChannel::Global => "Global",
             ChatChannel::Whisper => "Whisper",
+            ChatChannel::Zone => "Zone",
+            ChatChannel::Party => "Party",
+            ChatChannel::Crew => "Crew",
         }
     }
 
@@ -36,6 +43,9 @@ impl ChatChannel {
             ChatChannel::Say => 0,
             ChatChannel::Global => 1,
             ChatChannel::Whisper => 2,
+            ChatChannel::Zone => 3,
+            ChatChannel::Party => 4,
+            ChatChannel::Crew => 5,
         }
     }
 
@@ -44,6 +54,9 @@ impl ChatChannel {
             0 => Some(ChatChannel::Say),
             1 => Some(ChatChannel::Global),
             2 => Some(ChatChannel::Whisper),
+            3 => Some(ChatChannel::Zone),
+            4 => Some(ChatChannel::Party),
+            5 => Some(ChatChannel::Crew),
             _ => None,
         }
     }
@@ -55,6 +68,9 @@ pub enum ChatTarget {
     Say,
     Global,
     Whisper { to: String },
+    Zone,
+    Party,
+    Crew,
 }
 
 impl ChatTarget {
@@ -63,6 +79,9 @@ impl ChatTarget {
             ChatTarget::Say => ChatChannel::Say,
             ChatTarget::Global => ChatChannel::Global,
             ChatTarget::Whisper { .. } => ChatChannel::Whisper,
+            ChatTarget::Zone => ChatChannel::Zone,
+            ChatTarget::Party => ChatChannel::Party,
+            ChatTarget::Crew => ChatChannel::Crew,
         }
     }
 }

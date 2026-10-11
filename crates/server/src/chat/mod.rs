@@ -167,6 +167,15 @@ fn handle_chat_send(
                 .filter(|(.., s)| !s.ignores(sender_id))
                 .map(|(.., l, _, _)| l.0)
                 .collect(),
+            ChatTarget::Zone => players
+                .iter()
+                .filter(|(_, _, _, z, _, _, s)| **z == sender_zone && !s.ignores(sender_id))
+                .map(|(.., l, _, _)| l.0)
+                .collect(),
+            ChatTarget::Party | ChatTarget::Crew => {
+                notify(&mut notice_tx, sender_link, SystemNotice::info("Not available yet."));
+                continue;
+            }
             ChatTarget::Whisper { to } => {
                 let target = online.by_name(to).and_then(|e| players.get(e).ok());
                 let Some((target_id, target_name, _, _, target_link, target_ids, target_state)) = target else {
@@ -200,7 +209,7 @@ fn handle_chat_send(
             channel: line.channel,
             sender_id: sender_db_id,
             recipient_id: recipient_db_id,
-            zone: (line.channel == ChatChannel::Say).then_some(sender_zone),
+            zone: matches!(line.channel, ChatChannel::Say | ChatChannel::Zone).then_some(sender_zone),
             body: line.text,
             sent_at_ms: now,
         }));

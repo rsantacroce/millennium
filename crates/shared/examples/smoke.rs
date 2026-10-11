@@ -13,7 +13,7 @@
 //! - `!goto X Z`: walk there (waits until arrived)
 //! - `!talk NPC`, `!choose TEXT` (first option starting with TEXT), `!bye`
 //! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!closeshop`
-//! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills)
+//! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
 //! (pause between steps), `--known FILE` (pinned certificates).
@@ -285,6 +285,7 @@ fn run_script(
         With<Client>,
     >,
     content: Res<Content>,
+    me: Query<(&Position, &shared::zone::ZoneId), With<InputMarker<MoveIntent>>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if !script.in_world || script.goto.is_some() {
@@ -336,6 +337,10 @@ fn run_script(
         ["!closeshop"] => send(GameAction::CloseShop),
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
         ["!state"] => print_state(&script.state, &content),
+        ["!where"] => match me.single() {
+            Ok((pos, zone)) => println!("WHERE  {zone:?} at ({:.1}, {:.1})", pos.x, pos.y),
+            Err(_) => println!("WHERE  (no character)"),
+        },
         _ => match parse_input(&step) {
             Ok(ChatInput::Default(text)) => chat.send::<ChatNetChannel>(ChatSend { target: ChatTarget::Say, text }),
             Ok(ChatInput::Send { target, text }) => chat.send::<ChatNetChannel>(ChatSend { target, text }),

@@ -4,6 +4,9 @@
 //! hello              -> send on the currently selected channel
 //! /s hello           -> Say (/say)
 //! /g hello           -> Global (/global)
+//! /z hello           -> everyone in your zone (/zone)
+//! /p hello           -> your party (/party)
+//! /c hello           -> your crew (/crew)
 //! /w Bob hello       -> Whisper (/whisper, /t, /tell)
 //! /r thanks          -> reply to the last person who whispered you (/reply)
 //! /ignore Bob, /unignore Bob, /ignorelist
@@ -53,6 +56,11 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
         "g" | "global" => {
             Ok(ChatInput::Send { target: ChatTarget::Global, text: text("/g <message>")? })
         }
+        "z" | "zone" => Ok(ChatInput::Send { target: ChatTarget::Zone, text: text("/z <message>")? }),
+        "p" | "party" => Ok(ChatInput::Send { target: ChatTarget::Party, text: text("/p <message>")? }),
+        "c" | "crew" if !matches!(split_word(args).0, "create" | "invite" | "accept" | "leave" | "kick" | "disband" | "info") => {
+            Ok(ChatInput::Send { target: ChatTarget::Crew, text: text("/c <message>")? })
+        }
         "w" | "whisper" | "t" | "tell" => {
             const USAGE: &str = "/w <name> <message>";
             let (name, msg) = split_word(args);
@@ -84,7 +92,8 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
 }
 
 pub const HELP_TEXT: &[&str] = &[
-    "/s <msg> - say (nearby)   /g <msg> - global",
+    "/s <msg> - say (nearby)   /z <msg> - zone   /g <msg> - global",
+    "/p <msg> - party   /c <msg> - crew",
     "/w <name> <msg> - whisper   /r <msg> - reply",
     "/ignore <name>, /unignore <name>, /ignorelist",
     "/clear - clear this window   Tab - switch channel",
@@ -129,6 +138,13 @@ mod tests {
         assert_eq!(parse_input("/s hi there"), send(ChatTarget::Say, "hi there"));
         assert_eq!(parse_input("/SAY hi"), send(ChatTarget::Say, "hi"));
         assert_eq!(parse_input("/g lfg arcade"), send(ChatTarget::Global, "lfg arcade"));
+    }
+
+    #[test]
+    fn group_channels() {
+        assert_eq!(parse_input("/z anyone at the docks?"), send(ChatTarget::Zone, "anyone at the docks?"));
+        assert_eq!(parse_input("/p pull the next one"), send(ChatTarget::Party, "pull the next one"));
+        assert_eq!(parse_input("/c meeting at 9"), send(ChatTarget::Crew, "meeting at 9"));
     }
 
     #[test]

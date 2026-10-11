@@ -1,8 +1,9 @@
 //! Zones: self-contained areas of the world.
 //!
-//! Every player entity carries an `InZone` component. Chat range checks, replication rooms and
+//! Every character carries a `ZoneId` component. Chat range checks, replication rooms and
 //! collision all look up the zone first, so a zone can later be moved to its own server process
-//! without touching gameplay code. Milestone 1 ships a single zone: a downtown city block.
+//! without touching gameplay code. Zones are linked by [`Portal`]s (the subway): stepping into
+//! one makes the server move you to the other zone.
 //!
 //! Coordinates: the ground plane uses `Vec2(x, y)` mapped to world `(x, 0, y)` — i.e. `y` is the
 //! world Z axis. Units are meters.
@@ -19,6 +20,16 @@ pub struct ZoneId(pub u16);
 
 impl ZoneId {
     pub const DOWNTOWN: ZoneId = ZoneId(1);
+    pub const DOCKS: ZoneId = ZoneId(2);
+}
+
+/// Walking into `rect` takes you to `arrive` in zone `to`.
+#[derive(Clone, Debug)]
+pub struct Portal {
+    pub name: &'static str,
+    pub rect: Rect,
+    pub to: ZoneId,
+    pub arrive: Vec2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +61,16 @@ pub struct ZoneLayout {
     /// Asphalt strips (purely visual).
     pub streets: Vec<Rect>,
     pub obstacles: Vec<Obstacle>,
+    pub portals: Vec<Portal>,
+    /// sRGB colors: the walkable ground, and what's beyond the edge (grass, water...).
+    pub ground: [f32; 3],
+    pub outskirts: [f32; 3],
+}
+
+impl ZoneLayout {
+    pub fn portal_at(&self, pos: Vec2) -> Option<&Portal> {
+        self.portals.iter().find(|p| p.rect.contains(pos))
+    }
 }
 
 /// All zones known to this build, keyed by id.
@@ -60,8 +81,8 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let downtown = downtown_block();
-        Self { zones: HashMap::from([(downtown.id, downtown)]) }
+        let zones = [downtown_block(), harbor_docks()];
+        Self { zones: zones.into_iter().map(|z| (z.id, z)).collect() }
     }
 }
 
@@ -127,6 +148,54 @@ pub fn downtown_block() -> ZoneLayout {
             prop("Bench", rect(20.0, 6.4, 3.0, 0.8), 0.5, [0.45, 0.30, 0.20]),
             prop("Hoop", rect(28.0, 24.0, 0.6, 0.6), 3.0, [0.85, 0.45, 0.10]),
         ],
+        portals: vec![Portal {
+            name: "Metro to Harbor Docks",
+            // The doorway on the station's west side.
+            rect: Rect::new(29.0, 34.0, 31.0, 38.0),
+            to: ZoneId::DOCKS,
+            arrive: Vec2::new(-21.5, 30.0),
+        }],
+        ground: [0.68, 0.67, 0.64],
+        outskirts: [0.36, 0.50, 0.30],
+    }
+}
+
+/// "Harbor Docks": warehouses, shipping containers and cranes. Rough part of town.
+pub fn harbor_docks() -> ZoneLayout {
+    let container = |cx, cz, w, d, color| prop("Shipping Container", rect(cx, cz, w, d), 2.6, color);
+    ZoneLayout {
+        id: ZoneId::DOCKS,
+        name: "Harbor Docks",
+        bounds: Rect::new(-40.0, -40.0, 40.0, 40.0),
+        spawn: Vec2::new(-21.5, 30.0),
+        streets: vec![rect(0.0, 32.0, 80.0, 7.0), rect(14.0, 0.0, 7.0, 64.0)],
+        obstacles: vec![
+            building("Metro Station Exit", rect(-30.0, 30.0, 8.0, 6.0), 4.0, [0.30, 0.55, 0.30]),
+            building("Warehouse 7", rect(-8.0, -22.0, 30.0, 14.0), 10.0, [0.55, 0.22, 0.18]),
+            building("Old Cannery", rect(-27.0, 2.0, 12.0, 12.0), 8.0, [0.62, 0.58, 0.45]),
+            building("Cold Storage", rect(30.0, 6.0, 14.0, 20.0), 9.0, [0.70, 0.75, 0.78]),
+            building("Harbor Office", rect(30.0, -28.0, 10.0, 8.0), 6.0, [0.25, 0.35, 0.55]),
+            container(0.0, 8.0, 6.0, 2.4, [0.75, 0.30, 0.15]),
+            container(0.0, 11.0, 6.0, 2.4, [0.15, 0.40, 0.65]),
+            container(-6.0, 20.0, 2.4, 6.0, [0.30, 0.55, 0.25]),
+            container(4.0, 22.0, 6.0, 2.4, [0.80, 0.65, 0.15]),
+            container(24.0, 22.0, 6.0, 2.4, [0.55, 0.20, 0.45]),
+            container(-14.0, -4.0, 2.4, 6.0, [0.20, 0.50, 0.55]),
+            prop("Crane Leg", rect(-20.0, -36.0, 1.2, 1.2), 14.0, [0.90, 0.70, 0.10]),
+            prop("Crane Leg", rect(-12.0, -36.0, 1.2, 1.2), 14.0, [0.90, 0.70, 0.10]),
+            prop("Bollard", rect(4.0, -36.5, 0.6, 0.6), 0.8, [0.15, 0.15, 0.15]),
+            prop("Bollard", rect(20.0, -36.5, 0.6, 0.6), 0.8, [0.15, 0.15, 0.15]),
+            prop("Oil Drums", rect(-34.0, -10.0, 2.0, 2.0), 1.2, [0.25, 0.35, 0.60]),
+        ],
+        portals: vec![Portal {
+            name: "Metro to Downtown",
+            // The doorway on the exit kiosk's east side.
+            rect: Rect::new(-26.0, 28.5, -24.5, 31.5),
+            to: ZoneId::DOWNTOWN,
+            arrive: Vec2::new(27.0, 36.0),
+        }],
+        ground: [0.52, 0.52, 0.50],
+        outskirts: [0.12, 0.25, 0.38],
     }
 }
 
@@ -136,10 +205,29 @@ mod tests {
 
     #[test]
     fn spawn_point_is_walkable() {
-        let zone = downtown_block();
-        assert!(zone.bounds.contains(zone.spawn));
-        for o in &zone.obstacles {
-            assert!(!o.rect.inflate(1.0).contains(zone.spawn), "spawn blocked by {}", o.name);
+        for zone in ZoneRegistry::default().iter() {
+            assert!(zone.bounds.contains(zone.spawn));
+            for o in &zone.obstacles {
+                assert!(!o.rect.inflate(1.0).contains(zone.spawn), "{}: spawn blocked by {}", zone.name, o.name);
+            }
+        }
+    }
+
+    #[test]
+    fn portals_lead_somewhere_sensible() {
+        let zones = ZoneRegistry::default();
+        for zone in zones.iter() {
+            let grid = crate::nav::NavGrid::build(zone);
+            for portal in &zone.portals {
+                let to = zones.get(portal.to).expect("portal target zone exists");
+                // You must not arrive standing in a portal (you'd bounce straight back).
+                assert!(to.portal_at(portal.arrive).is_none(), "{} arrives inside a portal", portal.name);
+                assert!(crate::nav::NavGrid::build(to).walkable(portal.arrive), "{} arrives inside a wall", portal.name);
+                // The portal can be reached on foot from the zone's spawn.
+                let path = grid.find_path(zone.spawn, portal.rect.center()).expect("portal reachable");
+                let end = *path.last().unwrap();
+                assert!(portal.rect.inflate(0.6).contains(end), "{}: path ends at {end:?}", portal.name);
+            }
         }
     }
 
@@ -158,9 +246,10 @@ mod tests {
 
     #[test]
     fn obstacles_are_inside_bounds() {
-        let zone = downtown_block();
-        for o in &zone.obstacles {
-            assert_eq!(zone.bounds.union(o.rect), zone.bounds, "{} out of bounds", o.name);
+        for zone in ZoneRegistry::default().iter() {
+            for o in &zone.obstacles {
+                assert_eq!(zone.bounds.union(o.rect), zone.bounds, "{} out of bounds", o.name);
+            }
         }
     }
 }

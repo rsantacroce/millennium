@@ -1,6 +1,6 @@
 //! The chat window, styled like a 2000-era instant messenger.
 //!
-//! - Tabs (All / Say / Global / Whispers) filter the history *and* pick the default channel
+//! - Tabs (All / Say / Zone / Global / Group / Whispers) filter the history *and* pick the default channel
 //!   for plain text. `Tab` cycles them while typing.
 //! - Prefixes override the tab: `/s`, `/g`, `/w name`, `/r` — see `shared::chat::command`.
 //! - Enter opens the input, Enter sends (and closes it, so WASD works again), Esc cancels.
@@ -82,18 +82,23 @@ enum Tab {
     #[default]
     All,
     Say,
+    Zone,
     Global,
+    /// Party and crew.
+    Group,
     Whispers,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::All, Tab::Say, Tab::Global, Tab::Whispers];
+    const ALL: [Tab; 6] = [Tab::All, Tab::Say, Tab::Zone, Tab::Global, Tab::Group, Tab::Whispers];
 
     fn label(self) -> &'static str {
         match self {
             Tab::All => "All",
             Tab::Say => "Say",
+            Tab::Zone => "Zone",
             Tab::Global => "Global",
+            Tab::Group => "Group",
             Tab::Whispers => "Whispers",
         }
     }
@@ -102,7 +107,9 @@ impl Tab {
         match (self, entry.channel()) {
             (Tab::All, _) | (_, None) => true,
             (Tab::Say, Some(c)) => c == ChatChannel::Say,
+            (Tab::Zone, Some(c)) => c == ChatChannel::Zone,
             (Tab::Global, Some(c)) => c == ChatChannel::Global,
+            (Tab::Group, Some(c)) => matches!(c, ChatChannel::Party | ChatChannel::Crew),
             (Tab::Whispers, Some(c)) => c == ChatChannel::Whisper,
         }
     }
@@ -202,7 +209,7 @@ fn receive(
                 log.last_whisper_partner = Some(line.from.clone());
             }
             ChatChannel::Whisper => log.last_whisper_partner = line.to.clone(),
-            ChatChannel::Global => {}
+            ChatChannel::Global | ChatChannel::Zone | ChatChannel::Party | ChatChannel::Crew => {}
         }
         debug!("[{}] {}: {}", line.channel.label(), line.from, line.text);
         log.push(Entry::Line(line));
@@ -225,7 +232,9 @@ fn send(
     match parse_input(input) {
         Ok(ChatInput::Default(text)) => match tab {
             Tab::All | Tab::Say => send_to(ChatTarget::Say, text),
+            Tab::Zone => send_to(ChatTarget::Zone, text),
             Tab::Global => send_to(ChatTarget::Global, text),
+            Tab::Group => send_to(ChatTarget::Party, text),
             Tab::Whispers => match log.last_whisper_partner.clone() {
                 Some(to) => send_to(ChatTarget::Whisper { to }, text),
                 None => log.notice(NoticeLevel::Info, "Use /w <name> <message> to start a whisper."),
@@ -321,6 +330,9 @@ fn channel_color(channel: ChatChannel) -> Color {
         ChatChannel::Say => Color::srgb(0.10, 0.10, 0.10),
         ChatChannel::Global => Color::srgb(0.80, 0.40, 0.00),
         ChatChannel::Whisper => Color::srgb(0.65, 0.10, 0.70),
+        ChatChannel::Zone => Color::srgb(0.10, 0.45, 0.60),
+        ChatChannel::Party => Color::srgb(0.10, 0.45, 0.85),
+        ChatChannel::Crew => Color::srgb(0.15, 0.55, 0.15),
     }
 }
 
@@ -390,7 +402,9 @@ fn render_history(
         stick.0 = true;
         label.0 = match tab.0 {
             Tab::All | Tab::Say => "Say:".into(),
+            Tab::Zone => "Zone:".into(),
             Tab::Global => "Global:".into(),
+            Tab::Group => "Party:".into(),
             Tab::Whispers => "Whisper:".into(),
         };
     } else if log.unseen > 0 {
@@ -469,7 +483,7 @@ fn spawn_chat_window(mut commands: Commands, local: Res<LocalPlayer>, mut tab: R
                             TabButton(t),
                             Button,
                             Node {
-                                padding: UiRect::axes(Val::Px(10.0), Val::Px(2.0)),
+                                padding: UiRect::axes(Val::Px(7.0), Val::Px(2.0)),
                                 border: UiRect::all(Val::Px(2.0)),
                                 ..default()
                             },
