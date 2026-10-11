@@ -10,6 +10,7 @@
 
 use crate::avatars::{ScreenAnchor, LocalAvatar};
 use crate::social_ui::{offer_stack, SocialState};
+use crate::sound::{PlaySfx, Sfx};
 use crate::chat_ui::ChatFocus;
 use crate::theme::{self, button, window_frame};
 use crate::AppState;
@@ -145,12 +146,26 @@ fn receive(
     mut action: ResMut<ActionView>,
     mut panels: ResMut<Panels>,
     mut combat: ResMut<crate::combat_ui::CombatInbox>,
+    mut sfx: MessageWriter<PlaySfx>,
     time: Res<Time>,
 ) {
     let Ok(Some(mut receiver)) = client.single_mut() else { return };
     for update in receiver.receive() {
         match update {
             GameUpdate::State(s) => {
+                // Fanfares for progress (skipped for the very first state after login).
+                let first = state.0 == PlayerState::default();
+                let leveled = Skill::ALL.iter().any(|k| s.level(*k) > state.0.level(*k));
+                let finished = s.quests.iter().any(|(q, p)| *p == QuestProgress::Done && state.0.quest(q) != Some(QuestProgress::Done));
+                if !first {
+                    if finished {
+                        sfx.write(PlaySfx(Sfx::Quest));
+                    } else if leveled {
+                        sfx.write(PlaySfx(Sfx::LevelUp));
+                    } else if s.cash > state.0.cash {
+                        sfx.write(PlaySfx(Sfx::Coin));
+                    }
+                }
                 state.0 = s;
                 // The selected slot may have emptied.
                 if panels.selected.is_some_and(|i| state.0.inventory.get(i).is_none_or(|s| s.is_none())) {

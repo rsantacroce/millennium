@@ -9,6 +9,7 @@
 //! Keeping the log separate from the UI means switching tabs is just "rebuild from the log".
 
 use crate::net::LocalPlayer;
+use crate::sound::{PlaySfx, Sfx};
 use crate::theme::{self, title_bar, window_frame};
 use crate::AppState;
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
@@ -187,6 +188,7 @@ fn receive(
     local: Option<Res<LocalPlayer>>,
     mut log: ResMut<ChatLog>,
     mut speech: MessageWriter<SpeechEvent>,
+    mut sfx: MessageWriter<PlaySfx>,
 ) {
     let Ok((lines, history, notices)) = client.single_mut() else { return };
     for h in history.into_iter().flat_map(|mut r| r.receive().collect::<Vec<_>>()) {
@@ -210,6 +212,9 @@ fn receive(
             }
             ChatChannel::Whisper => log.last_whisper_partner = line.to.clone(),
             ChatChannel::Global | ChatChannel::Zone | ChatChannel::Party | ChatChannel::Crew => {}
+        }
+        if line.from != me {
+            sfx.write(PlaySfx(if line.channel == ChatChannel::Whisper { Sfx::Whisper } else { Sfx::Chat }));
         }
         debug!("[{}] {}: {}", line.channel.label(), line.from, line.text);
         log.push(Entry::Line(line));

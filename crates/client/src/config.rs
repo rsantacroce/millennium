@@ -11,6 +11,8 @@ pub struct ClientConfig {
     pub log_filter: String,
     /// Login-service certificates we've seen, pinned on first connect (like SSH known_hosts).
     pub known_servers_file: String,
+    /// Sound effects volume, 0 (off) to 1.
+    pub volume: f32,
     pub host: HostConfig,
 }
 
@@ -37,6 +39,7 @@ impl Default for ClientConfig {
             server_addr: SocketAddr::from(([127, 0, 0, 1], shared::DEFAULT_SERVER_PORT)),
             log_filter: "info,wgpu=error,naga=warn,lightyear=warn".into(),
             known_servers_file: "saves/known_servers.txt".into(),
+            volume: 0.5,
             host: HostConfig::default(),
         }
     }

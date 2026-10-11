@@ -10,6 +10,7 @@
 use crate::avatars::{LocalAvatar, ScreenAnchor};
 use crate::chat_ui::ChatFocus;
 use crate::game_ui::DialogueView;
+use crate::sound::{PlaySfx, Sfx};
 use crate::theme::{self, window_frame};
 use crate::AppState;
 use bevy::prelude::*;
@@ -142,11 +143,24 @@ fn handle_updates(
     mobs: Query<(Entity, &MobTag)>,
     players: Query<(Entity, &PlayerId)>,
     me: Query<Entity, With<LocalAvatar>>,
+    mut sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
 ) {
     for update in inbox.0.drain(..) {
         match update {
             GameUpdate::Float { at, text, kind } => {
+                match kind {
+                    FloatKind::Hit => {
+                        sfx.write(PlaySfx(Sfx::Hit));
+                    }
+                    FloatKind::Hurt => {
+                        sfx.write(PlaySfx(Sfx::Hurt));
+                    }
+                    FloatKind::Gain if text.starts_with("+$") => {
+                        sfx.write(PlaySfx(Sfx::Coin));
+                    }
+                    _ => {}
+                }
                 let target = match at {
                     CombatTarget::Mob(id) => mobs.iter().find(|(_, t)| t.id == id).map(|(e, _)| e),
                     CombatTarget::Player(id) => players.iter().find(|(_, p)| p.0 == id).map(|(e, _)| e),
@@ -178,6 +192,7 @@ fn handle_updates(
             }
             GameUpdate::CombatEnded => state.attacking = false,
             GameUpdate::KnockedOut => {
+                sfx.write(PlaySfx(Sfx::KnockedOut));
                 state.attacking = false;
                 state.target = None;
                 commands.spawn((

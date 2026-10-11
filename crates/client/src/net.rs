@@ -87,7 +87,9 @@ impl Plugin for NetPlugin {
             .insert_resource(
                 InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()),
             )
-            .add_systems(OnEnter(AppState::Authenticating), start_auth)
+            .add_systems(OnEnter(AppState::Authenticating), (start_auth, |mut sfx: MessageWriter<crate::sound::PlaySfx>| {
+                sfx.write(crate::sound::PlaySfx(crate::sound::Sfx::DialUp));
+            }))
             .add_systems(Update, poll_auth.run_if(in_state(AppState::Authenticating)))
             .add_systems(OnEnter(AppState::Connecting), connect)
             .add_systems(Update, connect_timeout.run_if(in_state(AppState::Connecting)))

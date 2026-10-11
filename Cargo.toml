@@ -34,3 +34,5 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+# No debug info for dependencies: keeps target/ several times smaller (Bevy is huge).
+debug = false

@@ -15,7 +15,7 @@ host = ["dep:server"]
 [dependencies]
 shared.workspace = true
 server = { path = "../server", optional = true }
-bevy = { workspace = true, features = ["3d", "ui", "keyboard", "mouse"] }
+bevy = { workspace = true, features = ["3d", "ui", "keyboard", "mouse", "bevy_audio", "wav"] }
 lightyear.workspace = true
 serde.workspace = true
 toml.workspace = true
