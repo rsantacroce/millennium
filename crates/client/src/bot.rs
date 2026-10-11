@@ -2,13 +2,17 @@
 //!
 //! - `--bot`: wanders around the block and chats (to test with a second, human-driven client).
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
-//!   `!goto X Z`, `!talk NPC`, `!choose TEXT`, `!open inventory|quests|skills`, `!select SLOT`,
-//!   `!wait SECS`, or any chat input (`/g hello`).
+//!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
+//!   `!choose TEXT`, `!open inventory|quests|skills`, `!select SLOT`, `!wait SECS`, or any chat
+//!   input (`/g hello`).
 //!
 //! Both write into the same `ActionState`/messages the keyboard and mouse use, so the server
 //! treats the bot exactly like a player.
 
+use crate::avatars::LocalAvatar;
 use crate::game_ui::{DialogueView, Panels};
+use crate::input::{Arrival, ClickPath};
+use shared::nav::NavGrids;
 use crate::{AppState, Cli};
 use bevy::prelude::*;
 use lightyear::prelude::client::input::InputSystems;
@@ -46,7 +50,6 @@ struct Script {
     steps: VecDeque<String>,
     pause: Timer,
     wait: Option<Timer>,
-    goto: Option<Vec2>,
 }
 
 pub struct BotPlugin;
@@ -64,9 +67,7 @@ impl Plugin for BotPlugin {
                 steps: cli.steps.into(),
                 pause: Timer::from_seconds(1.0, TimerMode::Repeating),
                 wait: None,
-                goto: None,
             })
-            .add_systems(FixedPreUpdate, walk_to.in_set(InputSystems::WriteClientInputs).after(crate::input::BufferInput))
             .add_systems(Update, run_script.run_if(in_state(AppState::InGame)));
         }
     }
@@ -95,31 +96,21 @@ fn chat(time: Res<Time>, mut bot: ResMut<Bot>, mut sender: Query<&mut MessageSen
     sender.send::<ChatNetChannel>(ChatSend { target, text: text.to_string() });
 }
 
-fn walk_to(
-    mut script: ResMut<Script>,
-    mut me: Query<(&Position, &mut ActionState<MoveIntent>), With<InputMarker<MoveIntent>>>,
-) {
-    let Ok((pos, mut action)) = me.single_mut() else { return };
-    let Some(target) = script.goto else { return };
-    let delta = target - pos.0;
-    if delta.length() < 0.3 {
-        action.0 = MoveIntent::default();
-        script.goto = None;
-    } else {
-        action.0 = MoveIntent::from_direction(delta.normalize());
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn run_script(
     time: Res<Time>,
     mut script: ResMut<Script>,
     dialogue: Res<DialogueView>,
     mut panels: ResMut<Panels>,
+    mut path: ResMut<ClickPath>,
+    me: Query<(&Position, &shared::zone::ZoneId), With<LocalAvatar>>,
+    npcs: Query<(&shared::protocol::NpcTag, &Position)>,
+    navs: Res<NavGrids>,
     mut game: Query<&mut MessageSender<GameAction>, With<Client>>,
     mut chat: Query<(&mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>), With<Client>>,
 ) {
-    if script.goto.is_some() {
+    // Wait while walking.
+    if !path.waypoints.is_empty() || path.arrival.is_some() {
         return;
     }
     if let Some(wait) = script.wait.as_mut() {
@@ -141,8 +132,19 @@ fn run_script(
     let words: Vec<&str> = step.split_whitespace().collect();
     match words.as_slice() {
         ["!goto", x, z] => {
-            if let (Ok(x), Ok(z)) = (x.parse(), z.parse()) {
-                script.goto = Some(Vec2::new(x, z));
+            if let (Ok(x), Ok(z), Ok((pos, zone))) = (x.parse(), z.parse(), me.single())
+                && let Some(route) = navs.get(*zone).and_then(|g| g.find_path(pos.0, Vec2::new(x, z)))
+            {
+                path.waypoints = route.into();
+            }
+        }
+        ["!walkto", npc] => {
+            if let (Some((_, target)), Ok((pos, zone))) = (npcs.iter().find(|(t, _)| t.0 == *npc), me.single()) {
+                let goal = target.0 + (pos.0 - target.0).normalize_or_zero() * 2.0;
+                if let Some(route) = navs.get(*zone).and_then(|g| g.find_path(pos.0, goal)) {
+                    path.waypoints = route.into();
+                    path.arrival = Some(Arrival::Talk(npc.to_string()));
+                }
             }
         }
         ["!talk", npc] => act(GameAction::Interact { npc: npc.to_string() }),

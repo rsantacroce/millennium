@@ -46,7 +46,14 @@ pub fn window_frame(node: Node) -> impl Bundle {
         Node { border: UiRect::all(Val::Px(2.0)), flex_direction: FlexDirection::Column, ..node },
         BackgroundColor(FACE),
         raised(),
+        // Lets click-to-move tell that the mouse is over a window (see `pointer_over_ui`).
+        Interaction::default(),
     )
+}
+
+/// True when the mouse is over a window or button, so world clicks should be ignored.
+pub fn pointer_over_ui(interactions: &Query<&Interaction>) -> bool {
+    interactions.iter().any(|i| *i != Interaction::None)
 }
 
 pub fn title_bar(title: impl Into<String>) -> impl Bundle {

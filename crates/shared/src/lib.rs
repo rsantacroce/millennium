@@ -19,6 +19,7 @@ pub mod content;
 pub mod game;
 pub mod movement;
 pub mod names;
+pub mod nav;
 pub mod protocol;
 pub mod zone;
 
@@ -45,8 +46,10 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        let zones = zone::ZoneRegistry::default();
         app.add_plugins(protocol::ProtocolPlugin)
-            .insert_resource(zone::ZoneRegistry::default())
+            .insert_resource(nav::NavGrids::build(&zones))
+            .insert_resource(zones)
             .insert_resource(content::Content::builtin());
     }
 }
