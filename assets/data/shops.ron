@@ -13,4 +13,23 @@
         // Pays half of an item's value.
         buy_rate: 0.5,
     ),
+    (
+        id: "gadget_shack",
+        name: "Gadget Shack",
+        sells: [("brick_phone", 65), ("broken_camcorder", 18), ("screwdriver_set", 7)],
+        // Pays better than the pawn shop.
+        buy_rate: 0.6,
+    ),
+    (
+        id: "pixel_palace",
+        name: "Pixel Palace",
+        sells: [("game_cartridge", 15), ("pocketplay", 85)],
+        buy_rate: 0.0,
+    ),
+    (
+        id: "earl_salvage",
+        name: "Earl's Salvage",
+        sells: [("wrench", 12), ("first_aid_kit", 6)],
+        buy_rate: 0.6,
+    ),
 ]

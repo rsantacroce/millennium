@@ -143,10 +143,20 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
     for p in &zone.portals {
         let s = p.rect.size();
         let c = p.rect.center();
-        spawn(
+        let pad = spawn(
             commands,
             (Mesh3d(meshes.add(Plane3d::default().mesh().size(s.x, s.y))), MeshMaterial3d(portal.clone()), Transform::from_xyz(c.x, 0.03, c.y)),
         );
+        // "Metro: Harbor Docks" over each doorway.
+        commands.spawn((
+            ShopSign,
+            ScreenAnchor { target: pad, height: 2.6, lift_px: 0.0 },
+            Node { position_type: PositionType::Absolute, padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)), ..default() },
+            BackgroundColor(Color::srgba(0.0, 0.25, 0.1, 0.8)),
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            children![(Text::new(p.name), crate::theme::text_font(12.0), TextColor(Color::srgb(0.6, 1.0, 0.7)))],
+        ));
     }
 
     for obstacle in &zone.obstacles {

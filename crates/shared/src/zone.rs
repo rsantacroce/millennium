@@ -21,6 +21,8 @@ pub struct ZoneId(pub u16);
 impl ZoneId {
     pub const DOWNTOWN: ZoneId = ZoneId(1);
     pub const DOCKS: ZoneId = ZoneId(2);
+    pub const MALL: ZoneId = ZoneId(3);
+    pub const FACTORY: ZoneId = ZoneId(4);
 }
 
 /// Walking into `rect` takes you to `arrive` in zone `to`.
@@ -81,7 +83,7 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let zones = [downtown_block(), harbor_docks()];
+        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory()];
         Self { zones: zones.into_iter().map(|z| (z.id, z)).collect() }
     }
 }
@@ -148,15 +150,89 @@ pub fn downtown_block() -> ZoneLayout {
             prop("Bench", rect(20.0, 6.4, 3.0, 0.8), 0.5, [0.45, 0.30, 0.20]),
             prop("Hoop", rect(28.0, 24.0, 0.6, 0.6), 3.0, [0.85, 0.45, 0.10]),
         ],
-        portals: vec![Portal {
-            name: "Metro to Harbor Docks",
-            // The doorway on the station's west side.
-            rect: Rect::new(29.0, 34.0, 31.0, 38.0),
-            to: ZoneId::DOCKS,
-            arrive: Vec2::new(-21.5, 30.0),
-        }],
+        // The Metro station has a doorway per line.
+        portals: vec![
+            Portal { name: "Metro: Harbor Docks", rect: Rect::new(29.0, 34.0, 31.0, 38.0), to: ZoneId::DOCKS, arrive: Vec2::new(-21.5, 30.0) },
+            Portal { name: "Metro: Galleria Mall", rect: Rect::new(34.0, 41.0, 38.0, 43.0), to: ZoneId::MALL, arrive: Vec2::new(0.0, -24.0) },
+            Portal { name: "Metro: Abandoned Factory", rect: Rect::new(41.0, 34.0, 43.0, 38.0), to: ZoneId::FACTORY, arrive: Vec2::new(-31.5, 0.0) },
+        ],
         ground: [0.68, 0.67, 0.64],
         outskirts: [0.36, 0.50, 0.30],
+    }
+}
+
+/// "Galleria Mall": indoor storefronts around a fountain and a food court. No fighting here.
+pub fn galleria_mall() -> ZoneLayout {
+    let store = |name, cx, cz, w, d, color| building(name, rect(cx, cz, w, d), 7.0, color);
+    ZoneLayout {
+        id: ZoneId::MALL,
+        name: "Galleria Mall",
+        bounds: Rect::new(-36.0, -36.0, 36.0, 36.0),
+        spawn: Vec2::new(0.0, -24.0),
+        // The main concourse (shiny floor) is drawn as "streets".
+        streets: vec![rect(0.0, 0.0, 14.0, 66.0), rect(0.0, 0.0, 66.0, 14.0)],
+        obstacles: vec![
+            building("Mall Entrance (Metro)", rect(0.0, -31.0, 8.0, 5.0), 5.0, [0.30, 0.55, 0.30]),
+            store("Pixel Palace", -30.0, -15.0, 12.0, 12.0, [0.20, 0.25, 0.70]),
+            store("Tape Deck Records", -30.0, 15.0, 12.0, 12.0, [0.70, 0.30, 0.60]),
+            store("Gadget Shack", 30.0, -15.0, 12.0, 12.0, [0.85, 0.55, 0.15]),
+            building("Mall Cinema", rect(30.0, 15.0, 12.0, 16.0), 11.0, [0.25, 0.20, 0.30]),
+            store("Food Court", 0.0, 29.0, 26.0, 8.0, [0.85, 0.75, 0.55]),
+            prop("Fountain", rect(0.0, 0.0, 4.0, 4.0), 1.0, [0.55, 0.75, 0.85]),
+            prop("Planter", rect(-12.0, -12.0, 2.0, 2.0), 1.0, [0.25, 0.55, 0.25]),
+            prop("Planter", rect(12.0, -12.0, 2.0, 2.0), 1.0, [0.25, 0.55, 0.25]),
+            prop("Planter", rect(-12.0, 12.0, 2.0, 2.0), 1.0, [0.25, 0.55, 0.25]),
+            prop("Planter", rect(12.0, 12.0, 2.0, 2.0), 1.0, [0.25, 0.55, 0.25]),
+            prop("Food Court Table", rect(-6.0, 19.0, 2.0, 2.0), 0.8, [0.90, 0.90, 0.88]),
+            prop("Food Court Table", rect(6.0, 19.0, 2.0, 2.0), 0.8, [0.90, 0.90, 0.88]),
+            prop("Escalator", rect(-20.0, 0.0, 3.0, 8.0), 2.5, [0.60, 0.60, 0.62]),
+        ],
+        portals: vec![Portal {
+            name: "Metro: Downtown",
+            // The entrance's north doorway.
+            rect: Rect::new(-2.0, -28.5, 2.0, -27.0),
+            to: ZoneId::DOWNTOWN,
+            arrive: Vec2::new(36.0, 45.5),
+        }],
+        ground: [0.86, 0.84, 0.80],
+        outskirts: [0.30, 0.28, 0.32],
+    }
+}
+
+/// "Abandoned Factory": rusting halls, scrap heaps and old car hulks. Bring friends.
+pub fn abandoned_factory() -> ZoneLayout {
+    let heap = |cx, cz| prop("Scrap Heap", rect(cx, cz, 3.0, 3.0), 1.5, [0.45, 0.32, 0.22]);
+    let hulk = |cx, cz| prop("Rusted Car", rect(cx, cz, 4.2, 2.0), 1.4, [0.50, 0.30, 0.20]);
+    ZoneLayout {
+        id: ZoneId::FACTORY,
+        name: "Abandoned Factory",
+        bounds: Rect::new(-45.0, -45.0, 45.0, 45.0),
+        spawn: Vec2::new(-31.5, 0.0),
+        streets: vec![rect(-10.0, 0.0, 70.0, 8.0), rect(-2.0, 0.0, 8.0, 80.0)],
+        obstacles: vec![
+            building("Factory Gate (Metro)", rect(-38.0, 0.0, 6.0, 8.0), 4.0, [0.30, 0.55, 0.30]),
+            building("Main Hall", rect(18.0, -20.0, 36.0, 20.0), 14.0, [0.42, 0.36, 0.32]),
+            building("Parts Warehouse", rect(26.0, 25.0, 22.0, 16.0), 10.0, [0.38, 0.40, 0.42]),
+            building("Boiler House", rect(-20.0, 26.0, 14.0, 12.0), 10.0, [0.48, 0.25, 0.20]),
+            prop("Chimney", rect(-24.0, 22.0, 2.0, 2.0), 22.0, [0.35, 0.20, 0.18]),
+            heap(-14.0, -12.0),
+            heap(-22.0, -24.0),
+            heap(6.0, 12.0),
+            heap(12.0, 34.0),
+            hulk(-28.0, -34.0),
+            hulk(-8.0, 18.0),
+            hulk(36.0, 6.0),
+            prop("Oil Drums", rect(-32.0, 14.0, 2.0, 2.0), 1.2, [0.25, 0.35, 0.60]),
+        ],
+        portals: vec![Portal {
+            name: "Metro: Downtown",
+            // The gate's east doorway.
+            rect: Rect::new(-35.0, -2.0, -33.5, 2.0),
+            to: ZoneId::DOWNTOWN,
+            arrive: Vec2::new(45.5, 36.0),
+        }],
+        ground: [0.48, 0.46, 0.43],
+        outskirts: [0.36, 0.33, 0.28],
     }
 }
 

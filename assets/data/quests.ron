@@ -24,4 +24,22 @@
         ],
         rewards: (cash: 30, xp: [(Fitness, 120)], items: [("first_aid_kit", 2)]),
     ),
+    (
+        id: "mall_rats",
+        name: "Mall Rats",
+        stages: [
+            (log: "Joey at Pixel Palace (Galleria Mall) wants 3 Burned CDs for his mixtape.", advance_when: [HasItem("burned_cd", 3)]),
+            (log: "Bring the 3 Burned CDs to Joey at Pixel Palace."),
+        ],
+        rewards: (cash: 25, xp: [(Electronics, 80)], items: [("mixtape", 1)]),
+    ),
+    (
+        id: "scrap_run",
+        name: "Scrap Run",
+        stages: [
+            (log: "Old Earl at the Abandoned Factory gate needs 6 Scrap Metal. Scrappers and Copper Thieves carry it.", advance_when: [HasItem("scrap_metal", 6)]),
+            (log: "Bring the 6 Scrap Metal to Old Earl by the factory gate."),
+        ],
+        rewards: (cash: 40, xp: [(Mechanics, 150)], items: [("wrench", 1)]),
+    ),
 ]

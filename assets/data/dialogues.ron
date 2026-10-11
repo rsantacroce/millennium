@@ -157,4 +157,115 @@
             ),
         ],
     ),
+    (
+        id: "joey",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to Pixel Palace! New releases on the left, used carts on the right, no loitering on the demo kiosk.",
+                options: [
+                    (text: "Let me browse.", effects: [OpenShop("pixel_palace")], goto: None),
+                    (text: "You look busy.", when: [QuestNotStarted("mall_rats")], goto: Some("problem")),
+                    (text: "Still collecting CDs for you.", when: [QuestAt("mall_rats", 0)], goto: Some("reminder")),
+                    (
+                        text: "Here are three burned CDs.",
+                        when: [QuestAt("mall_rats", 1), HasItem("burned_cd", 3)],
+                        effects: [TakeItem("burned_cd", 3), CompleteQuest("mall_rats")],
+                        goto: Some("reward"),
+                    ),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "problem",
+                text: "I'm making the ultimate mall mixtape. I need source material: burned CDs, any kind. Bring me three? Mr. Kim downtown sells them, or the Dock Rats always seem to have some.",
+                options: [
+                    (text: "Three burned CDs, coming up.", effects: [StartQuest("mall_rats")], goto: None),
+                    (text: "Not really my thing.", goto: None),
+                ],
+            ),
+            (id: "reminder", text: "Three burned CDs. Any kind. Even the Celine Dion ones.", options: [(text: "On it.", goto: None)]),
+            (
+                id: "reward",
+                text: "Sweet! Here, the first copy is yours. Don't tape over it.",
+                options: [(text: "Thanks, Joey.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "wendy",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Gadget Shack, how can I help you? We pay better than the pawn shop for working gear. Don't tell Sal.",
+                options: [
+                    (text: "Show me what you've got.", effects: [OpenShop("gadget_shack")], goto: None),
+                    (text: "What sells best?", goto: Some("tips")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "tips",
+                text: "Camcorders. Everyone wants to be a director. We get busted ones in all the time. Fix one up and I'll pay you well for it, if you know what you're doing with a screwdriver.",
+                options: [(text: "Good to know.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "gary",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "No running, no skating, no fighting. This is a family mall.",
+                options: [
+                    (text: "What's at the factory?", goto: Some("factory")),
+                    (text: "Yes, officer.", goto: None),
+                ],
+            ),
+            (
+                id: "factory",
+                text: "The old Kessler plant? Scrappers stripping copper out of it. Old Earl still runs a salvage stall by the gate. Take the Metro east.",
+                options: [(text: "Thanks.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "earl",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Careful in there. Those Scrappers would strip the fillings out of your teeth.",
+                options: [
+                    (text: "Need a hand?", when: [QuestNotStarted("scrap_run")], goto: Some("problem")),
+                    (text: "Still gathering scrap.", when: [QuestAt("scrap_run", 0)], goto: Some("reminder")),
+                    (
+                        text: "Here's your scrap metal.",
+                        when: [QuestAt("scrap_run", 1), HasItem("scrap_metal", 6)],
+                        effects: [TakeItem("scrap_metal", 6), CompleteQuest("scrap_run")],
+                        goto: Some("reward"),
+                    ),
+                    (text: "Let's trade.", effects: [OpenShop("earl_salvage")], goto: None),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "problem",
+                text: "I'm rebuilding an old car, but I'm short on scrap metal. Six pieces should do. The Scrappers and Copper Thieves in there carry plenty.",
+                options: [
+                    (text: "I'll get you six.", effects: [StartQuest("scrap_run")], goto: None),
+                    (text: "Maybe later.", goto: None),
+                ],
+            ),
+            (id: "reminder", text: "Six pieces of scrap. The Scrappers hang around the heaps.", options: [(text: "Right.", goto: None)]),
+            (
+                id: "reward",
+                text: "That's the stuff. Take my spare wrench, and watch how I do this. You've got the hands for it.",
+                options: [(text: "Thanks, Earl.", goto: None)],
+            ),
+        ],
+    ),
 ]
