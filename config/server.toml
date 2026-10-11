@@ -1,0 +1,34 @@
+# Millennium server configuration. Every key is optional; defaults are shown.
+
+# Overrides the log level (also settable with RUST_LOG).
+# log_filter = "info,lightyear=warn,sqlx=warn"
+
+[network]
+bind = "0.0.0.0:5888"
+# 64 hex chars, must match config/client.toml. Empty = all-zero development key.
+private_key = ""
+max_clients = 64
+
+[database]
+# Matches docker-compose.yml. Other options:
+#   url = "sqlite://saves/server.db"   single-file save, no Docker needed
+#   url = ""                           in-memory store (nothing is saved)
+# The DATABASE_URL environment variable overrides this.
+url = "postgres://millennium:millennium@localhost:5433/millennium"
+max_connections = 5
+save_interval_secs = 10.0
+
+[chat]
+# Token bucket: bursts of up to `burst` messages, refilling `per_second`.
+burst = 5.0
+per_second = 1.0
+# This many rate-limit hits in a row trigger an automatic mute.
+strikes_before_mute = 5
+auto_mute_secs = 60
+# Chat history sent on login.
+history_global = 50
+history_whispers = 50
+# Whole-word, case-insensitive; simple leetspeak (d4rn) and stretched letters are caught too.
+blocked_words = ["darn", "heck", "frak"]
+# Accounts allowed to /mute and /unmute.
+admins = ["admin"]

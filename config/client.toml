@@ -1,0 +1,12 @@
+# Millennium client configuration. Every key is optional; defaults are shown.
+
+server_addr = "127.0.0.1:5888"
+# Must match the server's network.private_key. Empty = development key.
+private_key = ""
+log_filter = "info,wgpu=error,naga=warn,lightyear=warn"
+
+# "Host Game": run a world on this computer for friends to join.
+[host]
+port = 5888
+# SQLite save file for the hosted world.
+save_file = "saves/world.db"

@@ -1,0 +1,349 @@
+//! Server-side chat: validation, anti-spam, routing, moderation, persistence.
+//!
+//! Flow for every `ChatSend` from a client:
+//! mute check → rate limit → sanitize → word filter → pick recipients → deliver → persist.
+
+mod rate_limit;
+
+use crate::config::{ChatConfig, ServerConfig};
+use crate::persistence::{now_ms, ChatRecord, Db, DbCommand, DbEvent, DbResult};
+use crate::session::{CharacterIds, OnlinePlayers, PlayerLink, Session};
+use bevy::prelude::*;
+use lightyear::prelude::*;
+use rate_limit::RateLimiter;
+use shared::chat::{sanitize, ChatAction, ChatChannel, ChatLine, ChatTarget, WordFilter, SAY_RANGE};
+use shared::protocol::{ChatNetChannel, ChatSend, DisplayName, PlayerId, Position, SystemNotice};
+use shared::zone::ZoneId;
+use std::collections::HashMap;
+
+/// Per-player chat state (server only, lives on the player entity).
+#[derive(Component, Debug)]
+pub struct ChatState {
+    limiter: RateLimiter,
+    strikes: u32,
+    /// Wall-clock unix ms; persisted on the account.
+    muted_until_ms: Option<i64>,
+    /// Character id -> name.
+    ignores: HashMap<u64, String>,
+    is_admin: bool,
+}
+
+impl ChatState {
+    pub fn new(
+        config: &ChatConfig,
+        name: &str,
+        muted_until_ms: Option<i64>,
+        ignores: &[(u64, String)],
+        now_secs: f64,
+    ) -> Self {
+        Self {
+            limiter: RateLimiter::new(config.burst, config.per_second, now_secs),
+            strikes: 0,
+            muted_until_ms,
+            ignores: ignores.iter().cloned().collect(),
+            is_admin: config.is_admin(name),
+        }
+    }
+
+    pub fn ignores(&self, id: u64) -> bool {
+        self.ignores.contains_key(&id)
+    }
+
+    fn muted_for_ms(&self, now_ms: i64) -> Option<i64> {
+        self.muted_until_ms.map(|until| until - now_ms).filter(|left| *left > 0)
+    }
+}
+
+#[derive(Resource)]
+struct ChatFilter(WordFilter);
+
+/// Say chat reaches listeners in the same zone within [`SAY_RANGE`] meters.
+fn hears_say(speaker: (ZoneId, Vec2), listener: (ZoneId, Vec2)) -> bool {
+    speaker.0 == listener.0 && speaker.1.distance(listener.1) <= SAY_RANGE
+}
+
+pub struct ChatPlugin;
+
+impl Plugin for ChatPlugin {
+    fn build(&self, app: &mut App) {
+        let words = app.world().resource::<ServerConfig>().chat.blocked_words.clone();
+        app.insert_resource(ChatFilter(WordFilter::new(words)))
+            .add_systems(Update, (handle_chat_send, handle_chat_actions, handle_db_results));
+    }
+}
+
+type PlayerQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static PlayerId, &'static DisplayName, &'static Position, &'static ZoneId, &'static PlayerLink, &'static CharacterIds, &'static mut ChatState),
+>;
+
+fn notify(senders: &mut Query<&mut MessageSender<SystemNotice>>, link: Entity, notice: SystemNotice) {
+    if let Ok(mut s) = senders.get_mut(link) {
+        s.send::<ChatNetChannel>(notice);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_chat_send(
+    mut links: Query<(&Session, &mut MessageReceiver<ChatSend>)>,
+    mut players: PlayerQuery,
+    mut line_tx: Query<&mut MessageSender<ChatLine>>,
+    mut notice_tx: Query<&mut MessageSender<SystemNotice>>,
+    online: Res<OnlinePlayers>,
+    filter: Res<ChatFilter>,
+    config: Res<ServerConfig>,
+    time: Res<Time<Real>>,
+    db: Res<Db>,
+) {
+    let mut incoming = Vec::new();
+    for (session, mut receiver) in &mut links {
+        let messages = receiver.receive();
+        // Messages from links that haven't logged in are dropped.
+        if let Session::InGame { player } = session {
+            incoming.extend(messages.map(|m| (*player, m)));
+        }
+    }
+
+    let now = now_ms();
+    for (sender_entity, msg) in incoming {
+        let Ok((id, name, pos, zone, link, ids, mut state)) = players.get_mut(sender_entity) else {
+            continue;
+        };
+        let (sender_id, sender_name, sender_pos, sender_zone, sender_link, sender_db_id) =
+            (id.0, name.0.clone(), pos.0, *zone, link.0, ids.character_id);
+
+        // 1. Muted?
+        if let Some(left) = state.muted_for_ms(now) {
+            let minutes = (left as f64 / 60_000.0).ceil();
+            notify(&mut notice_tx, sender_link, SystemNotice::warn(format!("You are muted for {minutes} more minute(s).")));
+            continue;
+        }
+        // 2. Rate limit, with an automatic short mute for persistent spammers.
+        if !state.limiter.try_take(time.elapsed_secs_f64()) {
+            state.strikes += 1;
+            if state.strikes >= config.chat.strikes_before_mute {
+                state.strikes = 0;
+                state.muted_until_ms = Some(now + config.chat.auto_mute_secs as i64 * 1000);
+                warn!("auto-muting {sender_name} for spamming");
+                notify(&mut notice_tx, sender_link, SystemNotice::warn(format!(
+                    "You have been muted for {} seconds for spamming.", config.chat.auto_mute_secs
+                )));
+            } else {
+                notify(&mut notice_tx, sender_link, SystemNotice::warn("You are sending messages too fast."));
+            }
+            continue;
+        }
+        state.strikes = 0;
+        // 3. Validate + filter. Never trust the client to have done this.
+        let text = match sanitize(&msg.text) {
+            Ok(t) => filter.0.apply(&t),
+            Err(e) => {
+                notify(&mut notice_tx, sender_link, SystemNotice::warn(e.to_string()));
+                continue;
+            }
+        };
+
+        // 4. Recipients.
+        let mut line = ChatLine {
+            channel: msg.target.channel(),
+            from: sender_name.clone(),
+            from_id: sender_id,
+            to: None,
+            text,
+            sent_at_ms: now,
+        };
+        let mut recipient_db_id = None;
+        let recipients: Vec<Entity> = match &msg.target {
+            ChatTarget::Say => players
+                .iter()
+                .filter(|(_, _, p, z, _, _, s)| {
+                    hears_say((sender_zone, sender_pos), (**z, p.0)) && !s.ignores(sender_id)
+                })
+                .map(|(.., l, _, _)| l.0)
+                .collect(),
+            ChatTarget::Global => players
+                .iter()
+                .filter(|(.., s)| !s.ignores(sender_id))
+                .map(|(.., l, _, _)| l.0)
+                .collect(),
+            ChatTarget::Whisper { to } => {
+                let target = online.by_name(to).and_then(|e| players.get(e).ok());
+                let Some((target_id, target_name, _, _, target_link, target_ids, target_state)) = target else {
+                    notify(&mut notice_tx, sender_link, SystemNotice::info(format!("{to} is not online.")));
+                    continue;
+                };
+                if target_id.0 == sender_id {
+                    notify(&mut notice_tx, sender_link, SystemNotice::info("Talking to yourself again?"));
+                    continue;
+                }
+                if target_state.ignores(sender_id) {
+                    notify(&mut notice_tx, sender_link, SystemNotice::info(format!("{} is ignoring you.", target_name.0)));
+                    continue;
+                }
+                line.to = Some(target_name.0.clone());
+                recipient_db_id = Some(target_ids.character_id);
+                vec![target_link.0, sender_link]
+            }
+        };
+
+        // 5. Deliver.
+        for link in recipients {
+            if let Ok(mut tx) = line_tx.get_mut(link) {
+                tx.send::<ChatNetChannel>(line.clone());
+            }
+        }
+        debug!("[{}] {}: {}", line.channel.label(), line.from, line.text);
+
+        // 6. Persist (async, never blocks the tick).
+        db.send(DbCommand::InsertChat(ChatRecord {
+            channel: line.channel,
+            sender_id: sender_db_id,
+            recipient_id: recipient_db_id,
+            zone: (line.channel == ChatChannel::Say).then_some(sender_zone),
+            body: line.text,
+            sent_at_ms: now,
+        }));
+    }
+}
+
+fn handle_chat_actions(
+    mut links: Query<(Entity, &Session, &mut MessageReceiver<ChatAction>)>,
+    mut players: PlayerQuery,
+    mut notice_tx: Query<&mut MessageSender<SystemNotice>>,
+    online: Res<OnlinePlayers>,
+    db: Res<Db>,
+) {
+    let mut incoming = Vec::new();
+    for (link, session, mut receiver) in &mut links {
+        let actions = receiver.receive();
+        if let Session::InGame { player } = session {
+            incoming.extend(actions.map(|a| (link, *player, a)));
+        }
+    }
+
+    for (link, player, action) in incoming {
+        let Ok((_, name, _, _, _, ids, state)) = players.get(player) else { continue };
+        let (my_name, my_id, is_admin) = (name.0.clone(), ids.character_id, state.is_admin);
+        match action {
+            ChatAction::Ignore { name } | ChatAction::Unignore { name } if name.eq_ignore_ascii_case(&my_name) => {
+                notify(&mut notice_tx, link, SystemNotice::info("You can't ignore yourself."));
+            }
+            ChatAction::Ignore { name } => {
+                db.send(DbCommand::SetIgnore { link, character_id: my_id, target_name: name, ignore: true });
+            }
+            ChatAction::Unignore { name } => {
+                db.send(DbCommand::SetIgnore { link, character_id: my_id, target_name: name, ignore: false });
+            }
+            ChatAction::ListIgnored => {
+                let mut names: Vec<&str> = state.ignores.values().map(String::as_str).collect();
+                names.sort_unstable();
+                let text = if names.is_empty() {
+                    "You are not ignoring anyone.".to_string()
+                } else {
+                    format!("Ignoring: {}", names.join(", "))
+                };
+                notify(&mut notice_tx, link, SystemNotice::info(text));
+            }
+            ChatAction::Mute { .. } | ChatAction::Unmute { .. } if !is_admin => {
+                notify(&mut notice_tx, link, SystemNotice::warn("Only admins can do that."));
+            }
+            ChatAction::Mute { name, minutes } => {
+                let until = now_ms() + minutes.clamp(1, 60 * 24 * 30) as i64 * 60_000;
+                apply_mute_online(&mut players, &mut notice_tx, &online, &name, Some(until));
+                db.send(DbCommand::SetMute { link, target_name: name, until_ms: Some(until) });
+            }
+            ChatAction::Unmute { name } => {
+                apply_mute_online(&mut players, &mut notice_tx, &online, &name, None);
+                db.send(DbCommand::SetMute { link, target_name: name, until_ms: None });
+            }
+        }
+    }
+}
+
+/// Mutes take effect immediately for online players; the DB update makes them stick.
+fn apply_mute_online(
+    players: &mut PlayerQuery,
+    notice_tx: &mut Query<&mut MessageSender<SystemNotice>>,
+    online: &OnlinePlayers,
+    name: &str,
+    until_ms: Option<i64>,
+) {
+    let Some(entity) = online.by_name(name) else { return };
+    let Ok((.., link, _, mut state)) = players.get_mut(entity) else { return };
+    state.muted_until_ms = until_ms;
+    let text = match until_ms {
+        Some(until) => format!("You have been muted for {} minute(s).", ((until - now_ms()) as f64 / 60_000.0).round()),
+        None => "You are no longer muted.".to_string(),
+    };
+    notify(notice_tx, link.0, SystemNotice::warn(text));
+}
+
+fn handle_db_results(
+    mut events: MessageReader<DbEvent>,
+    sessions: Query<&Session>,
+    mut players: PlayerQuery,
+    mut notice_tx: Query<&mut MessageSender<SystemNotice>>,
+) {
+    for DbEvent(result) in events.read() {
+        match result {
+            DbResult::IgnoreUpdated { link, target_name, target, ignore } => {
+                let Some((target_id, canonical)) = target else {
+                    notify(&mut notice_tx, *link, SystemNotice::info(format!("No player named {target_name}.")));
+                    continue;
+                };
+                if let Ok(Session::InGame { player }) = sessions.get(*link)
+                    && let Ok((.., mut state)) = players.get_mut(*player)
+                {
+                    if *ignore {
+                        state.ignores.insert(*target_id, canonical.clone());
+                    } else {
+                        state.ignores.remove(target_id);
+                    }
+                }
+                let verb = if *ignore { "now ignoring" } else { "no longer ignoring" };
+                notify(&mut notice_tx, *link, SystemNotice::info(format!("You are {verb} {canonical}.")));
+            }
+            DbResult::MuteUpdated { link, target_name, found, until_ms } => {
+                let text = match (found, until_ms) {
+                    (false, _) => format!("No player named {target_name}."),
+                    (true, Some(_)) => format!("{target_name} has been muted."),
+                    (true, None) => format!("{target_name} has been unmuted."),
+                };
+                notify(&mut notice_tx, *link, SystemNotice::info(text));
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn say_range_is_local_and_per_zone() {
+        let here = (ZoneId(1), Vec2::ZERO);
+        assert!(hears_say(here, here));
+        assert!(hears_say(here, (ZoneId(1), Vec2::new(SAY_RANGE, 0.0))));
+        assert!(!hears_say(here, (ZoneId(1), Vec2::new(SAY_RANGE + 0.1, 0.0))));
+        // Same coordinates, different zone: can't hear.
+        assert!(!hears_say(here, (ZoneId(2), Vec2::ZERO)));
+    }
+
+    #[test]
+    fn mute_expires() {
+        let config = ChatConfig::default();
+        let state = ChatState::new(&config, "x", Some(10_000), &[], 0.0);
+        assert_eq!(state.muted_for_ms(4_000), Some(6_000));
+        assert_eq!(state.muted_for_ms(10_000), None);
+        assert!(ChatState::new(&config, "x", None, &[], 0.0).muted_for_ms(0).is_none());
+    }
+
+    #[test]
+    fn admins_are_case_insensitive() {
+        let config = ChatConfig { admins: vec!["Admin".into()], ..default() };
+        assert!(ChatState::new(&config, "admin", None, &[], 0.0).is_admin);
+        assert!(!ChatState::new(&config, "bob", None, &[], 0.0).is_admin);
+    }
+}

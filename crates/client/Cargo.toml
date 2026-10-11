@@ -1,0 +1,24 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "millennium-client"
+path = "src/main.rs"
+
+[features]
+default = ["host"]
+# "Host game": embed the full server (and its SQLite/Postgres code) in the client.
+host = ["dep:server"]
+
+[dependencies]
+shared.workspace = true
+server = { path = "../server", optional = true }
+bevy = { workspace = true, features = ["3d", "ui", "keyboard", "mouse"] }
+lightyear.workspace = true
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+rand.workspace = true
