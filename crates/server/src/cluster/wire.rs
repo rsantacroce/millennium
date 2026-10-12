@@ -19,6 +19,22 @@ pub enum Route {
     Character(i64),
     /// Crew chat.
     Crew(i64),
+    /// Party chat from this character (the hub finds the party).
+    PartyOf(i64),
+    /// Resolved party chat: these characters.
+    Members(Vec<i64>),
+}
+
+/// Party actions, forwarded by zone servers: in a cluster the hub owns parties, so they
+/// survive changing servers.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum PartyMsg {
+    Invite { from: i64, to_name: String },
+    Respond { who: i64, accept: bool },
+    Leave { who: i64 },
+    Kick { leader: i64, name: String },
+    /// A member's zone and health, sent every second by their server.
+    Status { who: i64, zone: u16, health: f32 },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -33,6 +49,7 @@ pub enum ToHub {
     Notice { character_id: i64, text: String },
     /// Log this account out wherever else it is.
     Kick { account_id: i64 },
+    Party(PartyMsg),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -46,6 +63,9 @@ pub enum FromHub {
     WhisperFailed { from: i64, to: String },
     /// This account just logged in on another server: drop the session here.
     Kick { account_id: i64 },
+    PartyInvite { to: i64, from_name: String },
+    /// `to`'s party as it is now (empty = not in one).
+    PartyFrame { to: i64, members: Vec<shared::protocol::PartyMember> },
 }
 
 pub fn write<T: Serialize>(stream: &mut impl Write, message: &T) -> io::Result<()> {

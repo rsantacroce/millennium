@@ -188,6 +188,7 @@ fn handle_chat_send(
                     notify(&mut notice_tx, sender_link, SystemNotice::info("You're not in a party. /invite <name> to start one."));
                     continue;
                 }
+                relay = Some(Route::PartyOf(sender_db_id));
                 members.into_iter().filter_map(|e| players.get(e).ok().map(|p| p.4.0)).collect()
             }
             ChatTarget::Crew => {
@@ -290,7 +291,14 @@ fn deliver_remote(
                 Some((.., link, _, _)) => vec![link.0],
                 None => vec![],
             },
-            Route::Name(_) => vec![],
+            Route::Members(ids) => ids
+                .iter()
+                .filter_map(|id| online.by_id(*id as u64))
+                .filter_map(|e| players.get(e).ok())
+                .filter(|(.., s)| !s.ignores(line.from_id))
+                .map(|(.., l, _, _)| l.0)
+                .collect(),
+            Route::Name(_) | Route::PartyOf(_) => vec![],
         };
         deliver(&mut line_tx, &recipients, line);
     }

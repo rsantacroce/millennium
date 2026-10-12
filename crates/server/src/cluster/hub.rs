@@ -7,7 +7,7 @@
 //!
 //! Plain threads and blocking TCP: a hub serves a handful of zone servers.
 
-use super::wire::{self, FromHub, Route, ToHub};
+use super::wire::{self, FromHub, PartyMsg, Route, ToHub};
 use crossbeam_channel::{unbounded, Sender};
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -31,6 +31,48 @@ struct State {
     players: HashMap<i64, Player>,
     /// Players between servers: (name, when to give up and announce them offline).
     in_transit: HashMap<i64, (String, Instant)>,
+    parties: Parties,
+}
+
+const MAX_PARTY: usize = 5;
+const INVITE_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct Parties {
+    next: u64,
+    /// party id -> (leader, members in join order)
+    parties: HashMap<u64, (i64, Vec<i64>)>,
+    by_player: HashMap<i64, u64>,
+    /// invitee -> (inviter, expires)
+    invites: HashMap<i64, (i64, Instant)>,
+    /// Last reported (zone, health) per member.
+    status: HashMap<i64, (u16, f32)>,
+}
+
+impl Parties {
+    fn members_of(&self, who: i64) -> Vec<i64> {
+        self.by_player.get(&who).and_then(|id| self.parties.get(id)).map(|p| p.1.clone()).unwrap_or_default()
+    }
+
+    /// Takes `who` out of their party. Returns everyone who was in it (to update), including `who`.
+    fn remove(&mut self, who: i64) -> Vec<i64> {
+        let Some(id) = self.by_player.remove(&who) else { return vec![] };
+        let Some((leader, members)) = self.parties.get_mut(&id) else { return vec![] };
+        let affected = members.clone();
+        members.retain(|m| *m != who);
+        if *leader == who
+            && let Some(&next) = members.first()
+        {
+            *leader = next;
+        }
+        if members.len() <= 1 {
+            for m in members.drain(..) {
+                self.by_player.remove(&m);
+            }
+            self.parties.remove(&id);
+        }
+        affected
+    }
 }
 
 impl State {
@@ -67,17 +109,25 @@ impl State {
                 let presence = FromHub::Presence { character_id, name: name.clone(), zone: Some(zone) };
                 self.players.insert(character_id, Player { server: origin, account_id, name, zone });
                 self.broadcast_except(origin, &presence);
+                // Back from a transfer (or a hub restart): tell their new server about their party.
+                if self.parties.by_player.contains_key(&character_id) {
+                    self.send_frames(&[character_id]);
+                }
             }
             ToHub::Offline { character_id, transfer } => {
                 let Some(p) = self.players.get(&character_id).filter(|p| p.server == origin) else { return };
                 let name = p.name.clone();
-                self.players.remove(&character_id);
                 if transfer {
+                    // Still in their party: they'll be back in a moment, on another server.
+                    self.players.remove(&character_id);
                     self.in_transit.insert(character_id, (name, Instant::now() + TRANSFER_GRACE));
                 } else {
+                    self.leave(character_id, "went offline");
+                    self.players.remove(&character_id);
                     self.broadcast_except(origin, &FromHub::Presence { character_id, name, zone: None });
                 }
             }
+            ToHub::Party(message) => self.party(message),
             ToHub::Chat { line, route } => match &route {
                 Route::Everyone | Route::Crew(_) => self.broadcast_except(origin, &FromHub::Chat { line, route }),
                 Route::Name(to) => {
@@ -92,6 +142,17 @@ impl State {
                         self.send(p.server, FromHub::Chat { line, route });
                     }
                 }
+                Route::PartyOf(sender) => {
+                    // To the other servers that have members (the origin delivers locally).
+                    let members = self.parties.members_of(*sender);
+                    let mut servers: Vec<u32> = members.iter().filter_map(|m| self.players.get(m)).map(|p| p.server).collect();
+                    servers.sort_unstable();
+                    servers.dedup();
+                    for server in servers.into_iter().filter(|s| *s != origin) {
+                        self.send(server, FromHub::Chat { line: line.clone(), route: Route::Members(members.clone()) });
+                    }
+                }
+                Route::Members(_) => {}
             },
             ToHub::Kick { account_id } => {
                 let servers: Vec<u32> = self.players.values().filter(|p| p.account_id == account_id && p.server != origin).map(|p| p.server).collect();
@@ -107,11 +168,143 @@ impl State {
         }
     }
 
+    fn name_of(&self, id: i64) -> String {
+        self.players.get(&id).map(|p| p.name.clone()).unwrap_or_else(|| "Someone".into())
+    }
+
+    fn notice(&self, to: i64, text: String) {
+        if let Some(p) = self.players.get(&to) {
+            self.send(p.server, FromHub::Notice { character_id: to, text });
+        }
+    }
+
+    /// Sends the current party frame to each of `who` (an empty one if they're not in a party).
+    fn send_frames(&self, who: &[i64]) {
+        for &to in who {
+            let Some(p) = self.players.get(&to) else { continue };
+            let members = match self.parties.by_player.get(&to).and_then(|id| self.parties.parties.get(id)) {
+                None => vec![],
+                Some((leader, members)) => members
+                    .iter()
+                    .map(|m| {
+                        let (zone, health) = self.parties.status.get(m).copied().unwrap_or((0, 1.0));
+                        shared::protocol::PartyMember {
+                            id: *m as u64,
+                            name: self.name_of(*m),
+                            leader: m == leader,
+                            zone: shared::zone::ZoneId(zone),
+                            health,
+                        }
+                    })
+                    .collect(),
+            };
+            self.send(p.server, FromHub::PartyFrame { to, members });
+        }
+    }
+
+    fn party(&mut self, message: PartyMsg) {
+        let now = Instant::now();
+        self.parties.invites.retain(|_, (_, until)| *until > now);
+        match message {
+            PartyMsg::Invite { from, to_name } => {
+                let Some((&to, _)) = self.players.iter().find(|(_, p)| p.name.eq_ignore_ascii_case(&to_name)) else {
+                    return self.notice(from, format!("{to_name} is not online."));
+                };
+                let mine = self.parties.by_player.get(&from).and_then(|id| self.parties.parties.get(id));
+                if to == from {
+                    self.notice(from, "You're already in your own party, technically.".into());
+                } else if mine.is_some_and(|(leader, _)| *leader != from) {
+                    self.notice(from, "Only the party leader can invite.".into());
+                } else if mine.is_some_and(|(_, m)| m.len() >= MAX_PARTY) {
+                    self.notice(from, format!("Parties are limited to {MAX_PARTY} people."));
+                } else if self.parties.by_player.contains_key(&to) {
+                    self.notice(from, format!("{} is already in a party.", self.name_of(to)));
+                } else {
+                    self.parties.invites.insert(to, (from, now + INVITE_TTL));
+                    if let Some(p) = self.players.get(&to) {
+                        self.send(p.server, FromHub::PartyInvite { to, from_name: self.name_of(from) });
+                    }
+                    self.notice(from, format!("You invited {} to your party.", self.name_of(to)));
+                }
+            }
+            PartyMsg::Respond { who, accept } => {
+                let Some((inviter, _)) = self.parties.invites.remove(&who) else { return };
+                if !accept {
+                    return self.notice(inviter, format!("{} declined your invitation.", self.name_of(who)));
+                }
+                if self.parties.by_player.contains_key(&who) {
+                    return;
+                }
+                let id = match self.parties.by_player.get(&inviter) {
+                    Some(&id) => id,
+                    None => {
+                        self.parties.next += 1;
+                        let id = self.parties.next;
+                        self.parties.parties.insert(id, (inviter, vec![inviter]));
+                        self.parties.by_player.insert(inviter, id);
+                        id
+                    }
+                };
+                let members = &mut self.parties.parties.get_mut(&id).expect("just made").1;
+                if members.len() >= MAX_PARTY {
+                    return self.notice(who, "That party is full.".into());
+                }
+                members.push(who);
+                self.parties.by_player.insert(who, id);
+                let everyone = self.parties.members_of(who);
+                for m in &everyone {
+                    self.notice(*m, format!("{} joined the party.", self.name_of(who)));
+                }
+                self.send_frames(&everyone);
+            }
+            PartyMsg::Leave { who } => self.leave(who, "left the party"),
+            PartyMsg::Kick { leader, name } => {
+                let Some((lead, members)) = self.parties.by_player.get(&leader).and_then(|id| self.parties.parties.get(id)) else { return };
+                if *lead != leader {
+                    return self.notice(leader, "Only the party leader can kick.".into());
+                }
+                let target = members.iter().copied().find(|m| *m != leader && self.name_of(*m).eq_ignore_ascii_case(&name));
+                match target {
+                    Some(t) => {
+                        self.notice(t, "You were removed from the party.".into());
+                        self.leave(t, "was removed from the party");
+                    }
+                    None => self.notice(leader, format!("{name} isn't in your party.")),
+                }
+            }
+            PartyMsg::Status { who, zone, health } => {
+                self.parties.status.insert(who, (zone, health));
+                // Frames go out when the leader reports (once a second), not on every member's report.
+                if self.parties.by_player.get(&who).and_then(|id| self.parties.parties.get(id)).is_some_and(|p| p.0 == who) {
+                    self.send_frames(&self.parties.members_of(who));
+                }
+            }
+        }
+    }
+
+    fn leave(&mut self, who: i64, verb: &str) {
+        let affected = self.parties.remove(who);
+        if affected.is_empty() {
+            return;
+        }
+        let name = self.name_of(who);
+        for m in affected.iter().filter(|m| **m != who) {
+            if self.parties.by_player.contains_key(m) {
+                self.notice(*m, format!("{name} {verb}."));
+            } else {
+                self.notice(*m, "Your party has disbanded.".into());
+            }
+        }
+        self.parties.status.remove(&who);
+        self.send_frames(&affected);
+    }
+
     /// A zone server went away: everyone on it is offline.
     fn drop_server(&mut self, server: u32) {
         let name = self.servers.remove(&server).map(|(n, _)| n).unwrap_or_default();
         let gone: Vec<i64> = self.players.iter().filter(|(_, p)| p.server == server).map(|(id, _)| *id).collect();
         for id in &gone {
+            self.leave(*id, "went offline");
             let p = self.players.remove(id).expect("listed");
             self.broadcast_except(server, &FromHub::Presence { character_id: *id, name: p.name, zone: None });
         }
@@ -125,6 +318,7 @@ impl State {
             self.in_transit.iter().filter(|(_, (_, t))| *t <= now).map(|(id, (name, _))| (*id, name.clone())).collect();
         for (id, name) in expired {
             self.in_transit.remove(&id);
+            self.leave(id, "went offline");
             self.broadcast_except(u32::MAX, &FromHub::Presence { character_id: id, name, zone: None });
         }
     }
@@ -250,6 +444,41 @@ mod tests {
         // A real logout is announced.
         s.handle(2, ToHub::Offline { character_id: 10, transfer: false });
         assert!(matches!(c.try_recv(), Ok(FromHub::Presence { zone: None, .. })));
+    }
+
+    #[test]
+    fn parties_survive_changing_servers() {
+        let mut s = State::default();
+        let a = server(&mut s, 1);
+        let b = server(&mut s, 2);
+        s.handle(1, online(10, 100, "Ann"));
+        s.handle(2, online(20, 200, "Bob"));
+        s.handle(1, ToHub::Party(PartyMsg::Invite { from: 10, to_name: "bob".into() }));
+        assert!(b.try_iter().any(|m| m == FromHub::PartyInvite { to: 20, from_name: "Ann".into() }));
+        s.handle(2, ToHub::Party(PartyMsg::Respond { who: 20, accept: true }));
+        let frame = |rx: &Receiver<FromHub>, to: i64| {
+            rx.try_iter().filter_map(|m| match m {
+                FromHub::PartyFrame { to: t, members } if t == to => Some(members),
+                _ => None,
+            }).last()
+        };
+        assert_eq!(frame(&a, 10).unwrap().len(), 2);
+        assert_eq!(frame(&b, 20).unwrap().len(), 2);
+
+        // Bob changes servers: still in the party, and his new server hears about it.
+        s.handle(2, ToHub::Offline { character_id: 20, transfer: true });
+        s.handle(1, online(20, 200, "Bob"));
+        assert_eq!(s.parties.members_of(10), vec![10, 20]);
+        assert_eq!(frame(&a, 20).unwrap().len(), 2);
+
+        // Party chat from Ann reaches Bob's server only if it's another one (here both are on 1).
+        s.handle(1, ToHub::Chat { line: line(10, "hi"), route: Route::PartyOf(10) });
+        assert!(!a.try_iter().any(|m| matches!(m, FromHub::Chat { .. })));
+
+        // A real logout leaves the party, which disbands at one member.
+        s.handle(1, ToHub::Offline { character_id: 20, transfer: false });
+        assert!(s.parties.members_of(10).is_empty());
+        assert_eq!(frame(&a, 10).unwrap().len(), 0);
     }
 
     #[test]

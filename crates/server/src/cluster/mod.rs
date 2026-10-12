@@ -26,7 +26,9 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use lightyear::connection::client::Disconnecting;
 use lightyear::prelude::*;
 use shared::chat::ChatLine;
-use shared::protocol::{ChatNetChannel, ControlChannel, DisplayName, PlayerId, Position, SessionUpdate, SystemNotice};
+use shared::protocol::{
+    ChatNetChannel, ControlChannel, DisplayName, GameChannel, PlayerId, Position, SessionUpdate, SocialUpdate, SystemNotice,
+};
 use shared::zone::ZoneId;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -183,6 +185,8 @@ fn hub_events(
     mut session_tx: Query<&mut MessageSender<SessionUpdate>>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     mut chat: MessageWriter<RemoteChat>,
+    mut parties: ResMut<crate::social::party::Parties>,
+    mut social_tx: Query<&mut MessageSender<SocialUpdate>>,
     mut commands: Commands,
 ) {
     let Some(rx) = &cluster.from_hub else { return };
@@ -213,6 +217,23 @@ fn hub_events(
                 let link = online.by_id(from as u64).and_then(|p| players.get(p).ok()).map(|p| p.3.0);
                 if let Some(mut tx) = link.and_then(|l| notices.get_mut(l).ok()) {
                     tx.send::<ChatNetChannel>(SystemNotice::info(format!("{to} is not online.")));
+                }
+            }
+            FromHub::PartyInvite { to, from_name } => {
+                if let Some(link) = online.by_id(to as u64).and_then(|p| players.get(p).ok()).map(|p| p.3.0)
+                    && let Ok(mut tx) = social_tx.get_mut(link)
+                {
+                    tx.send::<GameChannel>(SocialUpdate::PartyInvite { from: from_name });
+                }
+            }
+            FromHub::PartyFrame { to, members } => {
+                let Some(player) = online.by_id(to as u64) else { continue };
+                let local: Vec<Entity> = members.iter().filter_map(|m| online.by_id(m.id)).collect();
+                parties.set_mirror(player, local);
+                if let Some(link) = players.get(player).ok().map(|p| p.3.0)
+                    && let Ok(mut tx) = social_tx.get_mut(link)
+                {
+                    tx.send::<GameChannel>(SocialUpdate::Party { members });
                 }
             }
             FromHub::Kick { account_id } => {

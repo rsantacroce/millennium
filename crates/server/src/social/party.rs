@@ -1,9 +1,15 @@
 //! Parties: up to 5 players who share party chat, a party frame and kill XP.
 //!
 //! Parties live only in memory (like most MMOs): logging out leaves the party.
+//!
+//! In a cluster the world hub owns parties (so they survive changing servers): actions are
+//! forwarded to it, and this module only mirrors the membership of local players (for kill-XP
+//! sharing and party chat) and reports their zone and health every second.
 
 use super::{find_online, SocialOut, SocialReceive, SocialRequest, INVITE_SECS};
-use crate::session::{OnlinePlayers, PlayerLink};
+use crate::cluster::wire::{PartyMsg, ToHub};
+use crate::cluster::Cluster;
+use crate::session::{CharacterIds, OnlinePlayers, PlayerLink};
 use bevy::prelude::*;
 use shared::protocol::{DisplayName, Health, PartyMember, PlayerId, SocialAction, SocialUpdate};
 use shared::zone::ZoneId;
@@ -26,12 +32,26 @@ pub struct Parties {
     invites: HashMap<Entity, (Entity, f64)>,
     /// Players whose party just dissolved under them (their frame needs clearing).
     orphans: Vec<Entity>,
+    /// Cluster mode: the hub's parties, as local entities (members on other servers left out).
+    mirror: HashMap<Entity, Vec<Entity>>,
 }
 
 impl Parties {
     /// Everyone in `player`'s party, including them (empty if not in a party).
     pub fn members_of(&self, player: Entity) -> Vec<Entity> {
+        if let Some(members) = self.mirror.get(&player) {
+            return members.clone();
+        }
         self.by_player.get(&player).and_then(|id| self.parties.get(id)).map(|p| p.members.clone()).unwrap_or_default()
+    }
+
+    /// Cluster mode: `player`'s party according to the hub (local members only; empty = none).
+    pub fn set_mirror(&mut self, player: Entity, local_members: Vec<Entity>) {
+        if local_members.is_empty() {
+            self.mirror.remove(&player);
+        } else {
+            self.mirror.insert(player, local_members);
+        }
     }
 
     fn remove(&mut self, player: Entity) -> Option<u32> {
@@ -68,7 +88,7 @@ impl Plugin for PartyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Parties>()
             .insert_resource(BroadcastTimer { timer: Timer::from_seconds(1.0, TimerMode::Repeating), refresh: false })
-            .add_systems(Update, (handle, drop_departed, broadcast).chain().after(SocialReceive));
+            .add_systems(Update, (handle, drop_departed, broadcast, report_status).chain().after(SocialReceive));
     }
 }
 
@@ -82,12 +102,27 @@ fn handle(
     info: Query<(&DisplayName, &PlayerId, &PlayerLink, &ZoneId, &Health)>,
     time: Res<Time<Real>>,
     mut timer: ResMut<BroadcastTimer>,
+    cluster: Res<Cluster>,
+    ids: Query<&CharacterIds>,
     mut out: SocialOut,
 ) {
     let now = time.elapsed_secs_f64();
     parties.invites.retain(|_, (_, expires)| *expires > now);
     for req in requests.read() {
         let Ok(me) = info.get(req.player) else { continue };
+        if cluster.has_hub() {
+            // The hub runs parties in a cluster.
+            let Ok(who) = ids.get(req.player).map(|i| i.character_id) else { continue };
+            let message = match &req.action {
+                SocialAction::PartyInvite { name } => PartyMsg::Invite { from: who, to_name: name.clone() },
+                SocialAction::PartyRespond { accept } => PartyMsg::Respond { who, accept: *accept },
+                SocialAction::PartyLeave => PartyMsg::Leave { who },
+                SocialAction::PartyKick { name } => PartyMsg::Kick { leader: who, name: name.clone() },
+                _ => continue,
+            };
+            cluster.send(ToHub::Party(message));
+            continue;
+        }
         match &req.action {
             SocialAction::PartyInvite { name } => {
                 let target = match find_online(&online, name) {
@@ -187,10 +222,35 @@ fn handle(
 
 /// Players who logged out leave their party.
 fn drop_departed(mut parties: ResMut<Parties>, players: Query<(), With<PlayerLink>>, mut timer: ResMut<BroadcastTimer>) {
+    parties.mirror.retain(|p, members| {
+        members.retain(|m| players.contains(*m));
+        players.contains(*p)
+    });
     let gone: Vec<Entity> = parties.by_player.keys().filter(|p| !players.contains(**p)).copied().collect();
     for p in gone {
         parties.remove(p);
         timer.refresh = true;
+    }
+}
+
+/// Cluster mode, every second: tell the hub where our party members are and how they're doing
+/// (it sends everyone the party frames).
+fn report_status(
+    parties: Res<Parties>,
+    players: Query<(&CharacterIds, &ZoneId, &Health)>,
+    cluster: Res<Cluster>,
+    time: Res<Time<Real>>,
+    mut next: Local<f64>,
+) {
+    let now = time.elapsed_secs_f64();
+    if !cluster.has_hub() || now < *next {
+        return;
+    }
+    *next = now + 1.0;
+    for player in parties.mirror.keys() {
+        if let Ok((ids, zone, health)) = players.get(*player) {
+            cluster.send(ToHub::Party(PartyMsg::Status { who: ids.character_id, zone: zone.0, health: health.fraction() }));
+        }
     }
 }
 
