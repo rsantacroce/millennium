@@ -1,7 +1,9 @@
 /target
 *.log
 .env
-/saves
+# Save files, certificates and backups, wherever a server or test runs (not just the root).
+saves/
+loadtest-*.csv
 
 # Working notes for future sessions (see MEMORY.md itself)
 /MEMORY.md

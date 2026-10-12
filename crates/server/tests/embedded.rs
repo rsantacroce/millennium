@@ -11,6 +11,8 @@ fn start_stop_restart() {
     config.network.auth_bind = config.network.bind;
     config.network.tls_dir = dir.join("tls").display().to_string();
     config.database.url = format!("sqlite://{}/world.db", dir.display());
+    // Backups go next to the save file, not into the source tree.
+    config.database.backup_dir = dir.join("backups").display().to_string();
 
     let mut first = EmbeddedServer::start(config.clone()).expect("first start");
     assert_eq!(first.port(), 58_881);
