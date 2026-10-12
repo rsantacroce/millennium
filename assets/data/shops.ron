@@ -46,4 +46,20 @@
         ],
         buy_rate: 0.4,
     ),
+    (
+        id: "meridian_supply",
+        name: "Meridian Corporate Supply",
+        sells: [("pager", 30), ("brick_phone", 70), ("business_suit", 70), ("palm_pilot", 95)],
+        buy_rate: 0.0,
+        faction: Some("meridian"),
+        requires: [("business_suit", 100), ("palm_pilot", 300)],
+    ),
+    (
+        id: "dockside_locker",
+        name: "Dockside Locker",
+        sells: [("first_aid_kit", 6), ("work_boots", 24), ("hard_hat", 18), ("tire_iron", 20)],
+        buy_rate: 0.5,
+        faction: Some("dockside"),
+        requires: [("hard_hat", 100), ("tire_iron", 200)],
+    ),
 ]

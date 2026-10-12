@@ -303,6 +303,10 @@ impl PgStore {
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
+        let rep: Vec<(String, i32)> = sqlx::query_as("SELECT faction, rep FROM reputation WHERE character_id = $1")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
         let gear: Vec<(String, String)> = sqlx::query_as("SELECT slot, item FROM equipment WHERE character_id = $1")
             .bind(character_id)
             .fetch_all(&self.pool)
@@ -371,6 +375,7 @@ impl PgStore {
                 state: {
                     let mut state = assemble_state(cash, items, quests, skills);
                     state.weapon = weapon;
+        state.rep = rep.into_iter().collect();
         state.gear = gear.into_iter().filter_map(|(slot, item)| Some((shared::content::GearSlot::from_name(&slot)?, item))).collect();
                     state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
                     state
@@ -529,6 +534,7 @@ async fn write_state(tx: &mut Transaction<'_, Postgres>, character_id: i64, stat
         "DELETE FROM skills WHERE character_id = $1",
         "DELETE FROM kill_counters WHERE character_id = $1",
         "DELETE FROM equipment WHERE character_id = $1",
+        "DELETE FROM reputation WHERE character_id = $1",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -566,6 +572,14 @@ async fn write_state(tx: &mut Transaction<'_, Postgres>, character_id: i64, stat
             .execute(&mut **tx)
             .await?;
     }
+    for (faction, rep) in &state.rep {
+        sqlx::query("INSERT INTO reputation (character_id, faction, rep) VALUES ($1, $2, $3)")
+            .bind(character_id)
+            .bind(faction)
+            .bind(*rep)
+            .execute(&mut **tx)
+            .await?;
+    }
     for (slot, item) in &state.gear {
         sqlx::query("INSERT INTO equipment (character_id, slot, item) VALUES ($1, $2, $3)")
             .bind(character_id)
@@ -592,7 +606,7 @@ impl PgStore {
             .bind(character_id)
             .fetch_one(&mut *tx)
             .await?;
-        if active as usize >= shared::market::MAX_LISTINGS_PER_PLAYER {
+        if active >= l.max_active {
             return Ok(Err(format!("You already have {active} auctions running.")));
         }
         sqlx::query(

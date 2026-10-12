@@ -9,7 +9,7 @@
 //! if every step succeeds, so a failed purchase can never take your cash without giving you
 //! the item.
 
-use crate::content::{Condition, Content, Effect, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill};
+use crate::content::{rep_tier, Condition, Content, Effect, FactionId, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill, REP_LIMIT};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
@@ -46,6 +46,9 @@ pub struct PlayerState {
     /// Worn gear (not in the inventory while worn).
     #[serde(default)]
     pub gear: BTreeMap<GearSlot, ItemId>,
+    /// Reputation per faction. Missing = 0 (Neutral).
+    #[serde(default)]
+    pub rep: BTreeMap<FactionId, i32>,
 }
 
 /// Something the player should be told about.
@@ -63,6 +66,8 @@ pub enum GameEvent {
     Equipped(ItemId),
     Unequipped(ItemId),
     OpenMarket,
+    /// Reputation changed by this much.
+    Rep(FactionId, i32),
     /// The server creates the car (it lives in its own table, not in `PlayerState`).
     CarGranted(String),
     RaceStarted(String),
@@ -138,6 +143,7 @@ impl PlayerState {
             weapon: None,
             kills: BTreeMap::new(),
             gear: BTreeMap::new(),
+            rep: BTreeMap::new(),
         }
     }
 
@@ -178,6 +184,7 @@ impl PlayerState {
             Condition::Cash(amount) => self.cash >= *amount,
             Condition::SkillLevel(skill, level) => self.level(*skill) >= *level,
             Condition::Kills(mob, n) => self.kills.get(mob).copied().unwrap_or(0) >= *n,
+            Condition::Rep(faction, min) => self.rep_with(faction) >= *min,
             Condition::Not(inner) => !self.check(inner),
         }
     }
@@ -290,6 +297,24 @@ impl PlayerState {
         Ok(())
     }
 
+    pub fn rep_with(&self, faction: &str) -> i32 {
+        self.rep.get(faction).copied().unwrap_or(0)
+    }
+
+    fn change_rep(&mut self, faction: &str, delta: i32, events: &mut Vec<GameEvent>) {
+        let now = (self.rep_with(faction) + delta).clamp(-REP_LIMIT, REP_LIMIT);
+        let before = self.rep.insert(faction.to_string(), now).unwrap_or(0);
+        if now != before {
+            events.push(GameEvent::Rep(faction.to_string(), now - before));
+        }
+    }
+
+    /// How many e-Bid auctions this player may run at once.
+    pub fn max_listings(&self, content: &Content) -> usize {
+        (crate::market::MAX_LISTINGS_PER_PLAYER + self.effective_level(Skill::Trading, content) as usize / 2)
+            .min(crate::market::MAX_LISTINGS_CAP)
+    }
+
     /// Grants cash and XP (race prizes, driving). Returns what happened.
     pub fn reward(&mut self, cash: i64, xp: &[(Skill, u64)]) -> Vec<GameEvent> {
         let mut events = Vec::new();
@@ -350,6 +375,9 @@ impl PlayerState {
                 if def.rewards.cash != 0 {
                     self.change_cash(def.rewards.cash, events)?;
                 }
+                for (faction, delta) in &def.rewards.rep {
+                    self.change_rep(faction, *delta, events);
+                }
                 for (item, qty) in &def.rewards.items {
                     self.add_item(item, *qty, content, events)?;
                 }
@@ -366,6 +394,7 @@ impl PlayerState {
                 self.kills.insert(mob.clone(), 0);
             }
             Effect::OpenMarket => events.push(GameEvent::OpenMarket),
+            Effect::Rep(faction, delta) => self.change_rep(faction, *delta, events),
             Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
             Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
         }
@@ -395,7 +424,14 @@ impl PlayerState {
         if qty == 0 || qty > 100 {
             return err("Pick a quantity between 1 and 100.");
         }
-        let Some(price) = shop.price_of(item) else { return err(format!("{} doesn't sell that.", shop.name)) };
+        let rep = shop.faction.as_ref().map_or(0, |f| self.rep_with(f));
+        let Some(price) = shop.price_for(item, rep) else { return err(format!("{} doesn't sell that.", shop.name)) };
+        if let Some(min) = shop.required_rep(item)
+            && rep < min
+        {
+            let faction = shop.faction.as_deref().map_or("them", |f| content.faction_name(f));
+            return err(format!("You need to be {} with {faction} for that.", rep_tier(min).0));
+        }
         let total = price as i64 * qty as i64;
         self.transact(content, |s, events| {
             s.change_cash(-total, events)?;
@@ -409,7 +445,9 @@ impl PlayerState {
         if def.quest_item {
             return err(format!("You can't sell the {}; someone is counting on it.", def.name));
         }
-        let Some(price) = shop.buy_price(def) else { return err(format!("{} won't buy that.", shop.name)) };
+        let Some(price) = shop.buy_price_for(def, self.effective_level(Skill::Trading, content)) else {
+            return err(format!("{} won't buy that.", shop.name));
+        };
         let qty = qty.clamp(1, stack.qty);
         self.transact(content, |s, events| {
             let slot_stack = s.inventory[slot].as_mut().expect("checked above");
@@ -418,7 +456,10 @@ impl PlayerState {
                 s.inventory[slot] = None;
             }
             events.push(GameEvent::Lost(stack.item.clone(), qty));
-            s.change_cash(price as i64 * qty as i64, events)
+            s.change_cash(price as i64 * qty as i64, events)?;
+            // Haggling is practice.
+            s.add_xp(Skill::Trading, (price as u64 * qty as u64).div_ceil(2), events);
+            Ok(())
         })
     }
 
@@ -568,6 +609,9 @@ impl PlayerState {
     pub fn reward_kill(&mut self, mob: &str, xp: u64, cash: i64, loot: &[ItemId], content: &Content) -> Vec<GameEvent> {
         let mut events = Vec::new();
         *self.kills.entry(mob.to_string()).or_insert(0) += 1;
+        for (faction, delta) in content.mobs.get(mob).map(|m| m.rep.as_slice()).unwrap_or_default() {
+            self.change_rep(faction, *delta, &mut events);
+        }
         self.add_xp(Skill::Fitness, xp, &mut events);
         if cash > 0 && self.change_cash(cash, &mut events).is_err() {
             events.retain(|e| !matches!(e, GameEvent::Cash(_)));
@@ -680,6 +724,10 @@ impl PlayerState {
             let mut events = Vec::new();
             let ok = claim.item.as_ref().is_none_or(|s| next.add_item(&s.item, s.qty, content, &mut events).is_ok())
                 && next.change_cash(claim.cash, &mut events).is_ok();
+            // Selling on e-Bid is Trading practice.
+            if ok && claim.reason.starts_with("Sold:") {
+                next.add_xp(Skill::Trading, (claim.cash.max(0) as u64).div_ceil(2), &mut events);
+            }
             if ok {
                 *self = next;
                 taken.push(claim);
@@ -895,6 +943,44 @@ mod tests {
         s.buy(shop(&c, "corner_store"), "soda", 1, &c).unwrap();
         let soda = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "soda")).unwrap();
         assert!(s.equip(soda, &c).is_err());
+    }
+
+    #[test]
+    fn reputation_and_trading() {
+        let c = content();
+        let mut s = PlayerState::new(500);
+        let supply = shop(&c, "meridian_supply");
+        assert_eq!(crate::content::rep_tier(0).0, "Neutral");
+        assert_eq!(crate::content::rep_tier(-500).0, "Hostile");
+        assert_eq!(crate::content::rep_tier(650).0, "Revered");
+        // Locked until Friendly; Friendly also gets 5% off.
+        assert!(s.buy(supply, "business_suit", 1, &c).is_err());
+        s.apply(&[Effect::Rep("meridian".into(), 150)], &c).unwrap();
+        assert_eq!(supply.price_for("business_suit", s.rep_with("meridian")), Some(67));
+        s.buy(supply, "business_suit", 1, &c).unwrap();
+        assert_eq!(s.cash, 500 - 67);
+        assert!(s.buy(supply, "palm_pilot", 1, &c).is_err(), "needs Honored");
+        // Reputation is capped.
+        s.apply(&[Effect::Rep("meridian".into(), 5000)], &c).unwrap();
+        assert_eq!(s.rep_with("meridian"), crate::content::REP_LIMIT);
+        // Kills move reputation too.
+        s.reward_kill("copper_thief", 10, 0, &[], &c);
+        assert_eq!(s.rep_with("city"), 10);
+        // Trading: wearing the suit (+2) raises what shops pay, and selling is Trading XP.
+        let pawn = shop(&c, "pawn_shop");
+        let walkman = c.item("walkman").unwrap();
+        let base = pawn.buy_price_for(walkman, 1).unwrap();
+        assert!(pawn.buy_price_for(walkman, 10).unwrap() > base);
+        let suit = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "business_suit")).unwrap();
+        s.use_item(suit, &c).unwrap();
+        assert_eq!(s.effective_level(Skill::Trading, &c), 3);
+        s.apply(&[Effect::GiveItem("walkman".into(), 1)], &c).unwrap();
+        let slot = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "walkman")).unwrap();
+        let before = s.cash;
+        s.sell(pawn, slot, 1, &c).unwrap();
+        assert_eq!(s.cash - before, pawn.buy_price_for(walkman, 3).unwrap() as i64);
+        assert!(s.xp(Skill::Trading) > 0);
+        assert_eq!(s.max_listings(&c), crate::market::MAX_LISTINGS_PER_PLAYER + 1);
     }
 
     #[test]

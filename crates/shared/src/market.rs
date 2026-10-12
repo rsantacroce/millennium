@@ -16,7 +16,9 @@ pub const SALE_CUT: f64 = 0.05;
 /// Each bid must beat the current one by this much.
 pub const MIN_RAISE: f64 = 0.05;
 pub const DURATIONS_HOURS: [u32; 2] = [24, 72];
-pub const MAX_LISTINGS_PER_PLAYER: usize = 10;
+/// Auctions at once with Trading level 1; every two Trading levels add one, up to the cap.
+pub const MAX_LISTINGS_PER_PLAYER: usize = 5;
+pub const MAX_LISTINGS_CAP: usize = 20;
 pub const PAGE_SIZE: usize = 15;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

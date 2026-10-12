@@ -352,6 +352,7 @@ fn handle_chat_actions(
                 db.send(DbCommand::SetMute { link, target_name: name, until_ms: None });
             }
             ChatAction::Give { item, qty } => {
+                let qty = qty.clamp(1, 100);
                 let Ok(mut progress) = progress.get_mut(player) else { continue };
                 let text = match progress.apply(&[shared::content::Effect::GiveItem(item.clone(), qty)], &content) {
                     Ok(_) => format!("Gave you {} x{qty}.", content.item_name(&item)),

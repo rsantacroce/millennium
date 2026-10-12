@@ -129,6 +129,7 @@
                         effects: [CompleteQuest("rat_problem")],
                         goto: Some("reward"),
                     ),
+                    (text: "Got anything for a friend of the docks?", effects: [OpenShop("dockside_locker")], goto: None),
                     (text: "Who's the big guy by the cranes?", goto: Some("sully")),
                     (text: "See you around.", goto: None),
                 ],
@@ -339,6 +340,48 @@
                 id: "tips",
                 text: "Duh. A good jacket takes a punch, the right shoes and you're faster on your feet, shades and a cap and you drive like you mean it. Open your inventory and use something to put it on.",
                 options: [(text: "Good to know.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "pemberton",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Pemberton, Meridian Corp, Facilities. Make it quick, we have four hundred days to make every computer in this building understand the year 2000.",
+                options: [
+                    (text: "Need help with that?", when: [QuestNotStarted("y2k_compliance")], goto: Some("offer")),
+                    (text: "About those modems...", when: [QuestAt("y2k_compliance", 0)], goto: Some("reminder")),
+                    (
+                        text: "Two working modems, as ordered.",
+                        when: [QuestAt("y2k_compliance", 1), HasItem("working_modem", 2)],
+                        effects: [TakeItem("working_modem", 2), CompleteQuest("y2k_compliance")],
+                        goto: Some("reward"),
+                    ),
+                    (text: "What does Meridian sell?", effects: [OpenShop("meridian_supply")], goto: None),
+                    (text: "What does Meridian think of me?", goto: Some("standing")),
+                    (text: "Never mind.", goto: None),
+                ],
+            ),
+            (
+                id: "offer",
+                text: "Our modems are older than our interns. Bring me two working ones and Meridian will remember your name. Fondly, even. The pawn shop has broken ones; I'm told a screwdriver fixes most things.",
+                options: [
+                    (text: "Two modems, coming up.", effects: [StartQuest("y2k_compliance")], goto: None),
+                    (text: "Not my department.", goto: None),
+                ],
+            ),
+            (id: "reminder", text: "Two. Working. Modems. The clock is ticking, literally.", options: [(text: "On it.", goto: None)]),
+            (
+                id: "reward",
+                text: "Excellent. You're a credit to the private sector. Our supply store will treat you like family now. Well, like a cousin.",
+                options: [(text: "Pleasure doing business.", goto: None)],
+            ),
+            (
+                id: "standing",
+                text: "Meridian rewards loyalty. Help us and our store gives you better prices, and the good stuff: suits, PalmPilots. Check your standing in your skills window.",
+                options: [(text: "Noted.", goto: None)],
             ),
         ],
     ),

@@ -22,7 +22,7 @@
             ),
             (log: "Tell Foreman Rizzo, by the Metro exit, that the Dock Rats got the message."),
         ],
-        rewards: (cash: 30, xp: [(Fitness, 120)], items: [("first_aid_kit", 2)]),
+        rewards: (cash: 30, xp: [(Fitness, 120)], items: [("first_aid_kit", 2)], rep: [("dockside", 120)]),
     ),
     (
         id: "mall_rats",
@@ -31,7 +31,7 @@
             (log: "Joey at Pixel Palace (Galleria Mall) wants 3 Burned CDs for his mixtape.", advance_when: [HasItem("burned_cd", 3)]),
             (log: "Bring the 3 Burned CDs to Joey at Pixel Palace."),
         ],
-        rewards: (cash: 25, xp: [(Electronics, 80)], items: [("mixtape", 1)]),
+        rewards: (cash: 25, xp: [(Electronics, 80)], items: [("mixtape", 1)], rep: [("city", 80)]),
     ),
     (
         id: "scrap_run",
@@ -53,5 +53,17 @@
             (log: "You have everything. Bring the parts to Old Earl at the factory gate."),
         ],
         rewards: (cash: 0, xp: [(Mechanics, 120)], items: []),
+    ),
+    (
+        id: "y2k_compliance",
+        name: "Y2K Compliance",
+        stages: [
+            (
+                log: "Mr. Pemberton at Meridian Corp needs 2 Working Modems before the millennium bug eats the office. Broken ones can be repaired with a Screwdriver Set.",
+                advance_when: [HasItem("working_modem", 2)],
+            ),
+            (log: "Bring the 2 Working Modems to Mr. Pemberton outside the Meridian Office Block."),
+        ],
+        rewards: (cash: 60, xp: [(Electronics, 100)], items: [], rep: [("meridian", 150)]),
     ),
 ]

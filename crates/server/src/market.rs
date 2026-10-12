@@ -143,6 +143,7 @@ fn handle_actions(
                     start_price,
                     buyout,
                     expires_at_ms: now_ms() + hours as i64 * 3_600_000,
+                    max_active: progress.max_listings(&content) as i64,
                 };
                 db.send(DbCommand::MarketCreate { link, character_id, state: next.clone(), listing });
                 commands.entity(player).insert(MarketPending::List { slot: slot as usize, qty, fee, fallback: next });

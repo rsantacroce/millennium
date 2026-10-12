@@ -407,10 +407,16 @@ fn render_shop(
     let Some(shop) = view.0.as_ref().and_then(|s| content.shops.get(s)) else { return };
     let node = Node { right: Val::Px(250.0), top: Val::Px(230.0), width: Val::Px(260.0), ..default() };
     let body = spawn_window(&mut commands, ShopRoot, node, &shop.name, Click::CloseShop);
-    for (i, (item, price)) in shop.sells.iter().enumerate() {
+    let rep = shop.faction.as_ref().map_or(0, |f| state.rep_with(f));
+    for (i, (item, list)) in shop.sells.iter().enumerate() {
         let name = content.item_name(item).to_string();
+        let price = shop.price_for(item, rep).unwrap_or(*list);
         let row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() })).id();
         commands.spawn((ChildOf(row), label(format!("{name} - ${price}"), theme::FONT_SMALL, theme::TEXT), Node { flex_grow: 1.0, ..default() }));
+        if let Some(min) = shop.required_rep(item).filter(|min| rep < *min) {
+            commands.spawn((ChildOf(row), label(format!("[{}]", shared::content::rep_tier(min).0), 12.0, theme::MUTED_TEXT)));
+            continue;
+        }
         commands.spawn((ChildOf(row), Click::Buy(i, 1), button("Buy")));
         if content.item(item).is_some_and(|d| d.max_stack > 1) {
             commands.spawn((ChildOf(row), Click::Buy(i, 5), button("x5")));
@@ -422,6 +428,12 @@ fn render_shop(
         "This shop doesn't buy from customers."
     };
     commands.spawn((ChildOf(body), label(footer, 12.0, theme::MUTED_TEXT)));
+    if let Some(f) = &shop.faction {
+        let (tier, discount) = shared::content::rep_tier(rep);
+        let deal = if discount > 0.0 { format!(", {}% off", (discount * 100.0).round()) } else { String::new() };
+        let text = format!("{}: {tier} ({rep}){deal}", content.faction_name(f));
+        commands.spawn((ChildOf(body), label(text, 12.0, theme::TEXT)));
+    }
     commands.spawn((ChildOf(body), label(format!("You have ${}", state.cash), theme::FONT_SMALL, theme::TEXT)));
 }
 
@@ -487,7 +499,8 @@ fn render_inventory(
             }
             let row = commands.spawn((ChildOf(body), Node { column_gap: Val::Px(4.0), ..default() })).id();
             commands.spawn((ChildOf(row), Click::Use, button(if def.gear.is_some() { "Wear" } else { "Use" })));
-            if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.buy_price(&def)) {
+            let trading = state.effective_level(Skill::Trading, &content);
+            if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.buy_price_for(&def, trading)) {
                 commands.spawn((ChildOf(row), Click::Sell, button(format!("Sell ${price}"))));
             }
             if social.trade.is_some() && !def.quest_item {
@@ -582,6 +595,18 @@ fn render_skills(
         ));
     }
     commands.spawn((ChildOf(body), label("(+N) = bonus from what you're wearing.", 12.0, theme::MUTED_TEXT)));
+    // Standing with the factions you've dealt with.
+    if !state.rep.is_empty() {
+        commands.spawn((
+            ChildOf(body),
+            label("Reputation", theme::FONT_SMALL, theme::TEXT),
+            Node { margin: UiRect::top(Val::Px(6.0)), ..default() },
+        ));
+        for (faction, rep) in &state.rep {
+            let text = format!("{:<16} {} ({rep})", content.faction_name(faction), shared::content::rep_tier(*rep).0);
+            commands.spawn((ChildOf(body), label(text, 12.0, theme::TEXT)));
+        }
+    }
 }
 
 fn render_progress(

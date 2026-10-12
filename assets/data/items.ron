@@ -239,4 +239,25 @@
         value: 15,
         gear: Some((slot: Accessory, shades: true, skills: [(Driving, 1)])),
     ),
+    (
+        id: "business_suit",
+        name: "Pinstripe Suit",
+        description: "Shoulder pads included. People quote you better prices. +2 Trading.",
+        value: 50,
+        gear: Some((slot: Body, color: Some(9), skills: [(Trading, 2)])),
+    ),
+    (
+        id: "palm_pilot",
+        name: "PalmPilot",
+        description: "Graffiti handwriting, a stylus, and every phone number you know. +1 Trading, +1 Hacking.",
+        value: 70,
+        gear: Some((slot: Accessory, skills: [(Trading, 1), (Hacking, 1)])),
+    ),
+    (
+        id: "hard_hat",
+        name: "Hard Hat",
+        description: "Dockside issue. Things fall from cranes. 1 armor, +6 health.",
+        value: 14,
+        gear: Some((slot: Head, color: Some(8), armor: 1, max_hp: 6)),
+    ),
 ]

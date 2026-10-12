@@ -323,6 +323,10 @@ impl SqliteStore {
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
+        let rep: Vec<(String, i32)> = sqlx::query_as("SELECT faction, rep FROM reputation WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
         let gear: Vec<(String, String)> = sqlx::query_as("SELECT slot, item FROM equipment WHERE character_id = ?")
             .bind(character_id)
             .fetch_all(&self.pool)
@@ -333,6 +337,7 @@ impl SqliteStore {
             .await?;
         let mut state = assemble_state(cash, items, quests, skills);
         state.weapon = weapon;
+        state.rep = rep.into_iter().collect();
         state.gear = gear.into_iter().filter_map(|(slot, item)| Some((shared::content::GearSlot::from_name(&slot)?, item))).collect();
         state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
 
@@ -552,6 +557,7 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
         "DELETE FROM skills WHERE character_id = ?",
         "DELETE FROM kill_counters WHERE character_id = ?",
         "DELETE FROM equipment WHERE character_id = ?",
+        "DELETE FROM reputation WHERE character_id = ?",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -589,6 +595,14 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
             .execute(&mut **tx)
             .await?;
     }
+    for (faction, rep) in &state.rep {
+        sqlx::query("INSERT INTO reputation (character_id, faction, rep) VALUES (?, ?, ?)")
+            .bind(character_id)
+            .bind(faction)
+            .bind(*rep)
+            .execute(&mut **tx)
+            .await?;
+    }
     for (slot, item) in &state.gear {
         sqlx::query("INSERT INTO equipment (character_id, slot, item) VALUES (?, ?, ?)")
             .bind(character_id)
@@ -615,7 +629,7 @@ impl SqliteStore {
             .bind(character_id)
             .fetch_one(&mut *tx)
             .await?;
-        if active as usize >= shared::market::MAX_LISTINGS_PER_PLAYER {
+        if active >= l.max_active {
             return Ok(Err(format!("You already have {active} auctions running.")));
         }
         sqlx::query(
@@ -1004,6 +1018,9 @@ mod tests {
         state.skills.insert(Skill::Electronics, 123);
         state.weapon = Some("baseball_bat".into());
         state.kills.insert("dock_rat".into(), 4);
+        state.gear.insert(shared::content::GearSlot::Body, "windbreaker".into());
+        state.rep.insert("meridian".into(), 150);
+        state.rep.insert("dockside".into(), -20);
         s.handle(DbCommand::SaveState { character_id: id, state: state.clone() }, LIMITS).await;
         s.handle(
             DbCommand::SavePositions(vec![SavedPosition { character_id: id, zone: ZoneId(1), position: Vec2::new(5.0, -6.0) }]),
@@ -1087,6 +1104,7 @@ mod tests {
             start_price: 10,
             buyout: Some(50),
             expires_at_ms: now_ms() + 60_000,
+            max_active: 10,
         };
         assert!(s.market_create(alice, &st, &walkman).await.unwrap().is_ok());
         let pager = NewListing { item_name: "Pager".into(), buyout: None, ..walkman.clone() };

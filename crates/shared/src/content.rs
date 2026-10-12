@@ -176,6 +176,9 @@ pub struct MobDef {
     /// (item, chance 0..1)
     #[serde(default)]
     pub loot: Vec<(ItemId, f32)>,
+    /// Reputation changes for knocking one out.
+    #[serde(default)]
+    pub rep: Vec<(FactionId, i32)>,
     pub appearance: Appearance,
 }
 
@@ -270,6 +273,8 @@ pub enum Condition {
     SkillLevel(Skill, u32),
     /// Knocked out at least this many of a mob since the last `ResetKills` of it.
     Kills(MobId, u32),
+    /// At least this much reputation with a faction.
+    Rep(FactionId, i32),
     Not(Box<Condition>),
 }
 
@@ -291,6 +296,35 @@ pub enum Effect {
     GiveCar(String),
     /// Starts a street race (see `vehicle::RACES`); you must be driving.
     StartRace(String),
+    /// Changes reputation with a faction.
+    Rep(FactionId, i32),
+}
+
+pub type FactionId = String;
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct FactionDef {
+    pub id: FactionId,
+    pub name: String,
+    pub description: String,
+}
+
+/// Reputation tiers: (lowest rep for the tier, name, shop discount).
+pub const REP_TIERS: [(i32, &str, f32); 6] = [
+    (i32::MIN, "Hostile", 0.0),
+    (-100, "Unfriendly", 0.0),
+    (0, "Neutral", 0.0),
+    (100, "Friendly", 0.05),
+    (300, "Honored", 0.10),
+    (600, "Revered", 0.15),
+];
+
+/// Reputation is kept within this range.
+pub const REP_LIMIT: i32 = 1000;
+
+pub fn rep_tier(rep: i32) -> (&'static str, f32) {
+    let (_, name, discount) = REP_TIERS.iter().rev().find(|(min, ..)| rep >= *min).copied().unwrap_or(REP_TIERS[0]);
+    (name, discount)
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -318,6 +352,8 @@ pub struct Rewards {
     pub xp: Vec<(Skill, u64)>,
     #[serde(default)]
     pub items: Vec<(ItemId, u32)>,
+    #[serde(default)]
+    pub rep: Vec<(FactionId, i32)>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -329,19 +365,48 @@ pub struct ShopDef {
     /// Fraction of item value paid when buying from players. 0 = doesn't buy.
     #[serde(default)]
     pub buy_rate: f32,
+    /// The faction that runs it: its reputation tiers give discounts...
+    #[serde(default)]
+    pub faction: Option<FactionId>,
+    /// ...and unlock these items at this much reputation.
+    #[serde(default)]
+    pub requires: Vec<(ItemId, i32)>,
 }
 
+/// Better prices per Trading level when selling to shops (capped).
+pub const TRADING_SELL_BONUS: f32 = 0.02;
+pub const TRADING_SELL_BONUS_MAX: f32 = 0.3;
+
 impl ShopDef {
+    /// The list price.
     pub fn price_of(&self, item: &str) -> Option<u32> {
         self.sells.iter().find(|(i, _)| i == item).map(|(_, p)| *p)
     }
 
+    /// The price for someone with `rep` reputation with this shop's faction.
+    pub fn price_for(&self, item: &str, rep: i32) -> Option<u32> {
+        let price = self.price_of(item)?;
+        let discount = if self.faction.is_some() { rep_tier(rep).1 } else { 0.0 };
+        Some(((price as f32 * (1.0 - discount)).round() as u32).max(1))
+    }
+
+    /// Reputation needed to buy `item` here (0 = anyone).
+    pub fn required_rep(&self, item: &str) -> Option<i32> {
+        self.requires.iter().find(|(i, _)| i == item).map(|(_, r)| *r)
+    }
+
     /// What this shop pays for one `item`, if it buys it.
     pub fn buy_price(&self, item: &ItemDef) -> Option<u32> {
+        self.buy_price_for(item, 0)
+    }
+
+    /// What this shop pays a seller with this Trading level.
+    pub fn buy_price_for(&self, item: &ItemDef, trading_level: u32) -> Option<u32> {
         if self.buy_rate <= 0.0 || item.quest_item {
             return None;
         }
-        Some(((item.value as f32 * self.buy_rate).floor() as u32).max(1))
+        let bonus = (trading_level.saturating_sub(1) as f32 * TRADING_SELL_BONUS).min(TRADING_SELL_BONUS_MAX);
+        Some(((item.value as f32 * self.buy_rate * (1.0 + bonus)).floor() as u32).max(1))
     }
 }
 
@@ -373,6 +438,7 @@ pub struct Content {
     pub recipes: Vec<RecipeDef>,
     pub mobs: HashMap<MobId, MobDef>,
     pub spawns: Vec<MobSpawn>,
+    pub factions: HashMap<FactionId, FactionDef>,
     /// What new characters start with.
     pub starting_cash: i64,
 }
@@ -384,6 +450,7 @@ const QUESTS: &str = include_str!("../../../assets/data/quests.ron");
 const SHOPS: &str = include_str!("../../../assets/data/shops.ron");
 const RECIPES: &str = include_str!("../../../assets/data/recipes.ron");
 const MOBS: &str = include_str!("../../../assets/data/mobs.ron");
+const FACTIONS: &str = include_str!("../../../assets/data/factions.ron");
 
 fn parse<T: for<'de> Deserialize<'de>>(name: &str, text: &str) -> Result<T, String> {
     ron::from_str(text).map_err(|e| format!("assets/data/{name}: {e}"))
@@ -403,7 +470,9 @@ impl Content {
         let shops: Vec<ShopDef> = parse("shops.ron", SHOPS)?;
         let recipes: Vec<RecipeDef> = parse("recipes.ron", RECIPES)?;
         let mobs: MobFile = parse("mobs.ron", MOBS)?;
+        let factions: Vec<FactionDef> = parse("factions.ron", FACTIONS)?;
         Ok(Self {
+            factions: factions.into_iter().map(|f| (f.id.clone(), f)).collect(),
             items: items.into_iter().map(|i| (i.id.clone(), i)).collect(),
             npcs,
             dialogues: dialogues.into_iter().map(|d| (d.id.clone(), d)).collect(),
@@ -423,6 +492,10 @@ impl Content {
     /// Display name, falling back to the id.
     pub fn item_name<'a>(&'a self, id: &'a str) -> &'a str {
         self.items.get(id).map_or(id, |i| i.name.as_str())
+    }
+
+    pub fn faction_name<'a>(&'a self, id: &'a str) -> &'a str {
+        self.factions.get(id).map_or(id, |f| f.name.as_str())
     }
 
     pub fn npc(&self, id: &str) -> Option<&NpcDef> {
@@ -484,6 +557,7 @@ impl Content {
                     }
                     Condition::HasItem(i, _) => item(errors, ctx, i),
                     Condition::Kills(m, _) if !self.mobs.contains_key(m) => errors.push(format!("{ctx}: unknown mob `{m}`")),
+                    Condition::Rep(f, _) if !self.factions.contains_key(f) => errors.push(format!("{ctx}: unknown faction `{f}`")),
                     _ => {}
                 }
             }
@@ -534,6 +608,9 @@ impl Content {
                             Effect::ResetKills(m) if !self.mobs.contains_key(m) => {
                                 errors.push(format!("{ctx}: unknown mob `{m}`"))
                             }
+                            Effect::Rep(f, _) if !self.factions.contains_key(f) => {
+                                errors.push(format!("{ctx}: unknown faction `{f}`"))
+                            }
                             Effect::GiveCar(m) if crate::vehicle::model(m).is_none() => {
                                 errors.push(format!("{ctx}: unknown car model `{m}`"))
                             }
@@ -557,6 +634,11 @@ impl Content {
             for (i, _) in &q.rewards.items {
                 item(&mut errors, &ctx, i);
             }
+            for (f, _) in &q.rewards.rep {
+                if !self.factions.contains_key(f) {
+                    errors.push(format!("{ctx}: unknown faction `{f}`"));
+                }
+            }
         }
         for s in self.shops.values() {
             for (i, price) in &s.sells {
@@ -565,8 +647,24 @@ impl Content {
                     errors.push(format!("shop `{}`: `{i}` is free", s.id));
                 }
             }
+            if s.faction.as_ref().is_some_and(|f| !self.factions.contains_key(f)) {
+                errors.push(format!("shop `{}`: unknown faction", s.id));
+            }
+            for (i, _) in &s.requires {
+                if s.price_of(i).is_none() {
+                    errors.push(format!("shop `{}`: requires rep for `{i}`, which it doesn't sell", s.id));
+                }
+            }
+            if !s.requires.is_empty() && s.faction.is_none() {
+                errors.push(format!("shop `{}`: rep requirements need a faction", s.id));
+            }
         }
         for (id, m) in &self.mobs {
+            for (f, _) in &m.rep {
+                if !self.factions.contains_key(f) {
+                    errors.push(format!("mob `{id}`: unknown faction `{f}`"));
+                }
+            }
             for (i, chance) in &m.loot {
                 item(&mut errors, &format!("mob `{id}`"), i);
                 if !(0.0..=1.0).contains(chance) {

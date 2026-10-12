@@ -102,6 +102,8 @@ fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::QuestCompleted(q) => format!("Quest complete: {}!", quest_name(q, content)),
         GameEvent::Xp(skill, xp) => format!("+{xp} {} XP", skill.name()),
         GameEvent::LevelUp(skill, level) => format!("*** {} level {level}! ***", skill.name()),
+        GameEvent::Rep(faction, d) if *d >= 0 => format!("Reputation with {} +{d}.", content.faction_name(faction)),
+        GameEvent::Rep(faction, d) => format!("Reputation with {} {d}.", content.faction_name(faction)),
         GameEvent::OpenShop(_) | GameEvent::OpenMarket | GameEvent::CarGranted(_) | GameEvent::RaceStarted(_) => return None,
         GameEvent::Equipped(item) if is_gear(item) => format!("You put on the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) if is_gear(item) => format!("You take off the {}.", content.item_name(item)),
@@ -291,7 +293,8 @@ fn handle_actions(
                 let shop_def = &content.shops[&active.shop];
                 match progress.buy(shop_def, &item, qty, &content) {
                     Ok(events) => {
-                        let price = shop_def.price_of(&item).unwrap_or(0) * qty;
+                        let rep = shop_def.faction.as_ref().map_or(0, |f| progress.rep_with(f));
+                        let price = shop_def.price_for(&item, rep).unwrap_or(0) * qty;
                         out.notice(link, SystemNotice::info(format!("You bought {} x{qty} for ${price}.", content.item_name(&item))));
                         out.events(link, &events.into_iter().filter(|e| matches!(e, GameEvent::QuestAdvanced(..))).collect::<Vec<_>>(), &content);
                     }

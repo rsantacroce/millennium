@@ -212,6 +212,8 @@ pub struct NewListing {
     pub start_price: i64,
     pub buyout: Option<i64>,
     pub expires_at_ms: i64,
+    /// How many auctions this seller may have running (grows with Trading).
+    pub max_active: i64,
 }
 
 // Listing status: 0 = active, 1 = sold, 2 = expired (returned), 3 = cancelled. The SQL uses

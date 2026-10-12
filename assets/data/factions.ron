@@ -1,0 +1,23 @@
+// Who runs this town. Reputation goes from -1000 to 1000; see REP_TIERS in shared/src/content.rs.
+[
+    (
+        id: "city",
+        name: "City Services",
+        description: "Transit, the parks department, mall security and the cops on the beat. They like people who keep the peace.",
+    ),
+    (
+        id: "meridian",
+        name: "Meridian Corp",
+        description: "The big glass building downtown. Pagers, pensions and panic about the year 2000.",
+    ),
+    (
+        id: "dockside",
+        name: "Dockside Crew",
+        description: "The longshoremen who really run the harbor. Rough, loyal, and short on patience.",
+    ),
+    (
+        id: "zeros",
+        name: "Zer0 Day",
+        description: "Hackers who meet in the back of the Byte Cafe. Nobody knows their real names, which is the point.",
+    ),
+]
