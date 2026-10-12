@@ -8,6 +8,7 @@ use crate::chat_ui::ChatFocus;
 use crate::game_ui::{label, spawn_window, LocalState, Panels};
 use crate::net::LocalPlayer;
 use crate::theme::{self, button};
+use crate::tooltip::{self, Tooltip};
 use crate::AppState;
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
@@ -368,7 +369,8 @@ fn render(
             }
             for (i, l) in view.results.iter().enumerate() {
                 let r = row(&mut commands, body);
-                commands.spawn((ChildOf(r), grow(describe(l, &content))));
+                let tip = content.item(&l.stack.item).map(|d| tooltip::item(d, &content)).unwrap_or_default();
+                commands.spawn((ChildOf(r), grow(describe(l, &content)), Interaction::default(), Tooltip(tip)));
                 if l.seller == me {
                     commands.spawn((ChildOf(r), muted("yours".into())));
                     continue;
@@ -377,10 +379,10 @@ fn render(
                 if leading {
                     commands.spawn((ChildOf(r), muted("you lead".into())));
                 } else {
-                    commands.spawn((ChildOf(r), Click::Bid(i), button(format!("Bid ${}", l.min_bid()))));
+                    commands.spawn((ChildOf(r), Click::Bid(i), button(format!("Bid ${}", l.min_bid())), Tooltip::new("Bid the minimum. The cash is held until you're outbid (then it comes back) or you win.")));
                 }
                 if let Some(b) = l.buyout {
-                    commands.spawn((ChildOf(r), Click::Buyout(i), button(format!("Buy ${b}"))));
+                    commands.spawn((ChildOf(r), Click::Buyout(i), button(format!("Buy ${b}")), Tooltip::new("Buy it now and end the auction.")));
                 }
             }
             let pages = view.total.div_ceil(PAGE_SIZE as u32).max(1);
@@ -396,7 +398,8 @@ fn render(
                 return;
             };
             let f = &view.sell;
-            commands.spawn((ChildOf(body), label(content.item_name(&stack.item).to_string(), theme::FONT_NORMAL, theme::TEXT)));
+            let tip = content.item(&stack.item).map(|d| tooltip::item(d, &content)).unwrap_or_default();
+            commands.spawn((ChildOf(body), label(content.item_name(&stack.item).to_string(), theme::FONT_NORMAL, theme::TEXT), Interaction::default(), Tooltip(tip)));
             if stack.qty > 1 {
                 let r = row(&mut commands, body);
                 commands.spawn((ChildOf(r), grow(format!("Quantity: {} of {}", f.qty, stack.qty))));
@@ -419,7 +422,7 @@ fn render(
                 }
                 None => {
                     commands.spawn((ChildOf(r), grow("Buy now: none".into())));
-                    commands.spawn((ChildOf(r), Click::ToggleBuyout, button("Add")));
+                    commands.spawn((ChildOf(r), Click::ToggleBuyout, button("Add"), Tooltip::new("Let people skip the bidding and buy it outright at this price.")));
                 }
             }
             let r = row(&mut commands, body);
@@ -438,7 +441,7 @@ fn render(
             ));
             let r = row(&mut commands, body);
             commands.spawn((ChildOf(r), grow(format!("You have ${}", state.cash))));
-            commands.spawn((ChildOf(r), Click::List, button("List it")));
+            commands.spawn((ChildOf(r), Click::List, button("List it"), Tooltip::new("Put it up for auction. The item leaves your bag until it sells or the auction ends.")));
         }
         Tab::Mine => {
             if view.mine.is_empty() {
@@ -446,7 +449,8 @@ fn render(
             }
             for (i, l) in view.mine.iter().enumerate() {
                 let r = row(&mut commands, body);
-                commands.spawn((ChildOf(r), grow(describe(l, &content))));
+                let tip = content.item(&l.stack.item).map(|d| tooltip::item(d, &content)).unwrap_or_default();
+                commands.spawn((ChildOf(r), grow(describe(l, &content)), Interaction::default(), Tooltip(tip)));
                 if l.bid.is_none() {
                     commands.spawn((ChildOf(r), Click::Cancel(i), button("Cancel")));
                 }

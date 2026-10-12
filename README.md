@@ -204,6 +204,9 @@ These are the defaults; every key can be rebound in the settings (F10).
 | F10 | Settings: volume, interface size, shadows, street lights, camera speed, key bindings (saved in `saves/settings.toml`) |
 | Tab | Next field (sign-on window) / next chat tab (while typing) |
 
+**Tooltips:** rest the mouse on an item (anywhere: bag, shop, e-Bid, trade, footlocker), a skill,
+a reputation line or a button, and a yellow box explains it.
+
 **Inventory:** click an item to select it (the details and **Use** button appear below). Click
 another slot to move or merge it there. At a shop that buys, a **Sell $N** button appears.
 
@@ -546,7 +549,9 @@ shop, dialogue and the quest log. Each window rebuilds itself when the data it s
 **Verdict on bevy_ui vs egui so far:** bevy_ui has been enough. Bevy 0.19's `EditableText` handles
 text input, but it has no password masking yet. The workaround draws the real text transparent,
 with bullets on top. There is also no built-in scroll-wheel handling or tooltips. Those gaps
-haven't been a reason to switch.
+haven't been a reason to switch: tooltips are our own (`client/src/tooltip.rs`): add
+`Tooltip(text)` and an `Interaction` to any node, and one shared box follows the mouse, preferring
+the node drawn on top.
 
 ## Versions
 

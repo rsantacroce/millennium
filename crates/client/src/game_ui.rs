@@ -13,6 +13,7 @@ use crate::social_ui::{offer_stack, SocialState};
 use crate::sound::{PlaySfx, Sfx};
 use crate::chat_ui::ChatFocus;
 use crate::theme::{self, button, window_frame};
+use crate::tooltip::{self, Tooltip};
 use crate::AppState;
 use crate::settings::Action;
 use bevy::prelude::*;
@@ -430,10 +431,15 @@ fn render_shop(
     for (i, (item, list)) in shop.sells.iter().enumerate() {
         let name = content.item_name(item).to_string();
         let price = shop.price_for(item, rep).unwrap_or(*list);
-        let row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() })).id();
+        let tip = content.item(item).map(|d| tooltip::item(d, &content)).unwrap_or_default();
+        let row = commands
+            .spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() }, Interaction::default(), Tooltip(tip)))
+            .id();
         commands.spawn((ChildOf(row), label(format!("{name} - ${price}"), theme::FONT_SMALL, theme::TEXT), Node { flex_grow: 1.0, ..default() }));
         if let Some(min) = shop.required_rep(item).filter(|min| rep < *min) {
-            commands.spawn((ChildOf(row), label(format!("[{}]", shared::content::rep_tier(min).0), 12.0, theme::MUTED_TEXT)));
+            let tier = shared::content::rep_tier(min).0;
+            let why = format!("Sold only to customers {tier} or better with {}.", shop.faction.as_deref().map_or("them", |f| content.faction_name(f)));
+            commands.spawn((ChildOf(row), label(format!("[{tier}]"), 12.0, theme::MUTED_TEXT), Interaction::default(), Tooltip(why)));
             continue;
         }
         if shop.stock_of(item).is_some() {
@@ -443,13 +449,14 @@ fn render_shop(
                     continue;
                 }
                 n => {
-                    commands.spawn((ChildOf(row), label(format!("{n} left"), 12.0, theme::MUTED_TEXT)));
+                    let tip = Tooltip::new("Limited stock: the shelf fills back up over time.");
+                    commands.spawn((ChildOf(row), label(format!("{n} left"), 12.0, theme::MUTED_TEXT), Interaction::default(), tip));
                 }
             }
         }
         commands.spawn((ChildOf(row), Click::Buy(i, 1), button("Buy")));
         if content.item(item).is_some_and(|d| d.max_stack > 1) {
-            commands.spawn((ChildOf(row), Click::Buy(i, 5), button("x5")));
+            commands.spawn((ChildOf(row), Click::Buy(i, 5), button("x5"), Tooltip::new("Buy five")));
         }
     }
     let footer = if shop.buy_rate > 0.0 {
@@ -494,6 +501,7 @@ fn render_inventory(
     for slot in 0..INVENTORY_SLOTS {
         let stack = state.inventory.get(slot).cloned().flatten();
         let selected = panels.selected == Some(slot);
+        let tip = stack.as_ref().and_then(|s| content.item(&s.item)).map(|d| tooltip::item(d, &content)).unwrap_or_default();
         let text = match &stack {
             Some(s) => {
                 let name: String = content.item_name(&s.item).chars().take(10).collect();
@@ -504,6 +512,7 @@ fn render_inventory(
         commands.spawn((
             ChildOf(grid),
             Click::Slot(slot),
+            Tooltip(tip),
             Button,
             Node {
                 width: Val::Px(38.0),
@@ -536,14 +545,24 @@ fn render_inventory(
             } else {
                 "Use"
             };
-            commands.spawn((ChildOf(row), Click::Use, button(verb)));
+            let use_tip = if def.gear.is_some() {
+                "Put it on (swaps with whatever you wear there)."
+            } else if def.furniture.is_some() {
+                "Place it in your house (only works at home)."
+            } else if def.weapon.is_some() {
+                "Hold it as your weapon."
+            } else {
+                "Use it (eat, drink, read...)."
+            };
+            commands.spawn((ChildOf(row), Click::Use, button(verb), Tooltip::new(use_tip)));
             let trading = state.effective_level(Skill::Trading, &content);
             let demand = numbers.demand.get(&def.id).copied().unwrap_or(1.0);
             if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.offer_for(&def, trading, demand)) {
-                commands.spawn((ChildOf(row), Click::Sell, button(format!("Sell ${price}"))));
+                let tip = "Sell one to this shop. Better Trading pays more; selling lots of the same thing lowers the price for a while.";
+                commands.spawn((ChildOf(row), Click::Sell, button(format!("Sell ${price}")), Tooltip::new(tip)));
             }
             if social.trade.is_some() && !def.quest_item {
-                commands.spawn((ChildOf(row), Click::Offer, button("Offer")));
+                commands.spawn((ChildOf(row), Click::Offer, button("Offer"), Tooltip::new("Add it to the trade window.")));
             }
         }
         None => {
@@ -554,16 +573,20 @@ fn render_inventory(
     for slot in shared::content::GearSlot::ALL {
         let Some(item) = state.gear.get(&slot) else { continue };
         let row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() })).id();
+        let tip = content.item(item).map(|d| tooltip::item(d, &content)).unwrap_or_default();
         commands.spawn((
             ChildOf(row),
             label(format!("{}: {}", slot.name(), content.item_name(item)), theme::FONT_SMALL, theme::TEXT),
             Node { flex_grow: 1.0, ..default() },
+            Interaction::default(),
+            Tooltip(tip),
         ));
-        commands.spawn((ChildOf(row), Click::TakeOff(slot), button("Off")));
+        commands.spawn((ChildOf(row), Click::TakeOff(slot), button("Off"), Tooltip::new("Take it off (back into your bag).")));
     }
     let weapon_row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() })).id();
     let weapon = state.weapon.as_deref().map_or("Fists", |w| content.item_name(w)).to_string();
-    commands.spawn((ChildOf(weapon_row), label(format!("Weapon: {weapon}"), theme::FONT_SMALL, theme::TEXT)));
+    let tip = state.weapon.as_deref().and_then(|w| content.item(w)).map_or_else(|| { let f = shared::combat::FISTS; format!("Fists: {}-{} damage. Buy or find a weapon to hit harder.", f.min_damage, f.max_damage) }, |d| tooltip::item(d, &content));
+    commands.spawn((ChildOf(weapon_row), label(format!("Weapon: {weapon}"), theme::FONT_SMALL, theme::TEXT), Interaction::default(), Tooltip(tip)));
     if state.weapon.is_some() {
         commands.spawn((ChildOf(weapon_row), Click::Unequip, button("Unequip")));
     }
@@ -624,7 +647,9 @@ fn render_skills(
         let color = if xp > 0 { theme::TEXT } else { theme::MUTED_TEXT };
         let bonus = state.gear_bonus(skill, &content);
         let bonus = if bonus > 0 { format!(" (+{bonus})") } else { String::new() };
-        commands.spawn((ChildOf(body), label(format!("{:<12} Lv {level:<2}{bonus}  {xp} xp", skill.name()), theme::FONT_SMALL, color)));
+        let next = if level < MAX_LEVEL { format!("\n{} xp to level {}.", to - xp, level + 1) } else { "\nMaxed out.".into() };
+        let tip = Tooltip(format!("{}{next}", tooltip::skill(skill)));
+        commands.spawn((ChildOf(body), label(format!("{:<12} Lv {level:<2}{bonus}  {xp} xp", skill.name()), theme::FONT_SMALL, color), Interaction::default(), tip));
         commands.spawn((
             ChildOf(body),
             Node { height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), margin: UiRect::bottom(Val::Px(3.0)), ..default() },
@@ -643,7 +668,8 @@ fn render_skills(
         ));
         for (faction, rep) in &state.rep {
             let text = format!("{:<16} {} ({rep})", content.faction_name(faction), shared::content::rep_tier(*rep).0);
-            commands.spawn((ChildOf(body), label(text, 12.0, theme::TEXT)));
+            let tip = Tooltip::new("Quests, fights and hacks change it. Faction shops give 5-15% off from Friendly up, and keep some things for their best customers.");
+            commands.spawn((ChildOf(body), label(text, 12.0, theme::TEXT), Interaction::default(), tip));
         }
     }
 }

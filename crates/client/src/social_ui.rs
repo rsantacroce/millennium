@@ -6,6 +6,7 @@
 use crate::chat_ui::ChatFocus;
 use crate::game_ui::LocalState;
 use crate::theme::{self, button, window_frame};
+use crate::tooltip::{self, Tooltip};
 use crate::AppState;
 use crate::settings::Action;
 use bevy::prelude::*;
@@ -276,10 +277,11 @@ fn render_trade(mut commands: Commands, state: Res<SocialState>, content: Res<Co
         let heading = if mine { title.to_string() } else { format!("{title} offers") };
         commands.spawn((ChildOf(col), Text::new(heading), theme::text_font(theme::FONT_SMALL).with_font_weight(FontWeight::BOLD), TextColor(theme::TEXT)));
         for (i, line) in offer_lines(offer, &content).into_iter().enumerate() {
+            let tip = offer.items.get(i).and_then(|s| content.item(&s.item)).map(|d| tooltip::item(d, &content)).unwrap_or_default();
             if mine && i < offer.items.len() {
-                commands.spawn((ChildOf(col), Click::RemoveOffer(i), button(format!("{line}  (remove)"))));
+                commands.spawn((ChildOf(col), Click::RemoveOffer(i), button(format!("{line}  (remove)")), Tooltip(tip)));
             } else {
-                commands.spawn((ChildOf(col), label(line, theme::FONT_SMALL, theme::TEXT)));
+                commands.spawn((ChildOf(col), label(line, theme::FONT_SMALL, theme::TEXT), Interaction::default(), Tooltip(tip)));
             }
         }
         if accepted {
@@ -295,7 +297,7 @@ fn render_trade(mut commands: Commands, state: Res<SocialState>, content: Res<Co
     commands.spawn((ChildOf(cash_row), Click::ClearOffer, button("Clear")));
     let row = commands.spawn((ChildOf(body), Node { column_gap: Val::Px(6.0), justify_content: JustifyContent::FlexEnd, ..default() })).id();
     commands.spawn((ChildOf(row), Click::Cancel, button("Cancel")));
-    commands.spawn((ChildOf(row), Click::Accept, button(if trade.i_accepted { "Waiting..." } else { "Accept" })));
+    commands.spawn((ChildOf(row), Click::Accept, button(if trade.i_accepted { "Waiting..." } else { "Accept" }), Tooltip::new("The trade goes through when you both accept. Any change to either offer un-accepts it.")));
 }
 
 fn render_party(mut commands: Commands, state: Res<SocialState>, roots: Query<Entity, With<PartyRoot>>) {

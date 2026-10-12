@@ -23,11 +23,11 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 
 What a new player notices first.
 
-- [ ] Walk and drive animations (at least a walk cycle and a bobbing idle)
-- [ ] Settings screen: volume, key bindings, camera, graphics quality, UI scale
+- [x] Walk and drive animations (at least a walk cycle and a bobbing idle)
+- [x] Settings screen: volume, key bindings, camera, graphics quality, UI scale
 - [ ] First-time tutorial (a short guided quest: move, talk, buy, fight, repair)
-- [ ] Map window (full zone map with NPCs, shops and portals) and an on-screen quest tracker
-- [ ] Tooltips on items, skills and buttons
+- [x] Map window (full zone map with NPCs, shops and portals) and an on-screen quest tracker
+- [x] Tooltips on items, skills and buttons
 - [ ] Music: era-appropriate tracks, a car radio, and Radio Free Maple you can tune into
 - [ ] A visual check of Maple Heights, Route 9, Pinecrest and Hollow Pines
 

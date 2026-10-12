@@ -7,6 +7,7 @@ use crate::avatars::{Avatar, LocalAvatar, ScreenAnchor};
 use crate::chat_ui::ChatFocus;
 use crate::game_ui::{label, spawn_window, LocalState, Panels};
 use crate::theme::{self, button};
+use crate::tooltip::{self, Tooltip};
 use crate::AppState;
 use crate::settings::Action;
 use bevy::prelude::*;
@@ -274,7 +275,8 @@ fn render_storage(
         any = true;
         let row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(4.0), ..default() })).id();
         let text = format!("{} x{}", content.item_name(&stack.item), stack.qty);
-        commands.spawn((ChildOf(row), label(text, theme::FONT_SMALL, theme::TEXT), Node { flex_grow: 1.0, ..default() }));
+        let tip = content.item(&stack.item).map(|d| tooltip::item(d, &content)).unwrap_or_default();
+        commands.spawn((ChildOf(row), label(text, theme::FONT_SMALL, theme::TEXT), Node { flex_grow: 1.0, ..default() }, Interaction::default(), Tooltip(tip)));
         commands.spawn((ChildOf(row), Click::Retrieve(i as u8), button("Take")));
     }
     if !any {
