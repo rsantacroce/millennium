@@ -362,6 +362,34 @@ pub struct NpcTag(pub String);
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default, Deref, DerefMut)]
 pub struct Position(pub Vec2);
 
+/// How positions travel over the network: 2 cm steps as 16-bit integers. As postcard varints
+/// that's 2 bytes per coordinate anywhere within ±163 m (every zone fits), instead of 4 for an
+/// f32: positions are most of what the server sends.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WirePosition(i16, i16);
+
+/// Meters per step of [`WirePosition`].
+pub const WIRE_STEP: f32 = 0.02;
+
+impl From<Position> for WirePosition {
+    fn from(p: Position) -> Self {
+        let q = |v: f32| (v / WIRE_STEP).round().clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        WirePosition(q(p.0.x), q(p.0.y))
+    }
+}
+
+impl From<WirePosition> for Position {
+    fn from(w: WirePosition) -> Self {
+        Position(Vec2::new(w.0 as f32 * WIRE_STEP, w.1 as f32 * WIRE_STEP))
+    }
+}
+
+/// The local player predicts its own position exactly; the server's copy arrives rounded to
+/// [`WIRE_STEP`], so only a real disagreement (beyond the rounding) is a misprediction.
+fn position_mispredicted(confirmed: &Position, predicted: &Position) -> bool {
+    confirmed.0.distance(predicted.0) > WIRE_STEP * 2.5
+}
+
 /// Lets lightyear's interpolation blend between two server snapshots.
 impl Ease for Position {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
@@ -467,8 +495,9 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation();
         // Position is predicted for the local player and interpolated for everyone else.
         app.component::<Position>()
-            .replicate()
+            .replicate_as::<WirePosition>()
             .predict()
+            .with_rollback_condition(position_mispredicted)
             .add_linear_interpolation();
     }
 }
@@ -476,6 +505,19 @@ impl Plugin for ProtocolPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positions_travel_in_four_bytes_within_two_cm() {
+        for p in [Vec2::new(0.0, 0.0), Vec2::new(-47.99, 31.23), Vec2::new(120.0, -30.0), Vec2::new(-119.5, 29.99)] {
+            let wire = WirePosition::from(Position(p));
+            let bytes = postcard::to_allocvec(&wire).unwrap();
+            assert!(bytes.len() <= 4, "{p:?} took {} bytes", bytes.len());
+            let back = Position::from(wire);
+            assert!(back.0.distance(p) <= WIRE_STEP, "{p:?} -> {:?}", back.0);
+            assert!(!position_mispredicted(&back, &Position(p)), "rounding alone isn't a misprediction");
+        }
+        assert!(position_mispredicted(&Position(Vec2::ZERO), &Position(Vec2::new(0.2, 0.0))));
+    }
 
     #[test]
     fn intent_roundtrip_is_unit_length() {

@@ -131,6 +131,8 @@ fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms:
             Replicate::to_clients(NetworkTarget::All),
             InterpolationTarget::to_clients(NetworkTarget::All),
             Rooms::single(rooms.room(s.zone_id())),
+            // Rivals amble about: every other replication tick is plenty (clients interpolate).
+            ReplicatePriority(0.5),
             MobBrain {
                 spawn,
                 home: s.pos(),

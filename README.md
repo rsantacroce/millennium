@@ -614,6 +614,8 @@ All of this goes through the login service over TLS, never the game connection.
   | Before (multi-threaded, everyone in a zone sees everyone) | 4.2 ms | 50-80 ms | 28 KB/s | 67% |
   | Single-threaded systems | 3.6 ms | 12-16 ms | 27 KB/s | 59% |
   | + players only see players within 40-46 m | 3.8 ms | 15-22 ms | 17 KB/s | 65% |
+  | + far players (and rivals) updated at 10 Hz | 2.9 ms | 12-15 ms | 12 KB/s | 63% |
+  | + positions sent as 2 cm integers (4 bytes, not 8) | 2.8 ms | 11-13 ms | 8.4 KB/s | 59% |
 
   The tick budget is 33 ms. The login rush (200 accounts in 20 s) still gives one slow frame.
 - **Slow frames, explained:** a server built with `--features profile` logs every frame over
@@ -628,6 +630,16 @@ All of this goes through the login service over TLS, never the game connection.
   - NPCs, rivals and parked cars stay zone-wide.
   - Bandwidth per player drops by a third even in compact Downtown, and more in big zones. It
     no longer grows with the square of a zone's population.
+- **Fewer bytes per update:**
+  - **Far players get fewer updates.** Players beyond 15 m are sent every other replication
+    tick (replicon's per-client `PriorityMap`), and so are rivals. Clients interpolate 2.4
+    intervals behind (`shared::INTERPOLATION_RATIO`) so they never run dry.
+  - **Smaller positions.** A position travels as two 16-bit integers in 2 cm steps
+    (`WirePosition`), 2 bytes each as postcard varints anywhere inside a zone. The local player's
+    prediction only counts as wrong beyond 5 cm (`position_mispredicted`). Walking across
+    Downtown gave 0 rollbacks; an exact comparison gave about 2,000.
+  - **Measuring:** `millennium_channel_sent_bytes_total{channel=...}` on `/metrics` shows where
+    the bytes go. Component updates were 75% of everything sent.
 
 ### Backups
 

@@ -7,6 +7,9 @@
 //!    gap stops someone at the edge from flickering). That's about what the camera can show, and
 //!    it stops bandwidth growing with the square of a busy zone's population. NPCs, rivals and
 //!    parked cars are few, so they stay zone-wide.
+//! 3. **Far players are updated less often.** Beyond [`NEAR_DISTANCE`], a player's movement is
+//!    sent to a client every other replication tick (10 Hz instead of 20). Clients interpolate
+//!    with a buffer long enough for that (`client::net`, `INTERPOLATION_RATIO`).
 
 use crate::session::{PlayerLink, Progress};
 use bevy::prelude::*;
@@ -19,6 +22,11 @@ use std::collections::{HashMap, HashSet};
 pub const SHOW_DISTANCE: f32 = 40.0;
 /// ...and disappear beyond this one.
 pub const HIDE_DISTANCE: f32 = 46.0;
+/// Players closer than this get every update; further ones every other one.
+pub const NEAR_DISTANCE: f32 = 15.0;
+/// Replicon mutation priority for far players: 0.5 = every other replication tick.
+const FAR_PRIORITY: f32 = 0.5;
+
 /// How often visibility is rechecked (seconds). Walking speed is ~5 m/s, so someone crosses
 /// the gap between the two distances in about a second.
 const CHECK_SECS: f32 = 0.5;
@@ -64,6 +72,7 @@ fn players_in_sight(
     time: Res<Time<Real>>,
     mut since: Local<f32>,
     players: Query<(Entity, &Position, &ZoneId, &PlayerLink), With<Progress>>,
+    mut priorities: Query<Option<&mut PriorityMap>>,
     mut hidden: ResMut<HiddenByDistance>,
     mut commands: Commands,
 ) {
@@ -81,13 +90,19 @@ fn players_in_sight(
     hidden.0.retain(|(e, l)| present.contains(e) && present.contains(l));
     for group in by_zone.values() {
         for &(_, viewer_pos, viewer_link) in group {
+            // Who this client hears about less often (replicon reads it from the link).
+            let mut far = PriorityMap::default();
             for &(other, other_pos, other_link) in group {
                 if other_link == viewer_link {
                     continue;
                 }
+                let distance = viewer_pos.distance(other_pos);
+                if distance > NEAR_DISTANCE {
+                    far.insert(other, FAR_PRIORITY);
+                }
                 let key = (other, viewer_link);
                 let was_hidden = hidden.0.contains(&key);
-                let visible = in_sight(viewer_pos.distance(other_pos), was_hidden);
+                let visible = in_sight(distance, was_hidden);
                 if visible && was_hidden {
                     commands.gain_visibility(other, viewer_link);
                     hidden.0.remove(&key);
@@ -95,6 +110,13 @@ fn players_in_sight(
                     commands.lose_visibility(other, viewer_link);
                     hidden.0.insert(key);
                 }
+            }
+            match priorities.get_mut(viewer_link) {
+                Ok(Some(mut map)) => *map = far,
+                Ok(None) => {
+                    commands.entity(viewer_link).insert(far);
+                }
+                Err(_) => {}
             }
         }
     }

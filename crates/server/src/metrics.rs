@@ -85,6 +85,8 @@ pub struct Snapshot {
     pub net_recv_total: f64,
     pub net_sent_per_sec: f64,
     pub net_recv_per_sec: f64,
+    /// Bytes sent so far on each lightyear channel (replication, inputs, chat...).
+    pub channels_sent: Vec<(String, f64)>,
 }
 
 /// The latest snapshot, shared with the HTTP thread.
@@ -171,6 +173,26 @@ fn frame_finished(mut window: ResMut<Window>) {
     window.frame_max = window.frame_max.max(took);
 }
 
+/// Bytes sent so far per channel, from lightyear's `channel/send_bytes{channel=...}` counters.
+fn channel_totals(registry: &MetricsRegistry) -> Vec<(String, f64)> {
+    let mut out: Vec<(String, f64)> = registry
+        .all_metrics()
+        .into_iter()
+        .filter(|m| m.key.key().name() == "channel/send_bytes")
+        .filter_map(|m| {
+            let channel = m.key.key().labels().find(|l| l.key() == "channel")?.value().to_string();
+            Some((short_channel(&channel), registry.fetch_metric_value(&m.key)?))
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1));
+    out
+}
+
+/// `lightyear_replication::...::UpdatesChannel` -> `UpdatesChannel`.
+fn short_channel(name: &str) -> String {
+    name.rsplit("::").next().unwrap_or(name).trim_end_matches('>').to_string()
+}
+
 /// Bytes lightyear's transport has sent and received so far (its counters only go up).
 fn network_totals(registry: &MetricsRegistry) -> (f64, f64) {
     let read = |name: &'static str| registry.get_gauge_value(&Key::from_static_name(name)).unwrap_or(0.0);
@@ -222,6 +244,7 @@ fn snapshot(
         net_recv_total: net.1,
         net_sent_per_sec: (net.0 - window.net.0).max(0.0) / secs,
         net_recv_per_sec: (net.1 - window.net.1).max(0.0) / secs,
+        channels_sent: channel_totals(&registry),
     };
     window.since = Instant::now();
     window.frames = 0;
@@ -285,6 +308,10 @@ pub fn prometheus(s: &Snapshot) -> String {
     metric("millennium_db_command_seconds_max", "gauge", "Slowest database command in the last window.", s.db_max_ms / 1000.0);
     metric("millennium_network_sent_bytes_total", "counter", "Bytes sent to clients.", s.net_sent_total);
     metric("millennium_network_received_bytes_total", "counter", "Bytes received from clients.", s.net_recv_total);
+    out.push_str("# HELP millennium_channel_sent_bytes_total Bytes sent on each network channel.\n# TYPE millennium_channel_sent_bytes_total counter\n");
+    for (channel, bytes) in &s.channels_sent {
+        out.push_str(&format!("millennium_channel_sent_bytes_total{{channel=\"{}\"}} {bytes}\n", channel.replace('"', "")));
+    }
     out.push_str("# HELP millennium_players_by_zone Characters in each zone.\n# TYPE millennium_players_by_zone gauge\n");
     for (zone, n) in &s.players_by_zone {
         let zone = zone.replace('\\', "\\\\").replace('"', "\\\"");

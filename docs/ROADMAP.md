@@ -42,7 +42,7 @@ What a new player notices first.
 - [x] Load test with many smoke-tool bots: players per zone server, bandwidth, tick time (`scripts/loadtest.sh`; results in the README)
 - [x] Find the occasional 50-80 ms frames with 100+ players in one zone: thread wake-ups, not work; systems now run on one thread (`--features profile` finds slow systems)
 - [x] Interest management: only replicate players within sight (40-46 m), so bandwidth stops growing with the square of a zone's population (28 -> 17 KB/s per player at 200 bots)
-- [ ] Fewer bytes per player: send far players less often, and smaller position updates (dial-up is ~7 KB/s; a crowded street is 17 KB/s)
+- [x] Fewer bytes per player: far players and rivals at 10 Hz, positions in 4 bytes (17 -> 8.4 KB/s per player at 200 bots; dial-up is ~7 KB/s)
 - [x] Moderation tools: kick, ban, an admin panel, chat reports
 - [x] Account recovery (password reset with recovery codes), and account deletion
 - [x] Metrics and dashboards (online players, tick time, database latency): `/metrics`, a status page, a log line

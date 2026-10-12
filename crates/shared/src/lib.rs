@@ -33,6 +33,10 @@ pub const TICK_HZ: f64 = 30.0;
 
 /// How often the server sends replication updates to clients.
 pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(50);
+/// Clients interpolate other entities this many replication intervals behind. Far players and
+/// rivals are only updated every other interval (see `server::zones`), so it has to cover two
+/// intervals, plus some slack (lightyear's default is 1.2).
+pub const INTERPOLATION_RATIO: f32 = 2.4;
 
 /// Bumped whenever the wire protocol changes; netcode rejects mismatched clients.
 pub const PROTOCOL_ID: u64 = 2000_0004;

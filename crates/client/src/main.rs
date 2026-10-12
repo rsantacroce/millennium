@@ -135,6 +135,11 @@ fn main() {
     app.insert_resource(WinitSettings::continuous());
 
     app.add_plugins(ClientPlugins { tick_duration: shared::tick_duration() });
+    // Long enough for entities the server updates every other interval (far players, rivals).
+    app.insert_resource(lightyear::prelude::InterpolationConfig {
+        send_interval_ratio: shared::INTERPOLATION_RATIO,
+        ..default()
+    });
     app.add_plugins(shared::SharedPlugin);
 
     app.init_state::<AppState>()
