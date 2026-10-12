@@ -4,19 +4,36 @@ An online RPG set around the year 2000: a persistent city of CRT monitors, pager
 cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 [lightyear](https://github.com/cBournhonesque/lightyear).
 
-**What's playable (Milestones 1–4):**
+**What's playable (Milestones 1–5):**
 
 - **Accounts:** passwords hashed with argon2id, sent through a TLS login service. Up to 3
   characters per account, created with a body type, skin tone and outfit (jacket, pants, cap).
-- **The world:** four zones linked by the subway: *Downtown – Maple & 5th* (shops, NPCs), the
-  *Harbor Docks* (warehouses, containers, rival crews), the *Galleria Mall* (no fighting) and the
-  *Abandoned Factory* (scrap, Scrappers, Old Earl). A highway links Downtown and the Factory for
-  drivers. Click to walk anywhere, or use WASD. Shops fade out when they'd hide you, and the
-  game synthesizes its own sound effects (including a dial-up modem on login).
-- **NPCs and quests:** dialogue trees, a quest log, and a first quest, **56k Dreams**.
-- **Economy:** a 20-slot inventory, cash, and two shops (one buys your stuff back).
-- **Skills:** **Electronics** (repair broken gadgets, sell them back at a profit), **Fitness**
-  (fighting), **Mechanics** (rebuild car parts with a wrench) and **Driving**.
+- **The city:** *Downtown – Maple & 5th* (shops, NPCs), the *Harbor Docks* (warehouses, rival
+  crews), the *Galleria Mall* (no fighting), the *Abandoned Factory* (scrap, Old Earl), the
+  suburbs of *Maple Heights* (diner, grocery) and the *rooftops* above Maple & 5th, linked by
+  the subway and a fire escape.
+- **The region:** drive out on *Route 9* (gas station, a highway race) to the small town of
+  *Pinecrest* and *Hollow Pines State Park*. Buses run back for anyone on foot.
+- **Day and night:** a 40-minute day. Streetlamps and lit windows at night; some people (and
+  some trouble) only come out after dark.
+- Click to walk anywhere, or use WASD. Shops fade out when they'd hide you, and the game
+  synthesizes its own sound effects (including a dial-up modem on login).
+- **NPCs and quests:** dialogue trees, a quest log, and quests from **56k Dreams** to the
+  **Black ICE** hack and a road trip to Pinecrest.
+- **Economy:** a 20-slot inventory, cash, shops (some buy your stuff back, faction shops give
+  discounts and lock their best items behind reputation).
+- **Clothing:** caps, jackets, shoes and accessories with armor, health and skill bonuses,
+  shown on your character.
+- **Factions:** City Services, Meridian Corp, the Dockside Crew and the Zer0 Day hackers.
+  Quests, fights and hacks change your reputation with them.
+- **Skills:** all seven:
+  - **Electronics:** repair broken gadgets and sell them on at a profit.
+  - **Fitness:** fighting.
+  - **Mechanics:** rebuild car parts with a wrench.
+  - **Driving.**
+  - **Cooking:** meals heal and give timed buffs.
+  - **Hacking:** payphones, ATMs and terminals, through a code-recall mini-game.
+  - **Trading:** better prices and more e-Bid auctions.
 - **Cars:** fix up Old Earl's junker (quest **Earl's Junker**) and it's yours. Drive it around
   town, take the highway, and race Dash in the **Maple & 5th Sprint**. Cars stay parked where you
   leave them.
@@ -137,6 +154,7 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
   - e-Bid (at a terminal): `!search TEXT`, `!list ITEM QTY START BUYOUT|- HOURS`, `!bid N AMOUNT|min`,
     `!buyout N`, `!mine`, `!cancel N`, `!claims`, `!collect`, `!closemarket`
   - cars: `!cars`, `!enter`, `!exit`, `!drive X Z`, `!race`
+  - gear and hacking: `!equip ITEM` (weapons and gear), `!takeoff SLOT`, `!hack`, `!hack wrong`
   - any chat input, including `/trade`, `/invite`, `/crew ...`
   
   It follows server transfers in a cluster, like the real client. Set `SMOKE_TRACE=1` to print
@@ -148,7 +166,7 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 - **Scripted GUI client:** `--step` works in the real client too, so you can watch the windows.
   `!goto` uses the real click-to-move pathfinding; there's also `!walkto NPC`, `!fight MOB`,
   `!open inventory|quests|skills|social|crew`, `!accept ...`, `!select SLOT`,
-  `!market browse|sell|mine|claims`, `!car` (get in or out) and `!shot FILE.png` (a screenshot
+  `!market browse|sell|mine|claims`, `!use SLOT`, `!car` (get in or out) and `!shot FILE.png` (a screenshot
   Bevy renders itself; macOS still needs the screen unlocked to draw the window):
   ```sh
   cargo run -p client -- --name Trinity --password password123 \
@@ -182,6 +200,13 @@ another slot to move or merge it there. At a shop that buys, a **Sell $N** butto
 
 **Repairs:** using a broken item starts a timed repair (you need the tool, a Screwdriver Set or
 a Wrench, and the skill level). Moving cancels it.
+
+**Hacking:** talk to a payphone, ATM or terminal and choose *Hack it*. Memorize the code while
+it shows, type it in and press Enter before the timer runs out (Esc gives up).
+
+**Clothing and food:** *Use* a piece of clothing to wear it (the inventory lists what you're
+wearing, with *Off* buttons); the skills window shows gear and food bonuses as (+N). Active
+food buffs and the time of day are on the HUD.
 
 **Driving:** steer with WASD or click where you want to go: the car turns toward that direction,
 faster the faster it's going. Pull away from the nose while stopped to back up and turn around.
@@ -407,8 +432,51 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
   - "this account logged in elsewhere"
 
   Zone servers reconnect and re-announce their players if it restarts.
-- **Not cross-server:** parties and trades stay on one server; changing servers leaves your
-  party.
+- **Parties** belong to the hub in a cluster, so they survive changing servers. Members'
+  zone and health are reported every second, and party chat is relayed to the other servers.
+- **Not cross-server:** trades (both players have to be standing next to each other anyway).
+  Food buffs wear off when you change servers.
+
+### Gear, factions and Trading
+
+- **Gear:** worn items (`gear` in `items.ron`) give armor, max health and *bonus levels*.
+  Bonus levels count for doing things (repairs, damage, hacking, cooking) but not for quest
+  requirements, so a hat can't skip a quest. The look is replicated as an `Outfit` component.
+- **Reputation:** −1000 to 1000 per faction, in tiers (Hostile, Unfriendly, Neutral, Friendly,
+  Honored, Revered). Quest rewards, mob knockouts and hacks change it. Dialogue options can
+  require it, and faction shops give 5–15% off by tier and lock items until a tier.
+- **Trading:** shops pay 2% more per Trading level (up to 30%), and you get one more e-Bid
+  auction every two levels (up to 20). You train it by selling.
+
+### Cooking and buffs
+
+Recipes can use several ingredients (`extra` in `recipes.ron`). Food can heal and start a
+*buff*: temporary bonus levels in a skill. Buffs count like gear bonuses, refresh rather than
+stack, and live in `PlayerState` with a wall-clock end time. The server drops them when they run
+out, and they aren't saved (logging out ends them).
+
+### Hacking
+
+Hackable things (`hacks.ron`) are NPC-like props with a "Hack it" dialogue option. The server
+picks a random code, the client flashes it, and you type it back before the timer runs out.
+The more you outlevel the hack, the shorter the code and the longer it shows. Success rolls
+cash, XP, loot and reputation and starts a per-player cooldown. Failure trips an alarm. The code
+does travel to the client, so a modified client could auto-solve; payouts are small and capped
+by cooldowns.
+
+### Day and night
+
+`shared::clock` works out the hour from wall-clock time (a 40-minute day), so every server and
+client agrees without syncing anything. The client moves the sun, darkens the sky and lights
+streetlamps and windows. On the server, NPCs and mob spawns can have opening `hours` (Vinnie's
+hot dog cart, graffiti taggers). `MILLENNIUM_CLOCK_SHIFT_HOURS=12` shifts the clock for testing;
+give the server and its clients the same value.
+
+### Rooftops
+
+A zone can list `walkable` areas (the roofs and the planks between them). Anywhere else is a
+drop: movement, cars and the nav grid all refuse it. The client draws each roof on top of its
+building, with the street far below.
 
 ### ECS and persistence
 
