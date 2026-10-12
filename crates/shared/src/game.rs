@@ -60,6 +60,9 @@ pub enum GameEvent {
     Equipped(ItemId),
     Unequipped(ItemId),
     OpenMarket,
+    /// The server creates the car (it lives in its own table, not in `PlayerState`).
+    CarGranted(String),
+    RaceStarted(String),
 }
 
 /// A rule said no. The text is shown to the player.
@@ -283,6 +286,20 @@ impl PlayerState {
         Ok(())
     }
 
+    /// Grants cash and XP (race prizes, driving). Returns what happened.
+    pub fn reward(&mut self, cash: i64, xp: &[(Skill, u64)]) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        if cash > 0 {
+            let _ = self.change_cash(cash, &mut events);
+        }
+        for (skill, amount) in xp {
+            if *amount > 0 {
+                self.add_xp(*skill, *amount, &mut events);
+            }
+        }
+        events
+    }
+
     fn add_xp(&mut self, skill: Skill, xp: u64, events: &mut Vec<GameEvent>) {
         let before = self.level(skill);
         *self.skills.entry(skill).or_insert(0) += xp;
@@ -345,6 +362,8 @@ impl PlayerState {
                 self.kills.insert(mob.clone(), 0);
             }
             Effect::OpenMarket => events.push(GameEvent::OpenMarket),
+            Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
+            Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
         }
         Ok(())
     }

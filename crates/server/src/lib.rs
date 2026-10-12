@@ -20,6 +20,7 @@ mod net;
 mod persistence;
 mod session;
 mod social;
+mod vehicles;
 mod zones;
 
 use bevy::app::{ScheduleRunnerPlugin, TerminalCtrlCHandlerPlugin};
@@ -91,6 +92,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         combat::CombatPlugin,
         social::SocialPlugin,
         market::MarketPlugin,
+        vehicles::VehiclesPlugin,
     ));
     Ok(app)
 }

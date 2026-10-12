@@ -250,6 +250,20 @@
                         effects: [TakeItem("scrap_metal", 6), CompleteQuest("scrap_run")],
                         goto: Some("reward"),
                     ),
+                    (text: "How's the car coming along?", when: [QuestDone("scrap_run"), QuestNotStarted("junker")], goto: Some("junker_offer")),
+                    (text: "About the hatchback...", when: [QuestAt("junker", 0)], goto: Some("junker_reminder")),
+                    (
+                        text: "I've got everything for the hatchback.",
+                        when: [QuestAt("junker", 1), HasItem("carburetor", 1), HasItem("car_battery", 1), HasItem("spark_plug", 2)],
+                        effects: [
+                            TakeItem("carburetor", 1),
+                            TakeItem("car_battery", 1),
+                            TakeItem("spark_plug", 2),
+                            CompleteQuest("junker"),
+                            GiveCar("hatchback"),
+                        ],
+                        goto: Some("junker_done"),
+                    ),
                     (text: "Let's trade.", effects: [OpenShop("earl_salvage")], goto: None),
                     (text: "Bye.", goto: None),
                 ],
@@ -267,6 +281,44 @@
                 id: "reward",
                 text: "That's the stuff. Take my spare wrench, and watch how I do this. You've got the hands for it.",
                 options: [(text: "Thanks, Earl.", goto: None)],
+            ),
+            (
+                id: "junker_offer",
+                text: "Body's done, but she still won't start. Tell you what: get her running and she's yours. I need a carburetor, a battery and two spark plugs. The Scrappers carry rusty carbs; rebuild one with that wrench. And you'll want to know what you're doing: Mechanics 3, at least.",
+                options: [
+                    (text: "Deal.", effects: [StartQuest("junker")], goto: None),
+                    (text: "Maybe later.", goto: None),
+                ],
+            ),
+            (
+                id: "junker_reminder",
+                text: "A carburetor, a car battery, two spark plugs, and Mechanics 3. I sell rusty carbs and plugs if the Scrappers won't give you any.",
+                options: [(text: "On it.", goto: None)],
+            ),
+            (
+                id: "junker_done",
+                text: "Listen to that engine! She's all yours, kid. Highway's at the south end of the yard, takes you right onto Maple Street. Go see Dash downtown if you want to race.",
+                options: [(text: "Thanks, Earl!", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "dash",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "You here to race, or just to look at the paint jobs?",
+                options: [
+                    (text: "Let's race.", effects: [StartRace("maple_loop")], goto: None),
+                    (text: "How does it work?", goto: Some("rules")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "rules",
+                text: "Maple & 5th Sprint. East end of Maple, south end of 5th, north end of 5th, then back here. Fifty seconds. Make it and I'll pay you thirty bucks. Pull up next to me in your car and say the word.",
+                options: [(text: "Got it.", goto: None)],
             ),
         ],
     ),

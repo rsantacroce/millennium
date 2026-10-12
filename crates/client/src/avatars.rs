@@ -113,7 +113,7 @@ pub fn spawn_body(
 }
 
 /// A big flat dot only the minimap camera can see (render layer 1).
-fn minimap_dot(commands: &mut Commands, parent: Entity, color: Color, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+pub fn minimap_dot(commands: &mut Commands, parent: Entity, color: Color, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
     commands.spawn((
         Mesh3d(meshes.add(Cylinder::new(1.4, 0.1))),
         MeshMaterial3d(materials.add(StandardMaterial { base_color: color, unlit: true, ..default() })),
@@ -123,7 +123,7 @@ fn minimap_dot(commands: &mut Commands, parent: Entity, color: Color, meshes: &m
     ));
 }
 
-fn name_tag(commands: &mut Commands, target: Entity, name: &str, color: Color) {
+pub fn name_tag(commands: &mut Commands, target: Entity, name: &str, color: Color) {
     commands.spawn((
         NameTag { name: name.to_string() },
         ScreenAnchor { target, height: 2.0, lift_px: 0.0 },
@@ -248,17 +248,17 @@ fn rebuild_changed_looks(
 
 fn sync_transforms(
     time: Res<Time>,
-    mut avatars: Query<(&Position, &mut Transform, Has<LocalAvatar>), (With<Avatar>, Without<NpcTag>)>,
+    mut avatars: Query<(&Position, &mut Transform, Has<LocalAvatar>, Has<shared::vehicle::Driving>), (With<Avatar>, Without<NpcTag>)>,
 ) {
     let smooth = 1.0 - (-25.0 * time.delta_secs()).exp();
-    for (pos, mut transform, is_local) in &mut avatars {
+    for (pos, mut transform, is_local, driving) in &mut avatars {
         let target = Vec3::new(pos.x, 0.0, pos.y);
         let previous = transform.translation;
         transform.translation =
             if is_local && previous.distance(target) < 5.0 { previous.lerp(target, smooth) } else { target };
-        // Face the direction of travel.
+        // Face the direction of travel (drivers face where the car points; see `cars`).
         let delta = (transform.translation - previous).xz();
-        if delta.length_squared() > 1e-6 {
+        if !driving && delta.length_squared() > 1e-6 {
             let facing = Quat::from_rotation_y((-delta.x).atan2(-delta.y));
             transform.rotation = transform.rotation.slerp(facing, (12.0 * time.delta_secs()).min(1.0));
         }

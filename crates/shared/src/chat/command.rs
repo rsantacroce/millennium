@@ -11,6 +11,7 @@
 //! /r thanks          -> reply to the last person who whispered you (/reply)
 //! /ignore Bob, /unignore Bob, /ignorelist
 //! /mute Bob 10, /unmute Bob   (admins)
+//! /give walkman 2, /givecar hatchback   (admins, for testing)
 //! /help, /clear
 //! ```
 
@@ -120,6 +121,17 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
             Ok(ChatInput::Action(ChatAction::Mute { name, minutes }))
         }
         "unmute" => Ok(ChatInput::Action(ChatAction::Unmute { name: one_name(args, "/unmute <name>")? })),
+        "give" => {
+            const USAGE: &str = "/give <item id> [quantity]";
+            let (item, qty) = split_word(args);
+            let item = non_empty(item).ok_or(ParseError::Usage(USAGE))?;
+            let qty = match qty.trim() {
+                "" => 1,
+                q => q.parse().map_err(|_| ParseError::Usage(USAGE))?,
+            };
+            Ok(ChatInput::Action(ChatAction::Give { item, qty }))
+        }
+        "givecar" => Ok(ChatInput::Action(ChatAction::GiveCar { model: one_name(args, "/givecar <model>")? })),
         "help" | "?" => Ok(ChatInput::Help),
         "clear" => Ok(ChatInput::Clear),
         _ => Err(ParseError::UnknownCommand(cmd)),

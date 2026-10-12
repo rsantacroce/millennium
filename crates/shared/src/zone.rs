@@ -32,6 +32,8 @@ pub struct Portal {
     pub rect: Rect,
     pub to: ZoneId,
     pub arrive: Vec2,
+    /// A road out of town: only taken while driving (and walking players ignore it).
+    pub road: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,8 +72,8 @@ pub struct ZoneLayout {
 }
 
 impl ZoneLayout {
-    pub fn portal_at(&self, pos: Vec2) -> Option<&Portal> {
-        self.portals.iter().find(|p| p.rect.contains(pos))
+    pub fn portal_at(&self, pos: Vec2, driving: bool) -> Option<&Portal> {
+        self.portals.iter().find(|p| p.road == driving && p.rect.contains(pos))
     }
 }
 
@@ -152,9 +154,11 @@ pub fn downtown_block() -> ZoneLayout {
         ],
         // The Metro station has a doorway per line.
         portals: vec![
-            Portal { name: "Metro: Harbor Docks", rect: Rect::new(29.0, 34.0, 31.0, 38.0), to: ZoneId::DOCKS, arrive: Vec2::new(-21.5, 30.0) },
-            Portal { name: "Metro: Galleria Mall", rect: Rect::new(34.0, 41.0, 38.0, 43.0), to: ZoneId::MALL, arrive: Vec2::new(0.0, -24.0) },
-            Portal { name: "Metro: Abandoned Factory", rect: Rect::new(41.0, 34.0, 43.0, 38.0), to: ZoneId::FACTORY, arrive: Vec2::new(-31.5, 0.0) },
+            Portal { name: "Metro: Harbor Docks", rect: Rect::new(29.0, 34.0, 31.0, 38.0), to: ZoneId::DOCKS, arrive: Vec2::new(-21.5, 30.0), road: false },
+            Portal { name: "Metro: Galleria Mall", rect: Rect::new(34.0, 41.0, 38.0, 43.0), to: ZoneId::MALL, arrive: Vec2::new(0.0, -24.0), road: false },
+            Portal { name: "Metro: Abandoned Factory", rect: Rect::new(41.0, 34.0, 43.0, 38.0), to: ZoneId::FACTORY, arrive: Vec2::new(-31.5, 0.0), road: false },
+            // The east end of Maple St leads out to the factory, for drivers.
+            Portal { name: "Highway: Abandoned Factory", rect: Rect::new(45.0, -4.5, 48.0, 4.5), to: ZoneId::FACTORY, arrive: Vec2::new(-2.0, 36.0), road: true },
         ],
         ground: [0.68, 0.67, 0.64],
         outskirts: [0.36, 0.50, 0.30],
@@ -193,6 +197,7 @@ pub fn galleria_mall() -> ZoneLayout {
             rect: Rect::new(-2.0, -28.5, 2.0, -27.0),
             to: ZoneId::DOWNTOWN,
             arrive: Vec2::new(36.0, 45.5),
+        road: false,
         }],
         ground: [0.86, 0.84, 0.80],
         outskirts: [0.30, 0.28, 0.32],
@@ -230,6 +235,7 @@ pub fn abandoned_factory() -> ZoneLayout {
             rect: Rect::new(-35.0, -2.0, -33.5, 2.0),
             to: ZoneId::DOWNTOWN,
             arrive: Vec2::new(45.5, 36.0),
+        road: false,
         }],
         ground: [0.48, 0.46, 0.43],
         outskirts: [0.36, 0.33, 0.28],
@@ -269,6 +275,7 @@ pub fn harbor_docks() -> ZoneLayout {
             rect: Rect::new(-26.0, 28.5, -24.5, 31.5),
             to: ZoneId::DOWNTOWN,
             arrive: Vec2::new(27.0, 36.0),
+        road: false,
         }],
         ground: [0.52, 0.52, 0.50],
         outskirts: [0.12, 0.25, 0.38],
@@ -297,7 +304,9 @@ mod tests {
             for portal in &zone.portals {
                 let to = zones.get(portal.to).expect("portal target zone exists");
                 // You must not arrive standing in a portal (you'd bounce straight back).
-                assert!(to.portal_at(portal.arrive).is_none(), "{} arrives inside a portal", portal.name);
+                for driving in [false, true] {
+                    assert!(to.portal_at(portal.arrive, driving).is_none(), "{} arrives inside a portal", portal.name);
+                }
                 assert!(crate::nav::NavGrid::build(to).walkable(portal.arrive), "{} arrives inside a wall", portal.name);
                 // The portal can be reached on foot from the zone's spawn.
                 let path = grid.find_path(zone.spawn, portal.rect.center()).expect("portal reachable");

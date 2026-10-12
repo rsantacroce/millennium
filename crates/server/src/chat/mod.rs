@@ -7,7 +7,8 @@ mod rate_limit;
 
 use crate::config::{ChatConfig, ServerConfig};
 use crate::persistence::{now_ms, ChatRecord, Db, DbCommand, DbEvent, DbResult};
-use crate::session::{CharacterIds, OnlinePlayers, PlayerLink, Session};
+use crate::session::{CharacterIds, OnlinePlayers, PlayerLink, Progress, Session};
+use crate::vehicles::{CarAction, CarRequest};
 use crate::social::friends::{CrewMembership, Crews};
 use crate::social::party::Parties;
 use bevy::prelude::*;
@@ -238,6 +239,9 @@ fn handle_chat_actions(
     mut notice_tx: Query<&mut MessageSender<SystemNotice>>,
     online: Res<OnlinePlayers>,
     db: Res<Db>,
+    mut progress: Query<&mut Progress>,
+    content: Res<shared::content::Content>,
+    mut cars: MessageWriter<CarRequest>,
 ) {
     let mut incoming = Vec::new();
     for (link, session, mut receiver) in &mut links {
@@ -270,7 +274,9 @@ fn handle_chat_actions(
                 };
                 notify(&mut notice_tx, link, SystemNotice::info(text));
             }
-            ChatAction::Mute { .. } | ChatAction::Unmute { .. } if !is_admin => {
+            ChatAction::Mute { .. } | ChatAction::Unmute { .. } | ChatAction::Give { .. } | ChatAction::GiveCar { .. }
+                if !is_admin =>
+            {
                 notify(&mut notice_tx, link, SystemNotice::warn("Only admins can do that."));
             }
             ChatAction::Mute { name, minutes } => {
@@ -282,6 +288,23 @@ fn handle_chat_actions(
                 apply_mute_online(&mut players, &mut notice_tx, &online, &name, None);
                 db.send(DbCommand::SetMute { link, target_name: name, until_ms: None });
             }
+            ChatAction::Give { item, qty } => {
+                let Ok(mut progress) = progress.get_mut(player) else { continue };
+                let text = match progress.apply(&[shared::content::Effect::GiveItem(item.clone(), qty)], &content) {
+                    Ok(_) => format!("Gave you {} x{qty}.", content.item_name(&item)),
+                    Err(e) => format!("Can't: {e}"),
+                };
+                notify(&mut notice_tx, link, SystemNotice::info(text));
+            }
+            ChatAction::GiveCar { model } => match shared::vehicle::model(&model) {
+                Some(_) => {
+                    cars.write(CarRequest { player, link, action: CarAction::Grant(model) });
+                }
+                None => {
+                    let models: Vec<&str> = shared::vehicle::MODELS.iter().map(|m| m.id).collect();
+                    notify(&mut notice_tx, link, SystemNotice::info(format!("Models: {}", models.join(", "))));
+                }
+            },
         }
     }
 }

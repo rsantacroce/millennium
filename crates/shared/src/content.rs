@@ -238,6 +238,10 @@ pub enum Effect {
     ResetKills(MobId),
     /// Opens the e-Bid marketplace terminal.
     OpenMarket,
+    /// Gives the player a car of this model (see `vehicle::MODELS`), parked nearby.
+    GiveCar(String),
+    /// Starts a street race (see `vehicle::RACES`); you must be driving.
+    StartRace(String),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -469,6 +473,12 @@ impl Content {
                             }
                             Effect::ResetKills(m) if !self.mobs.contains_key(m) => {
                                 errors.push(format!("{ctx}: unknown mob `{m}`"))
+                            }
+                            Effect::GiveCar(m) if crate::vehicle::model(m).is_none() => {
+                                errors.push(format!("{ctx}: unknown car model `{m}`"))
+                            }
+                            Effect::StartRace(r) if crate::vehicle::race(r).is_none() => {
+                                errors.push(format!("{ctx}: unknown race `{r}`"))
                             }
                             _ => {}
                         }

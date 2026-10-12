@@ -19,13 +19,15 @@
 //! - e-Bid (at a terminal, opened through dialogue): `!search TEXT`, `!list ITEM QTY START BUYOUT|- HOURS`,
 //!   `!bid N AMOUNT|min` and `!buyout N` (N indexes the last results), `!mine`, `!cancel N`, `!claims`,
 //!   `!collect`, `!closemarket`
+//! - cars: `!cars` (list parked cars), `!enter` (nearest), `!exit`, `!drive X Z` (straight there, then
+//!   brake), `!race` (drive through the current race's checkpoints)
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
 //! (pause between steps), `--known FILE` (pinned certificates).
 
 // Bevy queries routinely trip this lint.
-#![allow(clippy::type_complexity)]
+#![allow(clippy::type_complexity, clippy::too_many_arguments)]
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::log::LogPlugin;
@@ -43,6 +45,7 @@ use shared::chat::{parse_input, ChatAction, ChatInput, ChatLine, ChatTarget};
 use shared::content::Content;
 use shared::game::{PlayerState, QuestProgress};
 use shared::market::{Listing, MarketAction, MarketUpdate};
+use shared::vehicle::{Driving, ParkedCar};
 use shared::protocol::*;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -67,6 +70,9 @@ struct Script {
     /// Last e-Bid search results and own listings (`!bid N`, `!cancel N` index these).
     results: Vec<Listing>,
     mine: Vec<Listing>,
+    /// Remaining checkpoints of the current race, and whether `!race` is driving them.
+    race: Vec<Vec2>,
+    racing: bool,
     idle_after: f32,
 }
 
@@ -132,6 +138,8 @@ fn main() {
         state: PlayerState::default(),
         results: Vec::new(),
         mine: Vec::new(),
+        race: Vec::new(),
+        racing: false,
         idle_after: 3.0,
     });
     app.add_systems(Startup, move |mut commands: Commands| {
@@ -166,11 +174,11 @@ fn mark_controlled(mut commands: Commands, new: Query<Entity, (With<Controlled>,
 fn predict(
     zones: Res<shared::zone::ZoneRegistry>,
     time: Res<Time<Fixed>>,
-    mut q: Query<(&mut Position, &ActionState<MoveIntent>, &shared::zone::ZoneId), With<Predicted>>,
+    mut q: Query<(&mut Position, &ActionState<MoveIntent>, &shared::zone::ZoneId, Option<&mut Driving>), With<Predicted>>,
 ) {
-    for (mut pos, input, zone) in &mut q {
+    for (mut pos, input, zone, driving) in &mut q {
         if let Some(layout) = zones.get(*zone) {
-            pos.0 = shared::movement::step(pos.0, &input.0, time.timestep().as_secs_f32(), layout);
+            pos.0 = shared::movement::advance(pos.0, driving.map(|d| d.into_inner()), &input.0, time.timestep().as_secs_f32(), layout);
         }
     }
 }
@@ -179,10 +187,10 @@ fn predict(
 fn walk(
     navs: Res<shared::nav::NavGrids>,
     mut script: ResMut<Script>,
-    mut me: Query<(&Position, &mut ActionState<MoveIntent>, Ref<shared::zone::ZoneId>), With<InputMarker<MoveIntent>>>,
+    mut me: Query<(&Position, &mut ActionState<MoveIntent>, Ref<shared::zone::ZoneId>, Option<&Driving>), With<InputMarker<MoveIntent>>>,
     mobs: Query<(&MobTag, &Position), Without<InputMarker<MoveIntent>>>,
 ) {
-    let Ok((pos, mut action, zone)) = me.single_mut() else { return };
+    let Ok((pos, mut action, zone, driving)) = me.single_mut() else { return };
     // Riding the subway ends the walk (the target was in the old zone's coordinates).
     if zone.is_changed() && !zone.is_added() && script.goto.take().is_some() {
         script.path.clear();
@@ -200,6 +208,35 @@ fn walk(
         action.0 = MoveIntent::default();
         return;
     };
+    if let Some(car) = driving {
+        // Drivers go straight (along the streets); `!race` threads the checkpoints without stopping.
+        if script.path.is_empty() && !script.racing {
+            script.path = vec![target].into();
+        }
+        // Start braking in time to stop near the target.
+        let stopping = car.speed * car.speed / (2.0 * car.model().brake);
+        let reach = if script.racing { shared::vehicle::CHECKPOINT_RADIUS - 1.5 } else { 1.5 + stopping };
+        while script.path.front().is_some_and(|wp| wp.distance(pos.0) < reach) {
+            script.path.pop_front();
+        }
+        if std::env::var_os("SMOKE_TRACE").is_some() {
+            println!("TRACE  ({:.1}, {:.1}) speed {:.1} heading {:.2} -> {:?}", pos.x, pos.y, car.speed, car.heading, script.path.front());
+        }
+        match script.path.front() {
+            Some(wp) => action.0 = MoveIntent::from_direction((*wp - pos.0).normalize()),
+            None => {
+                // Brake by asking for the opposite of where we're rolling.
+                let rolling = Vec2::from_angle(car.heading) * car.speed;
+                action.0 = if rolling.length() > 0.5 { MoveIntent::from_direction(-rolling.normalize()) } else { MoveIntent::default() };
+                if car.speed.abs() < 0.3 {
+                    println!("DRIVE  stopped at ({:.1}, {:.1})", pos.x, pos.y);
+                    script.goto = None;
+                    script.racing = false;
+                }
+            }
+        }
+        return;
+    }
     if script.path.is_empty() {
         script.path = navs.get(*zone).and_then(|g| g.find_path(pos.0, target)).unwrap_or_else(|| vec![target]).into();
     }
@@ -332,6 +369,11 @@ fn receive(
                 println!("KO     knocked out!");
                 script.fight = None;
             }
+            GameUpdate::Race { name, checkpoints, next, seconds_left } => {
+                println!("RACE   {name}: checkpoint {}/{} ({seconds_left:.1}s left)", next + 1, checkpoints.len());
+                script.race = checkpoints[next as usize..].to_vec();
+            }
+            GameUpdate::RaceEnded { won } => println!("RACE   ended, won={won}"),
         }
     }
     for h in drain(history) {
@@ -381,6 +423,8 @@ fn run_script(
     content: Res<Content>,
     me: Query<(&Position, &shared::zone::ZoneId, Option<&Health>), With<InputMarker<MoveIntent>>>,
     mobs: Query<(&MobTag, &Position), Without<InputMarker<MoveIntent>>>,
+    cars: Query<(&ParkedCar, &Position)>,
+    zones: Res<shared::zone::ZoneRegistry>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if !script.in_world || script.goto.is_some() || script.fight.is_some() {
@@ -461,6 +505,58 @@ fn run_script(
         ["!offer", item, qty, cash] => {
             let items = if *item == "-" { vec![] } else { vec![shared::game::ItemStack { item: item.to_string(), qty: qty.parse().unwrap() }] };
             social.send::<GameChannel>(SocialAction::TradeOffer(shared::game::TradeOffer { items, cash: cash.parse().unwrap() }));
+        }
+        ["!enter"] => {
+            let here = me.single().map(|(p, ..)| p.0).unwrap_or_default();
+            match cars.iter().min_by(|a, b| a.1.0.distance(here).total_cmp(&b.1.0.distance(here))) {
+                Some((car, _)) => send(GameAction::EnterCar { car: car.car }),
+                None => println!("       (no car in sight)"),
+            }
+        }
+        ["!exit"] => send(GameAction::ExitCar),
+        ["!drive", x, z] => {
+            script.path.clear();
+            script.racing = false;
+            script.goto = Some(Vec2::new(x.parse().unwrap(), z.parse().unwrap()));
+        }
+        ["!race"] if script.race.is_empty() => println!("       (no race in progress)"),
+        ["!race"] => {
+            // Straight between checkpoints where the way is clear, else around the buildings.
+            let (here, zone) = me.single().map(|(p, z, _)| (p.0, *z)).unwrap_or((Vec2::ZERO, shared::zone::ZoneId::DOWNTOWN));
+            let layout = zones.get(zone);
+            let clear = |a: Vec2, b: Vec2| {
+                let n = (a.distance(b) as usize).max(1);
+                layout.is_some_and(|l| (0..=n).all(|i| !shared::vehicle::blocked(a.lerp(b, i as f32 / n as f32), l)))
+            };
+            // Cars want streets, not alleys: detour through a street crossing.
+            let crossings: Vec<Vec2> = layout
+                .map(|l| {
+                    let c: Vec<Vec2> = l.streets.iter().map(|r| r.center()).collect();
+                    c.iter().flat_map(|a| c.iter().map(move |b| Vec2::new(a.x, b.y))).collect()
+                })
+                .unwrap_or_default();
+            let mut path = Vec::new();
+            let mut from = here;
+            for cp in script.race.clone() {
+                if !clear(from, cp)
+                    && let Some(via) = crossings
+                        .iter()
+                        .filter(|v| clear(from, **v) && clear(**v, cp))
+                        .min_by(|a, b| (a.distance(from) + a.distance(cp)).total_cmp(&(b.distance(from) + b.distance(cp))))
+                {
+                    path.push(*via);
+                }
+                path.push(cp);
+                from = cp;
+            }
+            script.path = path.into();
+            script.racing = true;
+            script.goto = script.race.last().copied();
+        }
+        ["!cars"] => {
+            for (car, pos) in &cars {
+                println!("CAR    #{} {} owned by {} at ({:.1}, {:.1})", car.car, shared::vehicle::MODELS[car.model as usize].name, car.owner_name, pos.x, pos.y);
+            }
         }
         ["!search", ..] => {
             let query = step["!search".len()..].trim().to_string();

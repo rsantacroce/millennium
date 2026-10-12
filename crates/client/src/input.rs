@@ -247,12 +247,22 @@ fn buffer_input(
 fn predict_movement(
     zones: Res<ZoneRegistry>,
     time: Res<Time<Fixed>>,
-    mut query: Query<(&mut Position, &ActionState<MoveIntent>, &ZoneId), With<Predicted>>,
+    mut query: Query<(&mut Position, &ActionState<MoveIntent>, &ZoneId, Option<&mut shared::vehicle::Driving>), With<Predicted>>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (mut pos, input, zone) in &mut query {
+    for (mut pos, input, zone, driving) in &mut query {
         let Some(layout) = zones.get(*zone) else { continue };
-        let next = movement::step(pos.0, &input.0, dt, layout);
+        let next = match driving {
+            Some(mut driving) => {
+                let mut d = *driving;
+                let next = movement::advance(pos.0, Some(&mut d), &input.0, dt, layout);
+                if d != *driving {
+                    *driving = d;
+                }
+                next
+            }
+            None => movement::advance(pos.0, None, &input.0, dt, layout),
+        };
         if next != pos.0 {
             pos.0 = next;
         }

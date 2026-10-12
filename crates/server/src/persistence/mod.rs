@@ -150,6 +150,11 @@ pub enum DbCommand {
     MarketMine { link: Entity, character_id: i64 },
     MarketClaims { link: Entity, character_id: i64 },
     MarketCollect { link: Entity, character_id: i64, claims: Vec<i64>, state: PlayerState },
+    // Cars.
+    /// Every car in the world (parked cars are always in the world).
+    LoadCars,
+    CreateCar { link: Entity, character_id: i64, model: String, zone: ZoneId, position: Vec2, heading: f32 },
+    SaveCar { car: i64, zone: ZoneId, position: Vec2, heading: f32 },
     /// Replies once every earlier command has been processed (used at shutdown).
     Flush(Sender<()>),
 }
@@ -177,6 +182,19 @@ pub enum DbResult {
     MarketClaims { link: Entity, claims: Vec<Claim> },
     /// Auctions that ended: (character id, message) to tell online players.
     MarketSettled { notify: Vec<(i64, String)> },
+    Cars(Vec<CarRecord>),
+    CarCreated { link: Entity, car: CarRecord },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CarRecord {
+    pub id: i64,
+    pub owner_id: i64,
+    pub owner_name: String,
+    pub model: String,
+    pub zone: ZoneId,
+    pub position: Vec2,
+    pub heading: f32,
 }
 
 #[derive(Debug, Clone)]

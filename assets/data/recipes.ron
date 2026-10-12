@@ -3,5 +3,7 @@
     (id: "fix_modem", skill: Electronics, level: 1, input: "broken_modem", tool: Some("screwdriver_set"), output: "working_modem", xp: 60, seconds: 3.0, verb: "Repairing modem"),
     (id: "fix_walkman", skill: Electronics, level: 2, input: "broken_walkman", tool: Some("screwdriver_set"), output: "walkman", xp: 25, seconds: 3.0, verb: "Replacing drive belt"),
     (id: "fix_pocketplay", skill: Electronics, level: 5, input: "broken_pocketplay", tool: Some("screwdriver_set"), output: "pocketplay", xp: 45, seconds: 4.0, verb: "Cleaning battery contacts"),
+    (id: "fix_carburetor", skill: Mechanics, level: 1, input: "rusty_carburetor", tool: Some("wrench"), output: "carburetor", xp: 40, seconds: 4.0, verb: "Rebuilding carburetor"),
+    (id: "fix_alternator", skill: Mechanics, level: 3, input: "seized_alternator", tool: Some("wrench"), output: "alternator", xp: 60, seconds: 4.0, verb: "Freeing alternator bearings"),
     (id: "fix_camcorder", skill: Electronics, level: 7, input: "broken_camcorder", tool: Some("screwdriver_set"), output: "camcorder", xp: 70, seconds: 5.0, verb: "Cleaning tape heads"),
 ]

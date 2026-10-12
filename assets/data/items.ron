@@ -156,4 +156,28 @@
         description: "Old Earl's spare. Every mechanic needs one.",
         value: 10,
     ),
+    (
+        id: "rusty_carburetor",
+        name: "Rusty Carburetor",
+        description: "Gummed up with twenty years of varnish. A wrench and some patience would fix it.",
+        value: 3,
+    ),
+    (
+        id: "carburetor",
+        name: "Carburetor",
+        description: "Rebuilt and ready. Smells faintly of gasoline.",
+        value: 18,
+    ),
+    (
+        id: "seized_alternator",
+        name: "Seized Alternator",
+        description: "The bearings are rusted solid.",
+        value: 3,
+    ),
+    (
+        id: "alternator",
+        name: "Alternator",
+        description: "Spins freely again. Garages pay well for these.",
+        value: 22,
+    ),
 ]

@@ -39,6 +39,15 @@ pub fn step(pos: Vec2, intent: &MoveIntent, dt: f32, zone: &ZoneLayout) -> Vec2 
     next.clamp(min, max)
 }
 
+/// One tick of movement for a player: walking, or driving if they're in a car.
+/// Used by the server, client prediction and the smoke tool alike.
+pub fn advance(pos: Vec2, driving: Option<&mut crate::vehicle::Driving>, intent: &MoveIntent, dt: f32, zone: &ZoneLayout) -> Vec2 {
+    match driving {
+        Some(d) => crate::vehicle::drive(pos, d, intent, dt, zone),
+        None => step(pos, intent, dt, zone),
+    }
+}
+
 fn blocked(pos: Vec2, zone: &ZoneLayout) -> bool {
     zone.obstacles.iter().any(|o| o.rect.inflate(PLAYER_RADIUS).contains(pos))
 }

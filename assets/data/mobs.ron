@@ -63,7 +63,7 @@
             respawn_secs: 30.0,
             xp: 55,
             cash: (4, 9),
-            loot: [("scrap_metal", 0.8), ("spark_plug", 0.2)],
+            loot: [("scrap_metal", 0.8), ("spark_plug", 0.2), ("rusty_carburetor", 0.25)],
             appearance: (body: 1, skin: 2, jacket: 9, pants: 7, cap: 6),
         ),
         (
@@ -79,7 +79,7 @@
             respawn_secs: 35.0,
             xp: 70,
             cash: (6, 12),
-            loot: [("scrap_metal", 0.6), ("car_battery", 0.15)],
+            loot: [("scrap_metal", 0.6), ("car_battery", 0.15), ("seized_alternator", 0.2)],
             appearance: (body: 0, skin: 5, jacket: 1, pants: 1, cap: 2),
         ),
         (

@@ -146,6 +146,7 @@ fn receive(
     mut action: ResMut<ActionView>,
     mut panels: ResMut<Panels>,
     mut combat: ResMut<crate::combat_ui::CombatInbox>,
+    mut race: ResMut<crate::cars::RaceInbox>,
     mut sfx: MessageWriter<PlaySfx>,
     time: Res<Time>,
 ) {
@@ -182,20 +183,23 @@ fn receive(
             GameUpdate::ActionStarted { label, seconds } => action.0 = Some((label, seconds, time.elapsed_secs())),
             GameUpdate::ActionEnded { .. } => action.0 = None,
             update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
+            update @ (GameUpdate::Race { .. } | GameUpdate::RaceEnded { .. }) => race.0.push(update),
         }
     }
 }
 
 fn find_nearby(
-    me: Query<&Position, With<LocalAvatar>>,
+    me: Query<(&Position, Has<shared::vehicle::Driving>), With<LocalAvatar>>,
     npcs: Query<(Entity, &NpcTag, &Position)>,
     content: Res<Content>,
     mut nearby: ResMut<Nearby>,
 ) {
-    let found = me.single().ok().and_then(|me| {
+    let found = me.single().ok().and_then(|(me, driving)| {
+        // Drivers talk out of the window (the server allows the same extra reach).
+        let range = if driving { TALK_RANGE + 2.0 } else { TALK_RANGE };
         npcs.iter()
             .map(|(e, tag, p)| (e, tag, p.0.distance(me.0)))
-            .filter(|(.., d)| *d <= TALK_RANGE)
+            .filter(|(.., d)| *d <= range)
             .min_by(|a, b| a.2.total_cmp(&b.2))
             .map(|(e, tag, _)| (e, tag.0.clone(), content.npc(&tag.0).map_or(tag.0.clone(), |n| n.name.clone())))
     });

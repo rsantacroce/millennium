@@ -8,6 +8,7 @@ use lightyear::prelude::*;
 use shared::protocol::{ChatNetChannel, DisplayName, SystemNotice};
 use shared::movement;
 use shared::protocol::{MoveIntent, Position};
+use shared::vehicle::Driving;
 use shared::zone::{ZoneId, ZoneRegistry};
 
 pub struct MovementPlugin;
@@ -21,12 +22,22 @@ impl Plugin for MovementPlugin {
 fn apply_inputs(
     zones: Res<ZoneRegistry>,
     time: Res<Time<Fixed>>,
-    mut players: Query<(&mut Position, &ActionState<MoveIntent>, &ZoneId)>,
+    mut players: Query<(&mut Position, &ActionState<MoveIntent>, &ZoneId, Option<&mut Driving>)>,
 ) {
     let dt = time.timestep().as_secs_f32();
-    for (mut pos, input, zone) in &mut players {
+    for (mut pos, input, zone, driving) in &mut players {
         let Some(layout) = zones.get(*zone) else { continue };
-        let next = movement::step(pos.0, &input.0, dt, layout);
+        let next = match driving {
+            Some(mut driving) => {
+                let mut d = *driving;
+                let next = movement::advance(pos.0, Some(&mut d), &input.0, dt, layout);
+                if d != *driving {
+                    *driving = d;
+                }
+                next
+            }
+            None => movement::advance(pos.0, None, &input.0, dt, layout),
+        };
         // Only write when it actually moved, so change detection (and replication) stays quiet
         // for idle players.
         if next != pos.0 {
@@ -43,12 +54,12 @@ fn apply_inputs(
 fn use_portals(
     zones: Res<ZoneRegistry>,
     rooms: Res<ZoneRooms>,
-    mut players: Query<(Entity, &PlayerLink, &mut Position, &mut ZoneId, &DisplayName)>,
+    mut players: Query<(Entity, &PlayerLink, &mut Position, &mut ZoneId, &DisplayName, Has<Driving>)>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     mut commands: Commands,
 ) {
-    for (player, link, mut pos, mut zone, name) in &mut players {
-        let Some(portal) = zones.get(*zone).and_then(|z| z.portal_at(pos.0)).cloned() else { continue };
+    for (player, link, mut pos, mut zone, name, driving) in &mut players {
+        let Some(portal) = zones.get(*zone).and_then(|z| z.portal_at(pos.0, driving)).cloned() else { continue };
         let Some(destination) = zones.get(portal.to) else { continue };
         info!("{} takes the {} ({:?} -> {:?})", name.0, portal.name, *zone, portal.to);
         *zone = portal.to;
@@ -57,7 +68,8 @@ fn use_portals(
         commands.entity(player).insert(room.clone());
         commands.entity(link.0).insert(room);
         if let Ok(mut tx) = notices.get_mut(link.0) {
-            tx.send::<ChatNetChannel>(SystemNotice::info(format!("You ride the subway to {}.", destination.name)));
+            let how = if portal.road { "drive" } else { "ride the subway" };
+            tx.send::<ChatNetChannel>(SystemNotice::info(format!("You {how} to {}.", destination.name)));
         }
     }
 }

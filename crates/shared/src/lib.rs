@@ -23,6 +23,7 @@ pub mod movement;
 pub mod names;
 pub mod nav;
 pub mod protocol;
+pub mod vehicle;
 pub mod zone;
 
 /// Simulation rate shared by client and server (`FixedUpdate` runs at this rate).

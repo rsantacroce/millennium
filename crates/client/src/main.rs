@@ -15,6 +15,7 @@ mod avatars;
 mod bot;
 mod bubbles;
 mod camera;
+mod cars;
 mod char_select;
 mod chat_ui;
 mod combat_ui;
@@ -146,6 +147,6 @@ fn main() {
             sound::SoundPlugin,
             chat_ui::ChatUiPlugin,
         ))
-        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin));
+        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin));
     app.run();
 }

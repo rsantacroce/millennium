@@ -62,6 +62,10 @@ pub enum GameAction {
     StopAttack,
     /// A big hit on the current target, on a cooldown.
     PowerSwing,
+    /// Get into a parked car you own (must be close).
+    EnterCar { car: i64 },
+    /// Get out (the car must be nearly stopped).
+    ExitCar,
 }
 
 /// Trading, parties, friends and crews.
@@ -212,6 +216,9 @@ pub enum GameUpdate {
     CombatEnded,
     /// You got knocked out and woke up somewhere safe.
     KnockedOut,
+    /// A street race in progress: drive through `checkpoints[next]` next.
+    Race { name: String, checkpoints: Vec<Vec2>, next: u8, seconds_left: f32 },
+    RaceEnded { won: bool },
 }
 
 /// Recent chat sent once, right after login.
@@ -381,6 +388,12 @@ impl Plugin for ProtocolPlugin {
         app.component::<MobTag>().replicate();
         app.component::<Health>().replicate();
         app.component::<CrewTag>().replicate();
+        app.component::<crate::vehicle::ParkedCar>().replicate();
+        // Like Position: predicted for the driver, interpolated for everyone else.
+        app.component::<crate::vehicle::Driving>()
+            .replicate()
+            .predict()
+            .add_linear_interpolation();
         // Position is predicted for the local player and interpolated for everyone else.
         app.component::<Position>()
             .replicate()

@@ -301,7 +301,10 @@ fn mob_ai(
     zones: Res<ZoneRegistry>,
     navs: Res<NavGrids>,
     mut mobs: Query<(&MobTag, &mut Position, &ZoneId, &mut Health, &mut MobBrain), Without<Fighter>>,
-    mut players: Query<(Entity, &PlayerLink, &mut Position, &ZoneId, &mut Health, &mut Fighter, &DisplayName), Without<MobBrain>>,
+    mut players: Query<
+        (Entity, &PlayerLink, &mut Position, &ZoneId, &mut Health, &mut Fighter, &DisplayName, Has<shared::vehicle::Driving>),
+        Without<MobBrain>,
+    >,
     mut updates: Query<&mut MessageSender<GameUpdate>>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     mut knockouts: Local<Vec<Entity>>,
@@ -317,14 +320,17 @@ fn mob_ai(
             Mind::Idle if def.aggro_radius > 0.0 => {
                 let nearest = players
                     .iter()
-                    .filter(|(_, _, p, z, h, ..)| *z == zone && h.current > 0 && p.0.distance(pos.0) <= def.aggro_radius)
+                    // Drivers are safe: mobs don't pick fights with cars.
+                    .filter(|(_, _, p, z, h, _, _, driving)| {
+                        *z == zone && h.current > 0 && !driving && p.0.distance(pos.0) <= def.aggro_radius
+                    })
                     .min_by(|a, b| a.2.0.distance(pos.0).total_cmp(&b.2.0.distance(pos.0)));
                 if let Some((player, ..)) = nearest {
                     brain.mind = Mind::Chasing(player);
                 }
             }
             Mind::Chasing(player) => {
-                let gone = players.get(player).map_or(true, |(_, _, _, z, h, ..)| z != zone || h.current == 0);
+                let gone = players.get(player).map_or(true, |(_, _, _, z, h, _, _, driving)| z != zone || h.current == 0 || driving);
                 if gone || pos.0.distance(brain.home) > def.leash {
                     brain.mind = Mind::Returning;
                     brain.path.clear();
@@ -354,7 +360,7 @@ fn mob_ai(
                 }
             }
             Mind::Chasing(player) => {
-                let Ok((_, link, target_pos, _, mut target_health, mut fighter, _)) = players.get_mut(player) else { continue };
+                let Ok((_, link, target_pos, _, mut target_health, mut fighter, _, _)) = players.get_mut(player) else { continue };
                 if pos.0.distance(target_pos.0) <= MOB_REACH {
                     if now >= brain.next_attack {
                         brain.next_attack = now + def.attack_speed as f64;
@@ -406,7 +412,7 @@ fn mob_ai(
 
     // Knocked-out players wake up at their zone's safe spot, unharmed. (Adventurous, not grim.)
     for player in knockouts.drain(..) {
-        let Ok((_, link, mut pos, zone, mut health, mut fighter, name)) = players.get_mut(player) else { continue };
+        let Ok((_, link, mut pos, zone, mut health, mut fighter, name, _)) = players.get_mut(player) else { continue };
         health.current = health.max;
         fighter.stop();
         pos.0 = zones.get(*zone).map_or(pos.0, |z| z.spawn);

@@ -72,4 +72,13 @@
         appearance: (body: 1, skin: 3, jacket: 0, pants: 9, cap: 6),
         dialogue: "earl",
     ),
+    (
+        id: "dash",
+        name: "Dash",
+        zone: 1,
+        position: (-40.0, -6.2),
+        facing: 180.0,
+        appearance: (body: 1, skin: 0, jacket: 3, pants: 2, cap: 4),
+        dialogue: "dash",
+    ),
 ]

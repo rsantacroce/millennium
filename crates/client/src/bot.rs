@@ -4,7 +4,8 @@
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
 //!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
 //!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`,
-//!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!wait SECS`,
+//!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!key f` (get in/out of your car),
+//!   `!shot FILE.png` (screenshot rendered by Bevy, works with the screen locked), `!wait SECS`,
 //!   or any chat input (`/g hello`).
 //!
 //! Both write into the same `ActionState`/messages the keyboard and mouse use, so the server
@@ -17,6 +18,7 @@ use crate::input::{Arrival, ClickPath};
 use shared::nav::NavGrids;
 use crate::{AppState, Cli};
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use lightyear::prelude::client::input::InputSystems;
 use lightyear::prelude::client::Client;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
@@ -107,6 +109,8 @@ fn run_script(
     mut path: ResMut<ClickPath>,
     mut social_window: ResMut<crate::social_ui::SocialWindow>,
     mut market: ResMut<crate::market_ui::MarketView>,
+    mut drive_key: MessageWriter<crate::cars::DriveKey>,
+    mut commands: Commands,
     me: Query<(&Position, &shared::zone::ZoneId), With<LocalAvatar>>,
     npcs: Query<(&shared::protocol::NpcTag, &Position)>,
     mobs: Query<(Entity, &shared::protocol::MobTag, &Position)>,
@@ -189,6 +193,14 @@ fn run_script(
             }
         }
         ["!market", tab] => market.show(tab),
+        // Bevy renders the frame to a file itself, so this works even when the screen is locked.
+        ["!shot", path] => {
+            let path = path.to_string();
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        }
+        ["!key", "f"] => {
+            drive_key.write(crate::cars::DriveKey);
+        }
         ["!select", slot] => panels.selected = slot.parse().ok(),
         ["!wait", secs] => script.wait = secs.parse().ok().map(|s| Timer::from_seconds(s, TimerMode::Once)),
         _ => match parse_input(&step) {

@@ -156,6 +156,20 @@ impl PgStore {
                 .market_collect(character_id, &claims, &state)
                 .await
                 .map(|result| Some(DbResult::MarketDone { link, result, notify: Vec::new() })),
+            DbCommand::LoadCars => self.load_cars().await.map(|cars| Some(DbResult::Cars(cars))),
+            DbCommand::CreateCar { link, character_id, model, zone, position, heading } => self
+                .create_car(character_id, &model, zone, position, heading)
+                .await
+                .map(|car| car.map(|car| DbResult::CarCreated { link, car })),
+            DbCommand::SaveCar { car, zone, position, heading } => sqlx::query("UPDATE cars SET zone = $1, x = $2, z = $3, heading = $4 WHERE id = $5")
+                .bind(zone.0 as i32)
+                .bind(position.x as f64)
+                .bind(position.y as f64)
+                .bind(heading as f64)
+                .bind(car)
+                .execute(&self.pool)
+                .await
+                .map(|_| None),
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -820,4 +834,44 @@ async fn insert_claim(tx: &mut Transaction<'_, Postgres>, character_id: i64, sta
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+type CarRow = (i64, i64, String, String, i32, f64, f64, f64);
+
+fn car_from((id, owner_id, owner_name, model, zone, x, z, heading): CarRow) -> CarRecord {
+    CarRecord { id, owner_id, owner_name, model, zone: ZoneId(zone as u16), position: Vec2::new(x as f32, z as f32), heading: heading as f32 }
+}
+
+impl PgStore {
+    async fn load_cars(&self) -> Result<Vec<CarRecord>, sqlx::Error> {
+        let rows: Vec<CarRow> = sqlx::query_as(
+            "SELECT k.id, k.owner_id, c.name::text, k.model, k.zone, k.x, k.z, k.heading FROM cars k JOIN characters c ON c.id = k.owner_id ORDER BY k.id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(car_from).collect())
+    }
+
+    async fn create_car(&self, character_id: i64, model: &str, zone: ZoneId, pos: Vec2, heading: f32) -> Result<Option<CarRecord>, sqlx::Error> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO cars (owner_id, model, zone, x, z, heading, created_at_ms) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+        )
+        .bind(character_id)
+        .bind(model)
+        .bind(zone.0 as i32)
+        .bind(pos.x as f64)
+        .bind(pos.y as f64)
+        .bind(heading as f64)
+        .bind(now_ms())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((id,)) = row else { return Ok(None) };
+        let rows: Vec<CarRow> = sqlx::query_as(
+            "SELECT k.id, k.owner_id, c.name::text, k.model, k.zone, k.x, k.z, k.heading FROM cars k JOIN characters c ON c.id = k.owner_id WHERE k.id = $1",
+        )
+        .bind(id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().next().map(car_from))
+    }
 }

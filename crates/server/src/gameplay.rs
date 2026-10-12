@@ -7,6 +7,8 @@
 
 use crate::combat::{Fighter, Mobs};
 use crate::market::{ActiveMarket, MarketPending};
+use crate::vehicles::{CarAction, CarRequest};
+use shared::vehicle::Driving;
 use crate::session::{PlayerLink, Progress, Session};
 use crate::zones::ZoneRooms;
 use bevy::ecs::system::SystemParam;
@@ -24,6 +26,8 @@ use shared::zone::ZoneId;
 /// How close you must be to talk to (or trade with) an NPC. A little slack over what the
 /// client uses, to absorb latency.
 pub const INTERACT_RANGE: f32 = 4.0;
+/// Extra reach for drivers (talking out of the car window).
+pub const DRIVER_EXTRA_RANGE: f32 = 2.0;
 /// Walking further than this from the NPC closes the dialogue/shop.
 const LEAVE_RANGE: f32 = 6.0;
 /// Moving this far during a timed action cancels it.
@@ -96,7 +100,7 @@ fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::QuestCompleted(q) => format!("Quest complete: {}!", quest_name(q, content)),
         GameEvent::Xp(skill, xp) => format!("+{xp} {} XP", skill.name()),
         GameEvent::LevelUp(skill, level) => format!("*** {} level {level}! ***", skill.name()),
-        GameEvent::OpenShop(_) | GameEvent::OpenMarket => return None,
+        GameEvent::OpenShop(_) | GameEvent::OpenMarket | GameEvent::CarGranted(_) | GameEvent::RaceStarted(_) => return None,
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) => format!("You put away the {}.", content.item_name(item)),
     })
@@ -159,12 +163,14 @@ fn handle_actions(
         &mut Health,
         &PlayerId,
         Has<MarketPending>,
+        Has<Driving>,
     )>,
     mobs: Res<Mobs>,
     mob_info: Query<(&Position, &ZoneId, &Health), (With<MobTag>, Without<Fighter>)>,
     mut out: Outbox,
     content: Res<Content>,
     time: Res<Time<Real>>,
+    mut cars: MessageWriter<CarRequest>,
     mut commands: Commands,
 ) {
     let mut incoming = Vec::new();
@@ -176,7 +182,7 @@ fn handle_actions(
     }
 
     for (link, player, action) in incoming {
-        let Ok((name, pos, zone, mut progress, dialogue, shop, channeling, mut fighter, mut health, me, market_busy)) =
+        let Ok((name, pos, zone, mut progress, dialogue, shop, channeling, mut fighter, mut health, me, market_busy, driving)) =
             players.get_mut(player)
         else {
             continue;
@@ -190,14 +196,16 @@ fn handle_actions(
                 | GameAction::Attack { .. }
                 | GameAction::StopAttack
                 | GameAction::PowerSwing
+                | GameAction::EnterCar { .. }
+                | GameAction::ExitCar
         );
         if market_busy && touches_inventory {
             out.notice(link, SystemNotice::info("One moment..."));
             continue;
         }
-        let near = |npc_id: &str| {
-            content.npc(npc_id).filter(|n| n.zone_id() == *zone && n.pos().distance(pos.0) <= INTERACT_RANGE)
-        };
+        // From the driver's seat you can't pull right up to someone on the sidewalk.
+        let range = if driving { INTERACT_RANGE + DRIVER_EXTRA_RANGE } else { INTERACT_RANGE };
+        let near = |npc_id: &str| content.npc(npc_id).filter(|n| n.zone_id() == *zone && n.pos().distance(pos.0) <= range);
 
         match action {
             GameAction::Interact { npc } => {
@@ -249,6 +257,17 @@ fn handle_actions(
                         send_node(&mut out, link, player, &mut commands, &progress, &content, npc, dlg, next, &name.0);
                     }
                     None => close_dialogue(&mut out, link, player, &mut commands),
+                }
+                for e in &events {
+                    match e {
+                        GameEvent::CarGranted(model) => {
+                            cars.write(CarRequest { player, link, action: CarAction::Grant(model.clone()) });
+                        }
+                        GameEvent::RaceStarted(race) => {
+                            cars.write(CarRequest { player, link, action: CarAction::Race(race.clone()) });
+                        }
+                        _ => {}
+                    }
                 }
                 if events.contains(&GameEvent::OpenMarket) {
                     commands.entity(player).insert(ActiveMarket::new(active.npc.clone()));
@@ -327,6 +346,16 @@ fn handle_actions(
                 Ok(events) => out.events(link, &events, &content),
                 Err(e) => out.error(link, e),
             },
+            GameAction::EnterCar { car } => {
+                cars.write(CarRequest { player, link, action: CarAction::Enter(car) });
+            }
+            GameAction::ExitCar => {
+                cars.write(CarRequest { player, link, action: CarAction::Exit });
+            }
+            GameAction::Attack { .. } | GameAction::PowerSwing if driving => {
+                out.notice(link, SystemNotice::info("You can't fight from behind the wheel."));
+                out.update(link, GameUpdate::CombatEnded);
+            }
             GameAction::Attack { target: CombatTarget::Mob(id) } => {
                 let target = mobs.get(id).and_then(|e| mob_info.get(e).ok());
                 match target {

@@ -29,7 +29,7 @@
     (
         id: "earl_salvage",
         name: "Earl's Salvage",
-        sells: [("wrench", 12), ("first_aid_kit", 6)],
+        sells: [("wrench", 12), ("first_aid_kit", 6), ("rusty_carburetor", 8), ("spark_plug", 9)],
         buy_rate: 0.6,
     ),
 ]

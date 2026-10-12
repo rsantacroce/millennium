@@ -42,4 +42,16 @@
         ],
         rewards: (cash: 40, xp: [(Mechanics, 150)], items: [("wrench", 1)]),
     ),
+    (
+        id: "junker",
+        name: "Earl's Junker",
+        stages: [
+            (
+                log: "Old Earl will let you have his old hatchback if you can get it running: bring a Carburetor (rebuild a rusty one with your wrench), a Car Battery and 2 Spark Plugs, and reach Mechanics level 3.",
+                advance_when: [HasItem("carburetor", 1), HasItem("car_battery", 1), HasItem("spark_plug", 2), SkillLevel(Mechanics, 3)],
+            ),
+            (log: "You have everything. Bring the parts to Old Earl at the factory gate."),
+        ],
+        rewards: (cash: 0, xp: [(Mechanics, 120)], items: []),
+    ),
 ]

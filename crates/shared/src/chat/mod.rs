@@ -109,4 +109,8 @@ pub enum ChatAction {
     Mute { name: String, minutes: u32 },
     /// Admin only.
     Unmute { name: String },
+    /// Admin only (testing): give yourself an item.
+    Give { item: String, qty: u32 },
+    /// Admin only (testing): give yourself a car, parked next to you.
+    GiveCar { model: String },
 }

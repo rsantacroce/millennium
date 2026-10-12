@@ -176,6 +176,20 @@ impl SqliteStore {
                 .market_collect(character_id, &claims, &state)
                 .await
                 .map(|result| Some(DbResult::MarketDone { link, result, notify: Vec::new() })),
+            DbCommand::LoadCars => self.load_cars().await.map(|cars| Some(DbResult::Cars(cars))),
+            DbCommand::CreateCar { link, character_id, model, zone, position, heading } => self
+                .create_car(character_id, &model, zone, position, heading)
+                .await
+                .map(|car| car.map(|car| DbResult::CarCreated { link, car })),
+            DbCommand::SaveCar { car, zone, position, heading } => sqlx::query("UPDATE cars SET zone = ?, x = ?, z = ?, heading = ? WHERE id = ?")
+                .bind(zone.0 as i32)
+                .bind(position.x as f64)
+                .bind(position.y as f64)
+                .bind(heading as f64)
+                .bind(car)
+                .execute(&self.pool)
+                .await
+                .map(|_| None),
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -845,6 +859,46 @@ async fn insert_claim(tx: &mut Transaction<'_, Sqlite>, character_id: i64, stack
     Ok(())
 }
 
+type CarRow = (i64, i64, String, String, i32, f64, f64, f64);
+
+fn car_from((id, owner_id, owner_name, model, zone, x, z, heading): CarRow) -> CarRecord {
+    CarRecord { id, owner_id, owner_name, model, zone: ZoneId(zone as u16), position: Vec2::new(x as f32, z as f32), heading: heading as f32 }
+}
+
+impl SqliteStore {
+    async fn load_cars(&self) -> Result<Vec<CarRecord>, sqlx::Error> {
+        let rows: Vec<CarRow> = sqlx::query_as(
+            "SELECT k.id, k.owner_id, c.name, k.model, k.zone, k.x, k.z, k.heading FROM cars k JOIN characters c ON c.id = k.owner_id ORDER BY k.id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(car_from).collect())
+    }
+
+    async fn create_car(&self, character_id: i64, model: &str, zone: ZoneId, pos: Vec2, heading: f32) -> Result<Option<CarRecord>, sqlx::Error> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO cars (owner_id, model, zone, x, z, heading, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        )
+        .bind(character_id)
+        .bind(model)
+        .bind(zone.0 as i32)
+        .bind(pos.x as f64)
+        .bind(pos.y as f64)
+        .bind(heading as f64)
+        .bind(now_ms())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((id,)) = row else { return Ok(None) };
+        let rows: Vec<CarRow> = sqlx::query_as(
+            "SELECT k.id, k.owner_id, c.name, k.model, k.zone, k.x, k.z, k.heading FROM cars k JOIN characters c ON c.id = k.owner_id WHERE k.id = ?",
+        )
+        .bind(id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().next().map(car_from))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1078,6 +1132,19 @@ mod tests {
         let alice_claims = s.market_claims(alice).await.unwrap();
         assert!(alice_claims.iter().any(|c| c.reason == "Unsold: Mixtape" && c.item.is_some()));
         assert!(alice_claims.iter().any(|c| c.reason == "Sold: Pager" && c.cash == 12));
+    }
+
+    #[tokio::test]
+    async fn cars_are_created_moved_and_loaded() {
+        let mut s = store().await;
+        let a = account(&mut s, "Dana").await;
+        let dana = character(&mut s, a, "Dana").await.unwrap();
+        let car = s.create_car(dana, "hatchback", ZoneId(4), Vec2::new(-24.0, 2.0), 0.5).await.unwrap().unwrap();
+        assert_eq!((car.owner_name.as_str(), car.model.as_str(), car.zone), ("Dana", "hatchback", ZoneId(4)));
+        s.handle(DbCommand::SaveCar { car: car.id, zone: ZoneId(1), position: Vec2::new(40.0, 2.0), heading: 3.0 }, LIMITS).await;
+        let cars = s.load_cars().await.unwrap();
+        assert_eq!(cars.len(), 1);
+        assert_eq!((cars[0].zone, cars[0].position, cars[0].heading), (ZoneId(1), Vec2::new(40.0, 2.0), 3.0));
     }
 
     #[tokio::test]
