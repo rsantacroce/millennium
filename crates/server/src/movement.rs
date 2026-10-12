@@ -99,6 +99,8 @@ fn use_portals(
                 format!("You drive to {}.", destination.name)
             } else if portal.name.starts_with("Metro") {
                 format!("You ride the subway to {}.", destination.name)
+            } else if portal.name.starts_with("Bus") || portal.name.starts_with("Shuttle") {
+                format!("You catch the bus to {}.", destination.name)
             } else {
                 format!("You take the {} to {}.", portal.name.to_lowercase(), destination.name)
             };

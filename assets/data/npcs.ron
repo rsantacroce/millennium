@@ -155,4 +155,11 @@
     ),
     (id: "antenna_panel", name: "Antenna Junction Box", zone: 6, position: (4.0, -16.6), facing: 180.0, dialogue: "antenna", prop: Some("panel")),
     (id: "loose_vent", name: "Loose Vent Cover", zone: 6, position: (-16.0, -8.0), facing: 0.0, dialogue: "vent", prop: Some("none")),
+    // --- Route 9, Pinecrest and Hollow Pines.
+    (id: "rhonda", name: "Rhonda", zone: 7, position: (4.0, 10.8), facing: 180.0, appearance: (body: 1, skin: 3, jacket: 4, pants: 0, cap: 0), dialogue: "rhonda"),
+    (id: "trucker_mo", name: "Trucker Mo", zone: 7, position: (-8.0, 8.5), facing: 180.0, appearance: (body: 2, skin: 1, jacket: 4, pants: 0, cap: 6), dialogue: "trucker_mo"),
+    (id: "hank", name: "Hank", zone: 8, position: (18.0, -6.6), facing: 180.0, appearance: (body: 2, skin: 2, jacket: 9, pants: 0, cap: 1), dialogue: "hank"),
+    (id: "sheriff_ruth", name: "Sheriff Ruth", zone: 8, position: (2.0, -6.8), facing: 180.0, appearance: (body: 1, skin: 4, jacket: 7, pants: 1, cap: 8), dialogue: "sheriff_ruth"),
+    (id: "ranger_dale", name: "Ranger Dale", zone: 9, position: (7.6, 24.0), facing: 270.0, appearance: (body: 1, skin: 1, jacket: 7, pants: 7, cap: 8), dialogue: "ranger_dale"),
+    (id: "scenic_lookout", name: "Scenic Lookout", zone: 9, position: (20.0, -30.6), facing: 0.0, dialogue: "lookout", prop: Some("none")),
 ]

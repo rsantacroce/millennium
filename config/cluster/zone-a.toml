@@ -21,4 +21,4 @@ secret = "change-me"
 
 [[cluster.servers]]
 addr = "127.0.0.1:5890"
-zones = [2, 4]
+zones = [2, 4, 7, 8, 9]

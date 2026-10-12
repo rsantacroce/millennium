@@ -89,4 +89,17 @@
         sells: [("hot_dog", 4), ("soda", 1), ("diner_coffee", 6)],
         buy_rate: 0.0,
     ),
+    (
+        id: "hanks_garage",
+        name: "Hank's Garage",
+        sells: [("spark_plug", 7), ("car_battery", 20), ("rusty_carburetor", 7), ("wrench", 12), ("work_boots", 22)],
+        // Pays well for rebuilt parts.
+        buy_rate: 0.7,
+    ),
+    (
+        id: "gas_n_go",
+        name: "Gas-N-Go",
+        sells: [("soda", 2), ("diner_coffee", 6), ("hot_dog", 5), ("first_aid_kit", 6), ("wraparound_shades", 18)],
+        buy_rate: 0.0,
+    ),
 ]

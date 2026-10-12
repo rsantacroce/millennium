@@ -826,3 +826,35 @@ mod tests {
         assert!(content.validate().iter().any(|e| e.contains("unobtainium")));
     }
 }
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    use crate::zone::ZoneRegistry;
+
+    /// Every NPC, prop and mob spawn must stand somewhere a player could walk up to.
+    #[test]
+    fn everyone_stands_somewhere_walkable() {
+        let content = Content::builtin();
+        let zones = ZoneRegistry::default();
+        let mut bad = Vec::new();
+        let mut check = |what: String, zone: ZoneId, p: Vec2| {
+            let Some(layout) = zones.get(zone) else { return bad.push(format!("{what}: zone {zone:?} doesn't exist")) };
+            let inside = layout.obstacles.iter().find(|o| o.rect.inflate(0.3).contains(p));
+            if let Some(o) = inside {
+                bad.push(format!("{what} at {p:?} is inside {}", o.name));
+            } else if !layout.bounds.contains(p) || layout.off_walkable(p, 0.3) {
+                bad.push(format!("{what} at {p:?} is off the map"));
+            } else if crate::nav::NavGrid::build(layout).find_path(layout.spawn, p).is_none() {
+                bad.push(format!("{what} at {p:?} can't be reached from the zone's spawn"));
+            }
+        };
+        for npc in &content.npcs {
+            check(format!("npc `{}`", npc.id), npc.zone_id(), npc.pos());
+        }
+        for (i, s) in content.spawns.iter().enumerate() {
+            check(format!("spawn #{i} ({})", s.mob), s.zone_id(), s.pos());
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+}

@@ -213,16 +213,28 @@ pub struct RaceDef {
 
 pub const CHECKPOINT_RADIUS: f32 = 5.0;
 
-/// Maple & 5th, out and back: east end, south end, north end, west end.
-pub const RACES: [RaceDef; 1] = [RaceDef {
-    id: "maple_loop",
-    name: "Maple & 5th Sprint",
-    zone: crate::zone::ZoneId::DOWNTOWN,
-    checkpoints: &[(40.0, 2.0), (2.0, 40.0), (-2.0, -40.0), (-40.0, -2.0)],
-    seconds: 50.0,
-    cash: 30,
-    xp: 120,
-}];
+pub const RACES: [RaceDef; 2] = [
+    // Maple & 5th, out and back: east end, south end, north end, west end.
+    RaceDef {
+        id: "maple_loop",
+        name: "Maple & 5th Sprint",
+        zone: crate::zone::ZoneId::DOWNTOWN,
+        checkpoints: &[(40.0, 2.0), (2.0, 40.0), (-2.0, -40.0), (-40.0, -2.0)],
+        seconds: 50.0,
+        cash: 30,
+        xp: 120,
+    },
+    // Route 9 from the Gas-N-Go: east to the mile marker, then flat out west.
+    RaceDef {
+        id: "route_9_run",
+        name: "Route 9 Run",
+        zone: crate::zone::ZoneId::ROUTE_9,
+        checkpoints: &[(100.0, 0.0), (-100.0, 0.0)],
+        seconds: 32.0,
+        cash: 60,
+        xp: 220,
+    },
+];
 
 pub fn race(id: &str) -> Option<&'static RaceDef> {
     RACES.iter().find(|r| r.id == id)

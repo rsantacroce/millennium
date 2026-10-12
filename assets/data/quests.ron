@@ -108,4 +108,31 @@
         stages: [(log: "You found someone's stash in a vent on the Riverside Apartments roof.")],
         rewards: (cash: 50, xp: [(Fitness, 60)], items: [("bootleg_cd", 1)]),
     ),
+    (
+        id: "parts_run",
+        name: "Parts Run",
+        stages: [
+            (log: "Old Earl needs a timing belt from Hank's Garage in Pinecrest. Drive west out of town: the end of Maple St is the on-ramp to Route 9; Pinecrest is at the far end."),
+            (log: "Bring the timing belt back to Old Earl at the factory gate."),
+        ],
+        rewards: (cash: 50, xp: [(Mechanics, 150), (Driving, 100)], items: []),
+    ),
+    (
+        id: "scenic_route",
+        name: "Scenic Route",
+        stages: [
+            (log: "Hank wants footage of the Scenic Lookout in Hollow Pines State Park (up the turnoff from Route 9). You'll need a working camcorder."),
+            (log: "Take the footage back to Hank in Pinecrest."),
+        ],
+        rewards: (cash: 60, xp: [(Driving, 120), (Electronics, 60)], items: [("road_atlas", 1)]),
+    ),
+    (
+        id: "leave_no_trace",
+        name: "Leave No Trace",
+        stages: [
+            (log: "Ranger Dale wants the poachers out of Hollow Pines. Run off 3 of them.", advance_when: [Kills("poacher", 3)]),
+            (log: "Tell Ranger Dale at the ranger station that the woods are clear."),
+        ],
+        rewards: (cash: 40, xp: [(Fitness, 150)], items: [("hiking_boots", 1)], rep: [("city", 100)]),
+    ),
 ]

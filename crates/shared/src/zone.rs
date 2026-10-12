@@ -25,6 +25,9 @@ impl ZoneId {
     pub const FACTORY: ZoneId = ZoneId(4);
     pub const SUBURBS: ZoneId = ZoneId(5);
     pub const ROOFTOPS: ZoneId = ZoneId(6);
+    pub const ROUTE_9: ZoneId = ZoneId(7);
+    pub const PINECREST: ZoneId = ZoneId(8);
+    pub const PARK: ZoneId = ZoneId(9);
 }
 
 /// Walking into `rect` takes you to `arrive` in zone `to`.
@@ -94,7 +97,7 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops()];
+        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops(), route_9(), pinecrest(), hollow_pines()];
         Self { zones: zones.into_iter().map(|z| (z.id, z)).collect() }
     }
 }
@@ -167,6 +170,8 @@ pub fn downtown_block() -> ZoneLayout {
             Portal { name: "Metro: Galleria Mall", rect: Rect::new(34.0, 41.0, 38.0, 43.0), to: ZoneId::MALL, arrive: Vec2::new(0.0, -24.0), road: false },
             Portal { name: "Metro: Abandoned Factory", rect: Rect::new(41.0, 34.0, 43.0, 38.0), to: ZoneId::FACTORY, arrive: Vec2::new(-31.5, 0.0), road: false },
             Portal { name: "Metro: Maple Heights", rect: Rect::new(34.0, 29.0, 38.0, 31.0), to: ZoneId::SUBURBS, arrive: Vec2::new(-29.5, 0.0), road: false },
+            // The west end of Maple St is the on-ramp to Route 9, for drivers.
+            Portal { name: "Highway: Route 9", rect: Rect::new(-48.0, -4.5, -45.0, 4.5), to: ZoneId::ROUTE_9, arrive: Vec2::new(110.0, 0.0), road: true },
             // Up the fire escape behind the Byte Cafe.
             Portal { name: "Fire Escape", rect: Rect::new(-11.0, -18.0, -9.0, -16.5), to: ZoneId::ROOFTOPS, arrive: Vec2::new(12.0, 8.0), road: false },
             // The east end of Maple St leads out to the factory, for drivers.
@@ -254,6 +259,118 @@ pub fn rooftops() -> ZoneLayout {
         // Tar and gravel up here; asphalt far below.
         ground: [0.36, 0.35, 0.34],
         outskirts: [0.20, 0.20, 0.22],
+    }
+}
+
+/// "Route 9": the highway out of town. Drivers come on from Maple St; Pinecrest is at the west
+/// end and the state park up the turnoff. A bus stop at the gas station for anyone on foot.
+pub fn route_9() -> ZoneLayout {
+    let pine = |cx, cz| prop("Pine Tree", rect(cx, cz, 1.6, 1.6), 8.0, [0.16, 0.36, 0.20]);
+    let mut obstacles = vec![
+        building("Gas-N-Go", rect(0.0, 16.0, 16.0, 8.0), 4.0, [0.90, 0.30, 0.20]),
+        prop("Gas Pumps", rect(-2.0, 9.0, 6.0, 1.2), 1.6, [0.85, 0.85, 0.80]),
+        prop("Billboard", rect(-60.0, -14.0, 8.0, 0.5), 6.0, [0.95, 0.90, 0.35]),
+        prop("Billboard", rect(80.0, 14.0, 8.0, 0.5), 6.0, [0.30, 0.60, 0.90]),
+    ];
+    for i in -5..=5 {
+        let x = i as f32 * 20.0 + 6.0;
+        if !(-14.0..14.0).contains(&x) {
+            obstacles.push(pine(x, 13.0 + (i % 2) as f32 * 4.0));
+        }
+        if !(30.0..50.0).contains(&x) {
+            obstacles.push(pine(x + 8.0, -12.0 - (i % 3) as f32 * 3.0));
+        }
+    }
+    ZoneLayout {
+        id: ZoneId::ROUTE_9,
+        name: "Route 9",
+        bounds: Rect::new(-120.0, -30.0, 120.0, 30.0),
+        spawn: Vec2::new(14.0, 7.0),
+        streets: vec![rect(0.0, 0.0, 240.0, 10.0), rect(40.0, -17.5, 8.0, 25.0)],
+        obstacles,
+        portals: vec![
+            Portal { name: "Highway: Downtown", rect: Rect::new(116.0, -5.0, 120.0, 5.0), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, 2.0), road: true },
+            Portal { name: "Highway: Pinecrest", rect: Rect::new(-120.0, -5.0, -116.0, 5.0), to: ZoneId::PINECREST, arrive: Vec2::new(36.0, 0.0), road: true },
+            Portal { name: "Highway: Hollow Pines", rect: Rect::new(36.0, -30.0, 44.0, -26.0), to: ZoneId::PARK, arrive: Vec2::new(0.0, 32.0), road: true },
+            Portal { name: "Bus Stop: Downtown", rect: Rect::new(18.0, 6.5, 20.0, 8.5), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, -8.0), road: false },
+        ],
+        ground: [0.55, 0.52, 0.42],
+        outskirts: [0.38, 0.50, 0.30],
+        walkable: vec![],
+    }
+}
+
+/// "Pinecrest": a small town at the end of Route 9.
+pub fn pinecrest() -> ZoneLayout {
+    let pine = |cx, cz| prop("Pine Tree", rect(cx, cz, 1.6, 1.6), 8.0, [0.16, 0.36, 0.20]);
+    ZoneLayout {
+        id: ZoneId::PINECREST,
+        name: "Pinecrest",
+        bounds: Rect::new(-45.0, -45.0, 45.0, 45.0),
+        spawn: Vec2::new(-36.0, 7.0),
+        streets: vec![rect(0.0, 0.0, 90.0, 9.0), rect(-10.0, 0.0, 8.0, 90.0)],
+        obstacles: vec![
+            building("Hank's Garage", rect(18.0, -13.0, 14.0, 10.0), 6.0, [0.75, 0.70, 0.60]),
+            building("Sheriff's Office", rect(2.0, -13.0, 10.0, 9.0), 5.0, [0.85, 0.82, 0.72]),
+            building("Pinecrest General Store", rect(-26.0, -12.0, 14.0, 9.0), 5.0, [0.60, 0.35, 0.25]),
+            building("Pine Motel", rect(-28.0, 14.0, 18.0, 10.0), 5.0, [0.40, 0.55, 0.60]),
+            building("Pinecrest Church", rect(22.0, 15.0, 12.0, 12.0), 9.0, [0.92, 0.92, 0.90]),
+            prop("Water Tower", rect(5.0, 26.0, 3.0, 3.0), 12.0, [0.70, 0.72, 0.75]),
+            prop("Bench", rect(-36.0, 9.5, 2.5, 0.8), 0.5, [0.45, 0.30, 0.20]),
+            pine(-36.0, -28.0),
+            pine(30.0, -30.0),
+            pine(36.0, 32.0),
+            pine(-20.0, 32.0),
+            pine(10.0, -32.0),
+        ],
+        portals: vec![
+            Portal { name: "Highway: Route 9", rect: Rect::new(41.0, -4.5, 45.0, 4.5), to: ZoneId::ROUTE_9, arrive: Vec2::new(-110.0, 0.0), road: true },
+            Portal { name: "Bus Stop: Downtown", rect: Rect::new(-41.0, 6.0, -39.0, 8.0), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, -8.0), road: false },
+        ],
+        ground: [0.58, 0.60, 0.48],
+        outskirts: [0.34, 0.48, 0.28],
+        walkable: vec![],
+    }
+}
+
+/// "Hollow Pines State Park": forest, a lake, the ranger station and a scenic lookout.
+pub fn hollow_pines() -> ZoneLayout {
+    let pine = |cx, cz| prop("Pine Tree", rect(cx, cz, 1.6, 1.6), 9.0, [0.14, 0.32, 0.18]);
+    let mut obstacles = vec![
+        building("Ranger Station", rect(14.0, 24.0, 10.0, 8.0), 5.0, [0.45, 0.32, 0.20]),
+        prop("Lake", rect(-18.0, -14.0, 26.0, 18.0), 0.2, [0.25, 0.45, 0.70]),
+        prop("Lookout Railing", rect(20.0, -32.0, 8.0, 0.4), 1.1, [0.50, 0.38, 0.25]),
+        prop("Picnic Table", rect(10.0, 0.0, 2.0, 1.2), 0.8, [0.55, 0.40, 0.25]),
+        prop("Picnic Table", rect(-6.0, 12.0, 2.0, 1.2), 0.8, [0.55, 0.40, 0.25]),
+    ];
+    // Woods: a loose grid of pines, kept off the road, the lake, the station and the trails.
+    for gx in -4..=4 {
+        for gz in -4..=4 {
+            let p = Vec2::new(gx as f32 * 8.5 + (gz % 2) as f32 * 3.0, gz as f32 * 8.5);
+            let clear = p.x.abs() < 7.0 && p.y > -2.0
+                || obstacles.iter().any(|o| o.rect.inflate(3.0).contains(p))
+                || (p.y + 6.0).abs() < 4.0
+                || p.y < -27.0;
+            if !clear {
+                obstacles.push(pine(p.x, p.y));
+            }
+        }
+    }
+    ZoneLayout {
+        id: ZoneId::PARK,
+        name: "Hollow Pines State Park",
+        bounds: Rect::new(-40.0, -40.0, 40.0, 40.0),
+        spawn: Vec2::new(4.0, 30.0),
+        // The park road from the entrance, and a dirt trail across the woods.
+        streets: vec![rect(0.0, 20.0, 8.0, 40.0), rect(0.0, -6.0, 76.0, 4.0)],
+        obstacles,
+        portals: vec![
+            Portal { name: "Highway: Route 9", rect: Rect::new(-4.0, 36.0, 4.0, 40.0), to: ZoneId::ROUTE_9, arrive: Vec2::new(40.0, -22.0), road: true },
+            Portal { name: "Shuttle Bus: Pinecrest", rect: Rect::new(6.0, 33.0, 8.0, 35.0), to: ZoneId::PINECREST, arrive: Vec2::new(-36.0, 7.0), road: false },
+        ],
+        ground: [0.36, 0.46, 0.28],
+        outskirts: [0.20, 0.32, 0.18],
+        walkable: vec![],
     }
 }
 

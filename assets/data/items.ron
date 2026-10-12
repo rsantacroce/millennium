@@ -346,4 +346,20 @@
         description: "Live, 1994, recorded from the back row. Collectors pay real money for these.",
         value: 40,
     ),
+    // --- Out of town (Milestone 5).
+    (id: "timing_belt", name: "Timing Belt", description: "For Earl's next project. Hank wrapped it in a Pinecrest Gazette.", value: 0, quest_item: true),
+    (
+        id: "hiking_boots",
+        name: "Hiking Boots",
+        description: "Ranger issue, broken in by somebody else. 1 armor, +4 health, +1 Fitness.",
+        value: 30,
+        gear: Some((slot: Feet, color: Some(0), armor: 1, max_hp: 4, skills: [(Fitness, 1)])),
+    ),
+    (
+        id: "road_atlas",
+        name: "Road Atlas",
+        description: "Every back road in the state, coffee rings included. +2 Driving.",
+        value: 25,
+        gear: Some((slot: Accessory, skills: [(Driving, 2)])),
+    ),
 ]

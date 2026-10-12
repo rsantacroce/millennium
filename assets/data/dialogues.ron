@@ -265,6 +265,13 @@
                         ],
                         goto: Some("junker_done"),
                     ),
+                    (text: "Need anything else?", when: [QuestDone("junker"), QuestNotStarted("parts_run")], goto: Some("parts_offer")),
+                    (
+                        text: "Got your timing belt.",
+                        when: [QuestAt("parts_run", 1), HasItem("timing_belt", 1)],
+                        effects: [TakeItem("timing_belt", 1), CompleteQuest("parts_run")],
+                        goto: Some("parts_done"),
+                    ),
                     (text: "Let's trade.", effects: [OpenShop("earl_salvage")], goto: None),
                     (text: "Bye.", goto: None),
                 ],
@@ -295,6 +302,19 @@
                 id: "junker_reminder",
                 text: "A carburetor, a car battery, two spark plugs, and Mechanics 3. I sell rusty carbs and plugs if the Scrappers won't give you any.",
                 options: [(text: "On it.", goto: None)],
+            ),
+            (
+                id: "parts_offer",
+                text: "Now that you've got wheels: my buddy Hank runs a garage out in Pinecrest. He's holding a timing belt for me. Take Maple west onto Route 9 and keep going till the trees thin out.",
+                options: [
+                    (text: "Road trip!", effects: [StartQuest("parts_run")], goto: None),
+                    (text: "Another time.", goto: None),
+                ],
+            ),
+            (
+                id: "parts_done",
+                text: "Hank wrapped it in the Gazette again. That man. Thanks, kid. How'd she handle on the highway?",
+                options: [(text: "Like a dream.", goto: None)],
             ),
             (
                 id: "junker_done",
@@ -654,6 +674,149 @@
                 text: "A shoebox, wrapped in a trash bag: a stack of old bills and a bootleg concert CD. Finders keepers.",
                 options: [(text: "Nice.", goto: None)],
             ),
+        ],
+    ),
+    (
+        id: "rhonda",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Gas-N-Go, last stop for coffee till Pinecrest. Pump's broken, before you ask.",
+                options: [
+                    (text: "What've you got?", effects: [OpenShop("gas_n_go")], goto: None),
+                    (text: "Where does this road go?", goto: Some("road")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "road",
+                text: "West is Pinecrest, nice little town, nothing happens there. The turnoff north goes up to Hollow Pines State Park. East takes you back into the city. Bus stops right outside if you're on foot.",
+                options: [(text: "Thanks.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "trucker_mo",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Twenty years on this road. Bet you can't do the Route 9 Run: out to the east mile marker, then back past here and on to the west marker. Thirty-two seconds.",
+                options: [
+                    (text: "Watch me.", effects: [StartRace("route_9_run")], goto: None),
+                    (text: "Maybe later.", goto: None),
+                ],
+            ),
+        ],
+    ),
+    (
+        id: "hank",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Hank's Garage. If it's got an engine, I've had my arm in it.",
+                options: [
+                    (
+                        text: "Earl sent me for a timing belt.",
+                        when: [QuestAt("parts_run", 0)],
+                        effects: [GiveItem("timing_belt", 1), SetQuestStage("parts_run", 1)],
+                        goto: Some("belt"),
+                    ),
+                    (text: "Need anything?", when: [QuestNotStarted("scenic_route")], goto: Some("scenic_offer")),
+                    (text: "About the lookout footage...", when: [QuestAt("scenic_route", 0)], goto: Some("scenic_reminder")),
+                    (text: "Here's your lookout footage.", when: [QuestAt("scenic_route", 1)], effects: [CompleteQuest("scenic_route")], goto: Some("scenic_done")),
+                    (text: "Show me your parts.", effects: [OpenShop("hanks_garage")], goto: None),
+                    (text: "See you.", goto: None),
+                ],
+            ),
+            (id: "belt", text: "One timing belt, wrapped for freshness. Tell Earl he owes me a fishing trip.", options: [(text: "Will do.", goto: None)]),
+            (
+                id: "scenic_offer",
+                text: "My wife wants a video of the Hollow Pines lookout for her sister in Florida. I'd go, but somebody has to watch the garage. You got a camcorder that works?",
+                options: [
+                    (text: "I'll get you footage.", effects: [StartQuest("scenic_route")], goto: None),
+                    (text: "Not really my thing.", goto: None),
+                ],
+            ),
+            (id: "scenic_reminder", text: "Up the turnoff off Route 9, past the ranger station, all the way to the railing. Bring a working camcorder.", options: [(text: "Right.", goto: None)]),
+            (
+                id: "scenic_done",
+                text: "Look at that view! She's gonna cry. Here, take my old road atlas. Every back road in the state, plus some that aren't there anymore.",
+                options: [(text: "Thanks, Hank.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "sheriff_ruth",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Afternoon. Pinecrest is a quiet town and I aim to keep it that way. You staying long?",
+                options: [
+                    (text: "Anything going on?", goto: Some("news")),
+                    (text: "Just passing through.", goto: None),
+                ],
+            ),
+            (
+                id: "news",
+                text: "Poachers up in Hollow Pines, and kids from the city racing on Route 9. Ranger Dale could use a hand with the first one. The second one, I didn't hear about.",
+                options: [(text: "Understood.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "ranger_dale",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to Hollow Pines. Take only pictures, leave only footprints. And watch out for poachers, they've been setting traps all over the woods.",
+                options: [
+                    (text: "Want me to deal with them?", when: [QuestNotStarted("leave_no_trace")], goto: Some("offer")),
+                    (text: "Still working on it.", when: [QuestAt("leave_no_trace", 0)], goto: Some("reminder")),
+                    (text: "The poachers are gone.", when: [QuestAt("leave_no_trace", 1)], effects: [CompleteQuest("leave_no_trace")], goto: Some("reward")),
+                    (text: "Enjoy the park.", goto: None),
+                ],
+            ),
+            (
+                id: "offer",
+                text: "I can't arrest anybody, I'm a park ranger. But if three of them were to get run off, I'd be grateful, and so would City Services.",
+                options: [
+                    (text: "Consider it done.", effects: [ResetKills("poacher"), StartQuest("leave_no_trace")], goto: None),
+                    (text: "Sounds dangerous.", goto: None),
+                ],
+            ),
+            (id: "reminder", text: "Three poachers. They hang around the woods east and west of the lake.", options: [(text: "On it.", goto: None)]),
+            (
+                id: "reward",
+                text: "The deer thank you. Here, a spare pair of boots. They'll treat you better than those city shoes.",
+                options: [(text: "Thanks, Dale.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "lookout",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "The whole valley spreads out below: the lake, the pines, Route 9 like a grey ribbon, and the city skyline far away.",
+                options: [
+                    (
+                        text: "Film it with your camcorder.",
+                        when: [QuestAt("scenic_route", 0), HasItem("camcorder", 1)],
+                        effects: [SetQuestStage("scenic_route", 1)],
+                        goto: Some("filmed"),
+                    ),
+                    (text: "Take it in.", goto: Some("view")),
+                    (text: "Leave.", goto: None),
+                ],
+            ),
+            (id: "filmed", text: "Two minutes of panorama, slightly shaky, with you narrating. Hank's wife will love it.", options: [(text: "Done.", goto: None)]),
+            (id: "view", text: "You stand there a while. It's quiet up here.", options: [(text: "...", goto: None)]),
         ],
     ),
 ]
