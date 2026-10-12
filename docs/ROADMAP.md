@@ -28,7 +28,7 @@ What a new player notices first.
 - [x] First-time tutorial (a short guided quest: move, talk, buy; tracker tips then guide the first repair and fight quests)
 - [x] Map window (full zone map with NPCs, shops and portals) and an on-screen quest tracker
 - [x] Tooltips on items, skills and buttons
-- [ ] Music: era-appropriate tracks, a car radio, and Radio Free Maple you can tune into
+- [x] Music: era-appropriate tracks, a car radio, and Radio Free Maple you can tune into
 - [ ] A visual check of Maple Heights, Route 9, Pinecrest and Hollow Pines
 
 ## Next: running it for real players

@@ -109,7 +109,7 @@ fn render(segs: &[Seg]) -> Vec<f32> {
     out
 }
 
-fn wav(samples: &[f32]) -> Vec<u8> {
+pub(crate) fn wav(samples: &[f32]) -> Vec<u8> {
     let data_len = (samples.len() * 2) as u32;
     let mut b = Vec::with_capacity(44 + data_len as usize);
     b.extend(b"RIFF");

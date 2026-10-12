@@ -17,7 +17,8 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 - **Day and night:** a 40-minute day. Streetlamps and lit windows at night; some people (and
   some trouble) only come out after dark.
 - Click to walk anywhere, or use WASD. Shops fade out when they'd hide you, and the game
-  synthesizes its own sound effects (including a dial-up modem on login).
+  synthesizes its own sound effects (including a dial-up modem on login) and its own music: a
+  loop for each part of town, a night mix, a car radio, and the pirate station on the roofs.
 - **NPCs and quests:** dialogue trees, a quest log, and quests from **56k Dreams** to the
   **Black ICE** hack and a road trip to Pinecrest.
 - **Economy:** a 20-slot inventory, cash, shops (some buy your stuff back, faction shops give
@@ -190,6 +191,7 @@ These are the defaults; every key can be rebound in the settings (F10).
 | W A S D / arrows | Move (relative to the camera); cancels click-to-move |
 | E | Talk to the nearest NPC (when "[E] Talk to ..." shows; works from a car too) |
 | G | Get into your car (when "[G] Drive your ..." shows) / get out (when stopped) |
+| T | Car radio: next station (Z-100 Hits, Smooth 98.7, Radio Free Maple, off) |
 | Tab | Target the nearest rival (again: next one) |
 | R / F | Attack the target (toggle) / power swing (8 s cooldown) |
 | 1–9, Esc | Choose a dialogue option / close the dialogue or shop / drop your target |
@@ -301,7 +303,8 @@ crates/
             persistence (Postgres / SQLite); EmbeddedServer
   client/   rendering, cameras, input (WASD, click-to-move, chase) + prediction, avatars,
             sign-on & character select, messenger, game windows, combat UI, social UI, e-Bid
-            window, cars + race HUD, zone scenery, synthesized sound, speech bubbles, Host Game,
+            window, cars + race HUD, zone scenery, synthesized sound and music, map, tooltips,
+            settings, speech bubbles, Host Game,
             scripted bot
 migrations/ postgres/ and sqlite/ schemas, applied automatically by the server (sqlx::migrate!)
 config/     server.toml, client.toml, cluster/ (example hub + two zone servers)
@@ -547,6 +550,34 @@ building, with the street far below.
   Postgres or SQLite is chosen by the URL. ECS systems send commands down a channel and get
   results back as Bevy messages. The login service waits on a reply channel instead. Commands are
   handled in order, so a logout save always lands before the next login load.
+
+### Music
+
+`client/src/music.rs` writes all the music in code, like the sound effects: no files to ship or
+license. A small sequencer builds 8- or 16-bar loops from drum patterns written as strings
+(`"x...x...x...x..."`), chords as MIDI notes, and a few instruments:
+- drums: kick, snare, hats, rim clicks;
+- electric piano, pads and vibes;
+- Karplus-Strong plucked strings;
+- saw stabs, pipe clanks and a drone.
+
+Notes that run past the end wrap to the start, so the loops are seamless. Rendering takes about
+0.15 s and happens on a background thread at startup.
+
+| Where | Style |
+|---|---|
+| Downtown and the rooftops by day | boom-bap: swung drums, Rhodes chords, vinyl crackle |
+| Any outdoor zone after dark, and indoors at home | trip-hop |
+| Galleria Mall (all day) / Smooth 98.7 | bossa-nova muzak |
+| Docks and factory | drones and clanks |
+| Maple Heights | strummed guitar pop |
+| Route 9, Pinecrest, the park | finger-picked folk |
+| Z-100 Hits (car radio) | Eurodance |
+| Radio Free Maple: near the rooftop antenna, or on the radio | jungle and static |
+
+Tracks cross-fade over 1.5 s. The volume is the *Music* setting (0 turns it off). To listen to the
+tracks outside the game, run
+`MUSIC_DIR=/tmp/music cargo test -p client export_tracks -- --ignored`.
 
 ### Client UI
 

@@ -36,11 +36,12 @@ pub enum Action {
     RotateRight,
     Minimap,
     Map,
+    Radio,
     Settings,
 }
 
 impl Action {
-    pub const ALL: [Action; 20] = [
+    pub const ALL: [Action; 21] = [
         Action::MoveForward,
         Action::MoveBack,
         Action::MoveLeft,
@@ -60,6 +61,7 @@ impl Action {
         Action::RotateRight,
         Action::Minimap,
         Action::Map,
+        Action::Radio,
         Action::Settings,
     ];
 
@@ -84,6 +86,7 @@ impl Action {
             Action::RotateRight => "Rotate camera right",
             Action::Minimap => "Minimap",
             Action::Map => "Map",
+            Action::Radio => "Car radio station",
             Action::Settings => "Settings",
         }
     }
@@ -109,6 +112,7 @@ impl Action {
             Action::RotateRight => KeyCode::KeyC,
             Action::Minimap => KeyCode::KeyN,
             Action::Map => KeyCode::KeyM,
+            Action::Radio => KeyCode::KeyT,
             Action::Settings => KeyCode::F10,
         }
     }
