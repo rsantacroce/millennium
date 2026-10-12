@@ -457,6 +457,8 @@ out, and they aren't saved (logging out ends them).
 
 ### Hacking
 
+(Player guide, how to add hacks, and the cheat-proofing options: [docs/hacking.md](docs/hacking.md).)
+
 Hackable things (`hacks.ron`) are NPC-like props with a "Hack it" dialogue option. The server
 picks a random code, the client flashes it, and you type it back before the timer runs out.
 The more you outlevel the hack, the shorter the code and the longer it shows. Success rolls
