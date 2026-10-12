@@ -115,4 +115,6 @@ pub enum ChatAction {
     GiveCar { model: String },
     /// Admin only (testing): give yourself cash.
     GiveCash { amount: i64 },
+    /// Admin only (testing): give yourself skill XP.
+    GiveXp { skill: String, amount: u64 },
 }

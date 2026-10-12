@@ -11,7 +11,7 @@
 //! /r thanks          -> reply to the last person who whispered you (/reply)
 //! /ignore Bob, /unignore Bob, /ignorelist
 //! /mute Bob 10, /unmute Bob   (admins)
-//! /give walkman 2, /givecar hatchback, /givecash 500   (admins, for testing)
+//! /give walkman 2, /givecar hatchback, /givecash 500, /givexp hacking 400   (admins, for testing)
 //! /help, /clear
 //! ```
 
@@ -130,6 +130,13 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
                 q => q.parse().map_err(|_| ParseError::Usage(USAGE))?,
             };
             Ok(ChatInput::Action(ChatAction::Give { item, qty }))
+        }
+        "givexp" => {
+            const USAGE: &str = "/givexp <skill> <amount>";
+            let (skill, amount) = split_word(args);
+            let skill = non_empty(skill).ok_or(ParseError::Usage(USAGE))?;
+            let amount = amount.trim().parse().map_err(|_| ParseError::Usage(USAGE))?;
+            Ok(ChatInput::Action(ChatAction::GiveXp { skill, amount }))
         }
         "givecash" => {
             let amount = args.trim().parse().map_err(|_| ParseError::Usage("/givecash <amount>"))?;

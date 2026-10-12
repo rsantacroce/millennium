@@ -350,6 +350,7 @@ fn handle_chat_actions(
             | ChatAction::Give { .. }
             | ChatAction::GiveCar { .. }
             | ChatAction::GiveCash { .. }
+            | ChatAction::GiveXp { .. }
                 if !is_admin =>
             {
                 notify(&mut notice_tx, link, SystemNotice::warn("Only admins can do that."));
@@ -369,6 +370,17 @@ fn handle_chat_actions(
                 let text = match progress.apply(&[shared::content::Effect::GiveItem(item.clone(), qty)], &content) {
                     Ok(_) => format!("Gave you {} x{qty}.", content.item_name(&item)),
                     Err(e) => format!("Can't: {e}"),
+                };
+                notify(&mut notice_tx, link, SystemNotice::info(text));
+            }
+            ChatAction::GiveXp { skill, amount } => {
+                let Ok(mut progress) = progress.get_mut(player) else { continue };
+                let text = match shared::content::Skill::from_key(&skill.to_lowercase()) {
+                    Some(s) => {
+                        progress.reward(0, &[(s, amount.min(1_000_000))]);
+                        format!("Gave you {amount} {} XP (now level {}).", s.name(), progress.level(s))
+                    }
+                    None => "Skills: electronics, mechanics, cooking, fitness, driving, hacking, trading.".to_string(),
                 };
                 notify(&mut notice_tx, link, SystemNotice::info(text));
             }

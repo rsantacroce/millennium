@@ -127,7 +127,9 @@ pub fn drive(pos: Vec2, d: &mut Driving, intent: &MoveIntent, dt: f32, zone: &Zo
     if want.length() > 0.1 {
         let target = want.y.atan2(want.x);
         let diff = wrap(target - d.heading);
-        if diff.abs() > 2.3 && d.speed <= 0.5 {
+        // Nose against a wall: going forward is impossible, so back out and swing round.
+        let nose_blocked = blocked(pos + Vec2::from_angle(d.heading) * (CAR_RADIUS * 0.5), zone);
+        if (diff.abs() > 2.3 || (nose_blocked && diff.abs() > 0.2)) && d.speed <= 0.5 {
             // A K-turn: back up while the nose swings round, then drive off forwards.
             d.speed = (d.speed - m.accel * 0.6 * dt).max(-m.max_speed * 0.3);
             d.heading = wrap(d.heading + diff.clamp(-max_turn, max_turn));
@@ -309,6 +311,30 @@ mod tests {
         }
         assert!(d.speed > 5.0, "should end up driving forwards: {d:?}");
         assert!(pos.x < -10.0);
+    }
+
+    #[test]
+    fn backs_out_of_a_wall() {
+        // Parked nose-first against the Byte Cafe, wanting to go off to the side.
+        let zone = downtown_block();
+        let cafe = zone.obstacles.iter().find(|o| o.name == "Byte Cafe").unwrap().rect;
+        let mut pos = Vec2::new(cafe.max.x + CAR_RADIUS + 0.01, cafe.center().y);
+        let mut d = car(std::f32::consts::PI); // facing west, into the cafe
+        // Away from the wall, east along the cafe's side.
+        let target = Vec2::new(pos.x + 12.0, pos.y);
+        for _ in 0..600 {
+            pos = drive(pos, &mut d, &go((target - pos).normalize()), DT, &zone);
+        }
+        assert!(pos.distance(target) < 6.0, "stuck at {pos:?} heading {}", d.heading);
+
+        // The case that used to jam: nose in the wall, wanting to go off to the side (north).
+        let mut pos = Vec2::new(cafe.max.x + CAR_RADIUS + 0.01, cafe.center().y);
+        let mut d = car(std::f32::consts::PI);
+        let target = Vec2::new(pos.x + 3.0, cafe.min.y - 8.0);
+        for _ in 0..900 {
+            pos = drive(pos, &mut d, &go((target - pos).normalize()), DT, &zone);
+        }
+        assert!(pos.distance(target) < 6.0, "sideways: stuck at {pos:?} heading {}", d.heading);
     }
 
     #[test]

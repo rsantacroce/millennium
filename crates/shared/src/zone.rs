@@ -462,7 +462,8 @@ pub fn house_interior(house: &House) -> ZoneLayout {
         ],
         portals: vec![Portal {
             name: "Front Door",
-            rect: Rect::new(-1.0, 5.2, 1.0, 6.0),
+            // Deep enough into the room that click-to-move paths end inside it.
+            rect: Rect::new(-1.0, 4.6, 1.0, 6.0),
             to: ZoneId::SUBURBS,
             arrive: house.outside(),
             road: false,
@@ -636,7 +637,41 @@ mod tests {
                 // The portal can be reached on foot from the zone's spawn.
                 let path = grid.find_path(zone.spawn, portal.rect.center()).expect("portal reachable");
                 let end = *path.last().unwrap();
-                assert!(portal.rect.inflate(0.6).contains(end), "{}: path ends at {end:?}", portal.name);
+                // Click-to-move follows this path, so it must end inside the portal.
+                assert!(portal.rect.contains(end), "{}: path ends at {end:?}, outside {:?}", portal.name, portal.rect);
+            }
+        }
+    }
+
+    /// Really walk (with the movement rules the server uses) from the spawn to every portal,
+    /// following the nav path like click-to-move, and check that it triggers.
+    #[test]
+    fn every_portal_can_be_walked_into() {
+        let zones = ZoneRegistry::default();
+        for zone in zones.iter() {
+            let grid = crate::nav::NavGrid::build(zone);
+            for portal in zone.portals.iter().filter(|p| !p.road) {
+                let path = grid.find_path(zone.spawn, portal.rect.center()).unwrap_or_default();
+                let mut pos = zone.spawn;
+                let mut reached = false;
+                // Follow the path, then keep pushing toward the portal's middle.
+                for wp in path.iter().copied().chain(std::iter::once(portal.rect.center())) {
+                    for _ in 0..600 {
+                        if zone.portal_at(pos, false).is_some() {
+                            reached = true;
+                            break;
+                        }
+                        if pos.distance(wp) < 0.05 {
+                            break;
+                        }
+                        let intent = crate::protocol::MoveIntent::from_direction((wp - pos).normalize_or_zero());
+                        pos = crate::movement::step(pos, &intent, 1.0 / 30.0, zone);
+                    }
+                    if reached {
+                        break;
+                    }
+                }
+                assert!(reached, "{}: can't walk into {} (stopped at {pos:?})", zone.name, portal.name);
             }
         }
     }
