@@ -16,5 +16,26 @@ services:
       timeout: 3s
       retries: 15
 
+  # The game server too: `docker compose --profile server up -d` (builds the image first).
+  server:
+    profiles: ["server"]
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://millennium:millennium@db:5432/millennium
+      # Set it in a .env file next to this one (`millennium-server --generate-key` makes one).
+      MILLENNIUM_PRIVATE_KEY: ${MILLENNIUM_PRIVATE_KEY:-}
+    ports:
+      - "5888:5888/tcp"
+      - "5888:5888/udp"
+    volumes:
+      - serverdata:/data
+    restart: unless-stopped
+    # Ctrl-C is the clean shutdown: everyone online is saved first.
+    stop_signal: SIGINT
+
 volumes:
   pgdata:
+  serverdata:

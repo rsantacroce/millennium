@@ -1,0 +1,13 @@
+# Hourly Postgres backups, kept for two days (the 48 in millennium-backup.service).
+#   sudo systemctl enable --now millennium-backup.timer
+
+[Unit]
+Description=Hourly Millennium database backup
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

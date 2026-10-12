@@ -1,0 +1,14 @@
+# One Postgres backup (pg_dump). Started by millennium-backup.timer. See docs/deploy.md.
+# SQLite servers don't need this: they back themselves up.
+
+[Unit]
+Description=Back up the Millennium Postgres database
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=millennium
+Group=millennium
+WorkingDirectory=/var/lib/millennium
+EnvironmentFile=/etc/millennium/env
+ExecStart=/opt/millennium/scripts/backup-postgres.sh /var/lib/millennium/backups 48

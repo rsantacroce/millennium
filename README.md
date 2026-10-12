@@ -109,6 +109,8 @@ The first build takes a few minutes, because Bevy is big. After that, debug buil
 `--release`) are fast to compile and still run fine: dependencies are always optimised (see
 `[profile.dev]` in `Cargo.toml`).
 
+**Running a server for real** (Docker, systemd, backups, upgrades): [docs/deploy.md](docs/deploy.md).
+
 ## Host Game: play with friends, no server needed
 
 Click **Host Game** on the sign-on window (after typing a name and password), or run:
