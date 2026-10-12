@@ -21,7 +21,7 @@ pub type Channels = (mpsc::UnboundedSender<DbCommand>, crossbeam_channel::Receiv
 
 /// Connects (and migrates) synchronously so startup fails loudly if Postgres is unreachable,
 /// then hands the store to a background thread.
-pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<Channels, String> {
+pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits, stats: std::sync::Arc<crate::metrics::DbStats>) -> Result<Channels, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("db")
@@ -90,10 +90,12 @@ pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<C
                             continue;
                         }
                     };
+                    let started = std::time::Instant::now();
                     let result = match &mut store {
                         Store::Postgres(pg) => pg.handle(cmd, history).await,
                         Store::Sqlite(db) => db.handle(cmd, history).await,
                     };
+                    stats.record(started.elapsed());
                     if let Some(result) = result
                         && res_tx.send(result).is_err()
                     {

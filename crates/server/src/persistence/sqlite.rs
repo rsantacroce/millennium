@@ -126,6 +126,18 @@ impl SqliteStore {
                 .set_mute(&target_name, until_ms)
                 .await
                 .map(|found| Some(DbResult::MuteUpdated { link, target_name, found, until_ms })),
+            DbCommand::SetBan { link, target_name, until_ms, reason } => self
+                .set_ban(&target_name, until_ms, reason.as_deref())
+                .await
+                .map(|found| Some(DbResult::BanUpdated { link, target_name, found, until_ms })),
+            DbCommand::FileReport { link, reporter_id, target_name, reason, context } => self
+                .file_report(reporter_id, &target_name, &reason, &context)
+                .await
+                .map(|id| Some(DbResult::ReportFiled { link, target_name, id })),
+            DbCommand::ListReports { link, panel } => self.open_reports().await.map(|reports| Some(DbResult::Reports { link, reports, panel })),
+            DbCommand::ResolveReport { link, id, by } => {
+                self.resolve_report(id, &by).await.map(|ok| Some(DbResult::ReportResolved { link, id, ok }))
+            }
             DbCommand::SaveStates(states) => {
                 async {
                     let mut tx = self.pool.begin().await?;
@@ -239,12 +251,12 @@ impl SqliteStore {
     }
 
     async fn credentials(&self, username: &str) -> Result<Option<Credentials>, sqlx::Error> {
-        let row: Option<(i64, String, Option<String>)> =
-            sqlx::query_as("SELECT id, username, password_hash FROM accounts WHERE username = ?")
+        let row: Option<(i64, String, Option<String>, Option<i64>, Option<String>)> =
+            sqlx::query_as("SELECT id, username, password_hash, banned_until_ms, ban_reason FROM accounts WHERE username = ?")
                 .bind(username)
                 .fetch_optional(&self.pool)
                 .await?;
-        Ok(row.map(|(account_id, username, password_hash)| Credentials { account_id, username, password_hash }))
+        Ok(row.map(|(account_id, username, password_hash, banned_until_ms, ban_reason)| Credentials { account_id, username, password_hash, banned_until_ms, ban_reason }))
     }
 
     async fn create_account(&self, username: &str, hash: &str) -> Result<Option<Credentials>, sqlx::Error> {
@@ -257,7 +269,7 @@ impl SqliteStore {
         .bind(now_ms())
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()) }))
+        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()), banned_until_ms: None, ban_reason: None }))
     }
 
     async fn list(&self, link: Entity, account_id: i64) -> Result<DbResult, sqlx::Error> {
@@ -568,6 +580,57 @@ impl SqliteStore {
         .fetch_all(&self.pool)
         .await?;
         Ok(Some(CrewRoster { name, tag, members: members.into_iter().map(|(id, n, r)| (id, n, crew_rank(r))).collect() }))
+    }
+
+    async fn set_ban(&self, target_name: &str, until_ms: Option<i64>, reason: Option<&str>) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE accounts SET banned_until_ms = ?, ban_reason = ?
+             WHERE id = (SELECT account_id FROM characters WHERE name = ?)",
+        )
+        .bind(until_ms)
+        .bind(reason)
+        .bind(target_name)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn file_report(&self, reporter_id: i64, target_name: &str, reason: &str, context: &str) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar(
+            "INSERT INTO reports (reporter_id, target_id, reason, context, created_at_ms)
+             SELECT ?, id, ?, ?, ? FROM characters WHERE name = ? RETURNING id",
+        )
+        .bind(reporter_id)
+        .bind(reason)
+        .bind(context)
+        .bind(now_ms())
+        .bind(target_name)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    async fn open_reports(&self) -> Result<Vec<shared::protocol::ReportInfo>, sqlx::Error> {
+        let rows: Vec<(i64, String, String, String, String, i64)> = sqlx::query_as(
+            "SELECT r.id, rc.name, tc.name, r.reason, r.context, r.created_at_ms FROM reports r
+             JOIN characters rc ON rc.id = r.reporter_id JOIN characters tc ON tc.id = r.target_id
+             WHERE r.resolved_at_ms IS NULL ORDER BY r.id LIMIT 50",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, reporter, target, reason, context, created_at_ms)| shared::protocol::ReportInfo { id, reporter, target, reason, context, created_at_ms })
+            .collect())
+    }
+
+    async fn resolve_report(&self, id: i64, by: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE reports SET resolved_by = ?, resolved_at_ms = ? WHERE id = ? AND resolved_at_ms IS NULL")
+            .bind(by)
+            .bind(now_ms())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn set_mute(&self, target_name: &str, until_ms: Option<i64>) -> Result<bool, sqlx::Error> {

@@ -10,7 +10,10 @@
 //! /w Bob hello       -> Whisper (/whisper, /t, /tell)
 //! /r thanks          -> reply to the last person who whispered you (/reply)
 //! /ignore Bob, /unignore Bob, /ignorelist
+//! /report Bob spamming       -> tell the admins (with Bob's recent chat)
 //! /mute Bob 10, /unmute Bob   (admins)
+//! /mod kick Bob [reason], /mod ban Bob [hours|perm] [reason], /mod unban Bob,
+//! /mod reports, /mod resolve 3, /admin (the admin window)   (admins)
 //! /give walkman 2, /givecar hatchback, /givecash 500, /givexp hacking 400   (admins, for testing)
 //! /help, /clear
 //! ```
@@ -121,6 +124,47 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
             Ok(ChatInput::Action(ChatAction::Mute { name, minutes }))
         }
         "unmute" => Ok(ChatInput::Action(ChatAction::Unmute { name: one_name(args, "/unmute <name>")? })),
+        "report" => {
+            const USAGE: &str = "/report <name> <what happened>";
+            let (name, reason) = split_word(args);
+            let name = non_empty(name).ok_or(ParseError::Usage(USAGE))?;
+            let reason = non_empty(reason).ok_or(ParseError::Usage(USAGE))?;
+            Ok(ChatInput::Action(ChatAction::Report { name, reason }))
+        }
+        "admin" => Ok(ChatInput::Action(ChatAction::AdminPanel)),
+        "mod" => {
+            const USAGE: &str = "/mod kick|ban|unban <name> ..., /mod reports, /mod resolve <id>";
+            let (sub, rest) = split_word(args);
+            match sub.to_lowercase().as_str() {
+                "kick" => {
+                    let (name, reason) = split_word(rest);
+                    let name = non_empty(name).ok_or(ParseError::Usage("/mod kick <name> [reason]"))?;
+                    Ok(ChatInput::Action(ChatAction::Kick { name, reason: reason.trim().to_string() }))
+                }
+                "ban" => {
+                    const BAN: &str = "/mod ban <name> [hours|perm] [reason]";
+                    let (name, rest) = split_word(rest);
+                    let name = non_empty(name).ok_or(ParseError::Usage(BAN))?;
+                    // The length is optional: a reason can start right after the name.
+                    let (first, after) = split_word(rest);
+                    let (hours, reason) = match first.to_lowercase().as_str() {
+                        "perm" | "permanent" | "forever" => (0, after),
+                        f => match f.parse::<u32>() {
+                            Ok(h) if h > 0 => (h, after),
+                            _ => (24, rest),
+                        },
+                    };
+                    Ok(ChatInput::Action(ChatAction::Ban { name, hours, reason: reason.trim().to_string() }))
+                }
+                "unban" => Ok(ChatInput::Action(ChatAction::Unban { name: one_name(rest, "/mod unban <name>")? })),
+                "reports" => Ok(ChatInput::Action(ChatAction::ListReports)),
+                "resolve" => {
+                    let id = rest.trim().trim_start_matches('#').parse().map_err(|_| ParseError::Usage("/mod resolve <report id>"))?;
+                    Ok(ChatInput::Action(ChatAction::Resolve { id }))
+                }
+                _ => Err(ParseError::Usage(USAGE)),
+            }
+        }
         "give" => {
             const USAGE: &str = "/give <item id> [quantity]";
             let (item, qty) = split_word(args);
@@ -155,7 +199,7 @@ pub const HELP_TEXT: &[&str] = &[
     "/trade <name>   /invite <name>, /leave, /kick <name> (party)",
     "/friend add|remove <name>   /crew create <Name> <TAG>, /crew invite|kick <name>, /crew leave|disband",
     "/w <name> <msg> - whisper   /r <msg> - reply",
-    "/ignore <name>, /unignore <name>, /ignorelist",
+    "/ignore <name>, /unignore <name>, /ignorelist   /report <name> <what happened>",
     "/clear - clear this window   Tab - switch channel",
 ];
 
@@ -186,6 +230,22 @@ mod tests {
 
     fn send(target: ChatTarget, text: &str) -> Result<ChatInput, ParseError> {
         Ok(ChatInput::Send { target, text: text.into() })
+    }
+
+    #[test]
+    fn reports_and_moderation() {
+        let action = |a| Ok(ChatInput::Action(a));
+        assert_eq!(parse_input("/report Bob spamming the zone"), action(ChatAction::Report { name: "Bob".into(), reason: "spamming the zone".into() }));
+        assert!(parse_input("/report Bob").is_err(), "a reason is needed");
+        assert_eq!(parse_input("/mod kick Bob calm down"), action(ChatAction::Kick { name: "Bob".into(), reason: "calm down".into() }));
+        assert_eq!(parse_input("/mod ban Bob 48 scamming"), action(ChatAction::Ban { name: "Bob".into(), hours: 48, reason: "scamming".into() }));
+        assert_eq!(parse_input("/mod ban Bob perm bot"), action(ChatAction::Ban { name: "Bob".into(), hours: 0, reason: "bot".into() }));
+        assert_eq!(parse_input("/mod ban Bob gold seller"), action(ChatAction::Ban { name: "Bob".into(), hours: 24, reason: "gold seller".into() }));
+        assert_eq!(parse_input("/mod unban Bob"), action(ChatAction::Unban { name: "Bob".into() }));
+        assert_eq!(parse_input("/mod resolve #7"), action(ChatAction::Resolve { id: 7 }));
+        assert_eq!(parse_input("/mod reports"), action(ChatAction::ListReports));
+        assert_eq!(parse_input("/admin"), action(ChatAction::AdminPanel));
+        assert!(parse_input("/mod dance").is_err());
     }
 
     #[test]

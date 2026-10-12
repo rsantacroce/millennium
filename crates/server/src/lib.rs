@@ -18,6 +18,8 @@ mod gameplay;
 mod hacking;
 mod housing;
 mod market;
+pub mod metrics;
+mod moderation;
 mod movement;
 mod net;
 mod persistence;
@@ -108,6 +110,8 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         hacking::HackingPlugin,
         housing::HousingPlugin,
     ));
+    // Tuples top out at 15 plugins.
+    app.add_plugins((moderation::ModerationPlugin, metrics::MetricsPlugin));
     Ok(app)
 }
 

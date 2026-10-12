@@ -191,6 +191,10 @@ fn handle(req: &AuthRequest, peer: IpAddr, ctx: &Ctx) -> Result<LoginTicket, Str
             }
         }
     };
+    if let Some((until, reason)) = creds.ban_at(crate::persistence::now_ms()) {
+        info!("refused banned account {} from {peer}", creds.username);
+        return Err(crate::moderation::ban_message(until, reason));
+    }
     info!("{} logged in from {peer}", creds.username);
     issue_ticket(ctx, &creds, req.server_ip)
 }

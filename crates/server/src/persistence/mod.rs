@@ -78,6 +78,16 @@ pub struct Credentials {
     pub username: String,
     /// `None` for accounts created before passwords existed.
     pub password_hash: Option<String>,
+    /// Banned until this time (Unix ms), and why.
+    pub banned_until_ms: Option<i64>,
+    pub ban_reason: Option<String>,
+}
+
+impl Credentials {
+    /// The ban in force at `now_ms`, if any: (until, reason).
+    pub fn ban_at(&self, now_ms: i64) -> Option<(i64, &str)> {
+        self.banned_until_ms.filter(|until| *until > now_ms).map(|until| (until, self.ban_reason.as_deref().unwrap_or("")))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +140,12 @@ pub enum DbCommand {
     InsertChat(ChatRecord),
     SetIgnore { link: Entity, character_id: i64, target_name: String, ignore: bool },
     SetMute { link: Entity, target_name: String, until_ms: Option<i64> },
+    /// `until_ms: None` lifts the ban.
+    SetBan { link: Entity, target_name: String, until_ms: Option<i64>, reason: Option<String> },
+    FileReport { link: Entity, reporter_id: i64, target_name: String, reason: String, context: String },
+    /// `panel`: the answer is for the admin window rather than the chat.
+    ListReports { link: Entity, panel: bool },
+    ResolveReport { link: Entity, id: i64, by: String },
     /// Several characters' states in ONE transaction (trades: both sides or neither).
     SaveStates(Vec<(i64, PlayerState)>),
     SetFriend { link: Entity, character_id: i64, target_name: String, add: bool },
@@ -182,6 +198,11 @@ pub enum DbResult {
     /// `target` is `None` if no such character exists.
     IgnoreUpdated { link: Entity, target_name: String, target: Option<(u64, String)>, ignore: bool },
     MuteUpdated { link: Entity, target_name: String, found: bool, until_ms: Option<i64> },
+    BanUpdated { link: Entity, target_name: String, found: bool, until_ms: Option<i64> },
+    /// `id` is `None` if there's no such character.
+    ReportFiled { link: Entity, target_name: String, id: Option<i64> },
+    Reports { link: Entity, reports: Vec<shared::protocol::ReportInfo>, panel: bool },
+    ReportResolved { link: Entity, id: i64, ok: bool },
     /// `target` is `None` if no such character exists.
     FriendUpdated { link: Entity, target_name: String, target: Option<(u64, String)>, add: bool },
     /// A crew change finished: `Ok(crew id)` to reload, or a message for the player.
@@ -281,6 +302,7 @@ fn crew_rank(rank: i64) -> CrewRank {
 pub struct Db {
     tx: tokio::sync::mpsc::UnboundedSender<DbCommand>,
     rx: crossbeam_channel::Receiver<DbResult>,
+    stats: std::sync::Arc<crate::metrics::DbStats>,
 }
 
 impl Db {
@@ -290,11 +312,18 @@ impl Db {
             global: config.chat.history_global,
             whispers: config.chat.history_whispers,
         };
-        let (tx, rx) = spawn_worker(&config.database, history)?;
-        Ok(Self { tx, rx })
+        let stats = std::sync::Arc::new(crate::metrics::DbStats::default());
+        let (tx, rx) = spawn_worker(&config.database, history, stats.clone())?;
+        Ok(Self { tx, rx, stats })
+    }
+
+    /// Queue length and timings, for `metrics`.
+    pub fn stats(&self) -> &crate::metrics::DbStats {
+        &self.stats
     }
 
     pub fn send(&self, cmd: DbCommand) {
+        self.stats.queued.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if self.tx.send(cmd).is_err() {
             error!("database worker has stopped; command dropped");
         }

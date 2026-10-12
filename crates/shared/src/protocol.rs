@@ -287,6 +287,26 @@ pub struct SystemNotice {
     pub text: String,
 }
 
+/// The admin window's contents (sent to admins who ask with `ChatAction::AdminPanel`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct AdminPanel {
+    /// (name, zone, muted) of everyone on this server.
+    pub players: Vec<(String, String, bool)>,
+    pub reports: Vec<ReportInfo>,
+}
+
+/// A player report waiting for an admin.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ReportInfo {
+    pub id: i64,
+    pub reporter: String,
+    pub target: String,
+    pub reason: String,
+    /// The reported player's recent chat, as the server saw it.
+    pub context: String,
+    pub created_at_ms: i64,
+}
+
 impl SystemNotice {
     pub fn info(text: impl Into<String>) -> Self {
         Self { level: NoticeLevel::Info, text: text.into() }
@@ -423,6 +443,8 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<ChatHistory>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<SystemNotice>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<AdminPanel>()
             .add_direction(NetworkDirection::ServerToClient);
 
         app.add_plugins(input::native::InputPlugin::<MoveIntent>::default());

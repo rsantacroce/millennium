@@ -19,7 +19,7 @@ use rate_limit::RateLimiter;
 use shared::chat::{sanitize, ChatAction, ChatChannel, ChatLine, ChatTarget, WordFilter, SAY_RANGE};
 use shared::protocol::{ChatNetChannel, ChatSend, DisplayName, PlayerId, Position, SystemNotice};
 use shared::zone::ZoneId;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// Per-player chat state (server only, lives on the player entity).
 #[derive(Component, Debug)]
@@ -31,7 +31,12 @@ pub struct ChatState {
     /// Character id -> name.
     ignores: HashMap<u64, String>,
     is_admin: bool,
+    /// The last few lines this player sent (for reports about them).
+    recent: VecDeque<String>,
 }
+
+/// Lines of a player's own chat kept for reports.
+const RECENT_LINES: usize = 10;
 
 impl ChatState {
     pub fn new(
@@ -47,7 +52,28 @@ impl ChatState {
             muted_until_ms,
             ignores: ignores.iter().cloned().collect(),
             is_admin: config.is_admin(account),
+            recent: VecDeque::new(),
         }
+    }
+
+    pub fn is_admin(&self) -> bool {
+        self.is_admin
+    }
+
+    pub fn is_muted(&self, now_ms: i64) -> bool {
+        self.muted_for_ms(now_ms).is_some()
+    }
+
+    /// What they said lately, one line per message, oldest first.
+    pub fn recent_chat(&self) -> String {
+        if self.recent.is_empty() { "(nothing said lately)".to_string() } else { Vec::from(self.recent.clone()).join("\n") }
+    }
+
+    fn remember(&mut self, channel: ChatChannel, text: &str) {
+        if self.recent.len() >= RECENT_LINES {
+            self.recent.pop_front();
+        }
+        self.recent.push_back(format!("[{}] {text}", channel.label()));
     }
 
     pub fn ignores(&self, id: u64) -> bool {
@@ -152,6 +178,8 @@ fn handle_chat_send(
                 continue;
             }
         };
+
+        state.remember(msg.target.channel(), &text);
 
         // 4. Recipients.
         let mut line = ChatLine {
@@ -313,6 +341,7 @@ fn handle_chat_actions(
     mut progress: Query<&mut Progress>,
     content: Res<shared::content::Content>,
     mut cars: MessageWriter<CarRequest>,
+    mut moderation: MessageWriter<crate::moderation::ModerationRequest>,
 ) {
     let mut incoming = Vec::new();
     for (link, session, mut receiver) in &mut links {
@@ -351,6 +380,12 @@ fn handle_chat_actions(
             | ChatAction::GiveCar { .. }
             | ChatAction::GiveCash { .. }
             | ChatAction::GiveXp { .. }
+            | ChatAction::Kick { .. }
+            | ChatAction::Ban { .. }
+            | ChatAction::Unban { .. }
+            | ChatAction::ListReports
+            | ChatAction::Resolve { .. }
+            | ChatAction::AdminPanel
                 if !is_admin =>
             {
                 notify(&mut notice_tx, link, SystemNotice::warn("Only admins can do that."));
@@ -389,6 +424,15 @@ fn handle_chat_actions(
                 let amount = amount.clamp(1, 100_000);
                 let _ = progress.apply(&[shared::content::Effect::GiveCash(amount)], &content);
                 notify(&mut notice_tx, link, SystemNotice::info(format!("Gave you ${amount}.")));
+            }
+            action @ (ChatAction::Report { .. }
+            | ChatAction::Kick { .. }
+            | ChatAction::Ban { .. }
+            | ChatAction::Unban { .. }
+            | ChatAction::ListReports
+            | ChatAction::Resolve { .. }
+            | ChatAction::AdminPanel) => {
+                moderation.write(crate::moderation::ModerationRequest { link, name: my_name, character_id: my_id, action });
             }
             ChatAction::GiveCar { model } => match shared::vehicle::model(&model) {
                 Some(_) => {

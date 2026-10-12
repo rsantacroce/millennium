@@ -117,4 +117,18 @@ pub enum ChatAction {
     GiveCash { amount: i64 },
     /// Admin only (testing): give yourself skill XP.
     GiveXp { skill: String, amount: u64 },
+    /// Anyone: report a player to the admins (saved with their recent chat).
+    Report { name: String, reason: String },
+    /// Admin only: disconnect someone.
+    Kick { name: String, reason: String },
+    /// Admin only: ban an account (`hours` 0 = permanent) and disconnect it.
+    Ban { name: String, hours: u32, reason: String },
+    /// Admin only.
+    Unban { name: String },
+    /// Admin only: list open reports (in chat).
+    ListReports,
+    /// Admin only: close a report.
+    Resolve { id: i64 },
+    /// Admin only: send me the admin panel's data (`AdminPanel`).
+    AdminPanel,
 }

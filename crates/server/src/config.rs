@@ -13,6 +13,7 @@ pub struct ServerConfig {
     pub world: WorldConfig,
     pub cluster: ClusterConfig,
     pub hub: HubConfig,
+    pub metrics: crate::metrics::MetricsConfig,
     pub log_filter: Option<String>,
 }
 

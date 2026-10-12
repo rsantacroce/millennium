@@ -13,7 +13,8 @@ path = "src/main.rs"
 [dependencies]
 shared.workspace = true
 bevy = { workspace = true, features = ["std", "multi_threaded", "bevy_log", "bevy_state"] }
-lightyear.workspace = true
+# `metrics`: transport byte counters for the status endpoint (see src/metrics.rs).
+lightyear = { workspace = true, features = ["metrics"] }
 serde.workspace = true
 toml.workspace = true
 tracing.workspace = true

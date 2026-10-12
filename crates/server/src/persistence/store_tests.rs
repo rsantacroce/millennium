@@ -248,6 +248,36 @@ macro_rules! store_tests {
         assert_eq!(cars.len(), 1);
         assert_eq!((cars[0].zone, cars[0].position, cars[0].heading), (ZoneId(1), Vec2::new(40.0, 2.0), 3.0));
     }
+
+    #[tokio::test]
+    async fn bans_and_reports() {
+        let Some(mut s) = store().await else { return };
+        let a = account(&mut s, "Alice").await;
+        let b = account(&mut s, "Bob").await;
+        let alice = character(&mut s, a, "Alice").await.unwrap();
+        character(&mut s, b, "Bob").await.unwrap();
+
+        // Bans are on the account, found through any of its characters.
+        let until = now_ms() + 3_600_000;
+        assert!(s.set_ban("bob", Some(until), Some("spam")).await.unwrap());
+        assert!(!s.set_ban("nobody", Some(until), None).await.unwrap());
+        let creds = s.credentials("Bob").await.unwrap().unwrap();
+        assert_eq!(creds.ban_at(now_ms()).map(|(_, r)| r.to_string()), Some("spam".into()));
+        assert!(creds.banned_until_ms.is_some_and(|t| (t - until).abs() < 1000));
+        assert!(creds.ban_at(until + 1).is_none(), "bans run out");
+        assert!(s.set_ban("Bob", None, None).await.unwrap());
+        assert!(s.credentials("Bob").await.unwrap().unwrap().ban_at(now_ms()).is_none());
+
+        // Reports: filed, listed with names, resolved exactly once.
+        let id = s.file_report(alice, "BOB", "rude", "[say] you suck").await.unwrap().unwrap();
+        assert!(s.file_report(alice, "nobody", "x", "").await.unwrap().is_none());
+        let open = s.open_reports().await.unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!((open[0].id, open[0].reporter.as_str(), open[0].target.as_str(), open[0].context.as_str()), (id, "Alice", "Bob", "[say] you suck"));
+        assert!(s.resolve_report(id, "Admin").await.unwrap());
+        assert!(!s.resolve_report(id, "Admin").await.unwrap());
+        assert!(s.open_reports().await.unwrap().is_empty());
+    }
     };
 }
 

@@ -80,6 +80,18 @@ impl PgStore {
                 .set_mute(&target_name, until_ms)
                 .await
                 .map(|found| Some(DbResult::MuteUpdated { link, target_name, found, until_ms })),
+            DbCommand::SetBan { link, target_name, until_ms, reason } => self
+                .set_ban(&target_name, until_ms, reason.as_deref())
+                .await
+                .map(|found| Some(DbResult::BanUpdated { link, target_name, found, until_ms })),
+            DbCommand::FileReport { link, reporter_id, target_name, reason, context } => self
+                .file_report(reporter_id, &target_name, &reason, &context)
+                .await
+                .map(|id| Some(DbResult::ReportFiled { link, target_name, id })),
+            DbCommand::ListReports { link, panel } => self.open_reports().await.map(|reports| Some(DbResult::Reports { link, reports, panel })),
+            DbCommand::ResolveReport { link, id, by } => {
+                self.resolve_report(id, &by).await.map(|ok| Some(DbResult::ReportResolved { link, id, ok }))
+            }
             DbCommand::SaveStates(states) => {
                 async {
                     let mut tx = self.pool.begin().await?;
@@ -192,12 +204,14 @@ impl PgStore {
     }
 
     async fn credentials(&self, username: &str) -> Result<Option<Credentials>, sqlx::Error> {
-        let row: Option<(i64, String, Option<String>)> =
-            sqlx::query_as("SELECT id, username::text, password_hash FROM accounts WHERE username = $1::citext")
-                .bind(username)
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row.map(|(account_id, username, password_hash)| Credentials { account_id, username, password_hash }))
+        let row: Option<(i64, String, Option<String>, Option<i64>, Option<String>)> = sqlx::query_as(
+            "SELECT id, username::text, password_hash, (extract(epoch FROM banned_until) * 1000)::bigint, ban_reason
+             FROM accounts WHERE username = $1::citext",
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(account_id, username, password_hash, banned_until_ms, ban_reason)| Credentials { account_id, username, password_hash, banned_until_ms, ban_reason }))
     }
 
     async fn create_account(&self, username: &str, hash: &str) -> Result<Option<Credentials>, sqlx::Error> {
@@ -209,7 +223,7 @@ impl PgStore {
         .bind(hash)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()) }))
+        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()), banned_until_ms: None, ban_reason: None }))
     }
 
     async fn list(&self, link: Entity, account_id: i64) -> Result<DbResult, sqlx::Error> {
@@ -516,6 +530,59 @@ impl PgStore {
         .fetch_all(&self.pool)
         .await?;
         Ok(Some(CrewRoster { name, tag, members: members.into_iter().map(|(id, n, r)| (id, n, crew_rank(r.into()))).collect() }))
+    }
+
+    async fn set_ban(&self, target_name: &str, until_ms: Option<i64>, reason: Option<&str>) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE accounts AS a
+             SET banned_until = CASE WHEN $2::bigint IS NULL THEN NULL
+                                     ELSE to_timestamp($2::bigint / 1000.0) END,
+                 ban_reason = $3
+             FROM characters c
+             WHERE c.account_id = a.id AND c.name = $1::citext",
+        )
+        .bind(target_name)
+        .bind(until_ms)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn file_report(&self, reporter_id: i64, target_name: &str, reason: &str, context: &str) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar(
+            "INSERT INTO reports (reporter_id, target_id, reason, context)
+             SELECT $1, id, $2, $3 FROM characters WHERE name = $4::citext RETURNING id",
+        )
+        .bind(reporter_id)
+        .bind(reason)
+        .bind(context)
+        .bind(target_name)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    async fn open_reports(&self) -> Result<Vec<shared::protocol::ReportInfo>, sqlx::Error> {
+        let rows: Vec<(i64, String, String, String, String, i64)> = sqlx::query_as(
+            "SELECT r.id, rc.name::text, tc.name::text, r.reason, r.context, (extract(epoch FROM r.created_at) * 1000)::bigint
+             FROM reports r JOIN characters rc ON rc.id = r.reporter_id JOIN characters tc ON tc.id = r.target_id
+             WHERE r.resolved_at IS NULL ORDER BY r.id LIMIT 50",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, reporter, target, reason, context, created_at_ms)| shared::protocol::ReportInfo { id, reporter, target, reason, context, created_at_ms })
+            .collect())
+    }
+
+    async fn resolve_report(&self, id: i64, by: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("UPDATE reports SET resolved_by = $1, resolved_at = now() WHERE id = $2 AND resolved_at IS NULL")
+            .bind(by)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn set_mute(&self, target_name: &str, until_ms: Option<i64>) -> Result<bool, sqlx::Error> {

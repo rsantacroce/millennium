@@ -260,6 +260,7 @@ fn handle_db_results(
     content: Res<Content>,
     time: Res<Time<Real>>,
     db: Res<Db>,
+    mut joins: ResMut<crate::metrics::Joins>,
     mut commands: Commands,
 ) {
     for DbEvent(result) in events.read() {
@@ -357,6 +358,7 @@ fn handle_db_results(
                     .id();
                 commands.entity(*link).insert(Rooms::single(room));
                 *session = Session::InGame { account_id: c.account_id, player };
+                joins.0 += 1;
                 online.by_name.insert(c.name.to_lowercase(), player);
                 online.by_id.insert(c.character_id as u64, player);
 

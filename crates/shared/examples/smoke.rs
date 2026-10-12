@@ -26,6 +26,8 @@
 //! - houses: talk to `house_door_N` and `!choose Go up`, then `!house N buy|enter`; at home `!use ITEM`
 //!   puts furniture down, `!furniture SPOT use|pickup`, `!store ITEM`, `!retrieve SLOT`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
+//! - `!wander SECONDS`: walk between random reachable spots nearby, saying something now and then
+//!   (for load tests: `scripts/loadtest.sh`)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
 //! (pause between steps), `--known FILE` (pinned certificates).
@@ -83,7 +85,23 @@ struct Script {
     /// The last hack code we were shown (`!hack` types it back).
     hack_code: Option<String>,
     idle_after: f32,
+    /// `!wander`: until when (seconds since startup), and a small random generator.
+    wander_until: Option<f32>,
+    rng: u32,
 }
+
+impl Script {
+    /// xorshift: cheap, and different for every bot (seeded from the process id).
+    fn random(&mut self) -> f32 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 17;
+        self.rng ^= self.rng << 5;
+        self.rng as f32 / u32::MAX as f32
+    }
+}
+
+/// What wandering bots say (rarely, so the chat isn't only bots).
+const WANDER_LINES: [&str; 6] = ["anyone selling a walkman?", "lag?", "brb", "lol", "where's the metro", "nice weather"];
 
 fn main() {
     let mut name = "Smoke".to_string();
@@ -153,6 +171,8 @@ fn main() {
         racing: false,
         hack_code: None,
         idle_after: 3.0,
+        wander_until: None,
+        rng: std::process::id().wrapping_mul(2_654_435_761) | 1,
     });
     app.add_systems(Startup, move |mut commands: Commands| connect(&mut commands, server, token.clone()));
     app.add_systems(FixedPreUpdate, walk.in_set(InputSystems::WriteClientInputs));
@@ -503,10 +523,34 @@ fn run_script(
     mobs: Query<(&MobTag, &Position), Without<InputMarker<MoveIntent>>>,
     cars: Query<(&ParkedCar, &Position)>,
     zones: Res<shared::zone::ZoneRegistry>,
+    navs: Res<shared::nav::NavGrids>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if !script.in_world || script.goto.is_some() || script.fight.is_some() {
         return;
+    }
+    // Wandering: off to another reachable spot within 15 m; now and then, a line of chat.
+    if let Some(until) = script.wander_until {
+        if time.elapsed_secs() < until {
+            let Ok((pos, zone, _)) = me.single() else { return };
+            let Some(grid) = navs.get(*zone) else { return };
+            for _ in 0..10 {
+                let offset = Vec2::new(script.random() - 0.5, script.random() - 0.5) * 30.0;
+                if let Some(path) = grid.find_path(pos.0, pos.0 + offset).filter(|p| !p.is_empty()) {
+                    script.goto = path.last().copied();
+                    script.path = path.into();
+                    break;
+                }
+            }
+            if script.random() < 0.05
+                && let Ok((_, mut chat, ..)) = client.single_mut()
+            {
+                let line = WANDER_LINES[(script.random() * WANDER_LINES.len() as f32) as usize % WANDER_LINES.len()];
+                chat.send::<ChatNetChannel>(ChatSend { target: ChatTarget::Say, text: line.to_string() });
+            }
+            return;
+        }
+        script.wander_until = None;
     }
     if let Some(wait) = script.wait.as_mut() {
         if !wait.tick(time.delta()).just_finished() {
@@ -693,6 +737,7 @@ fn run_script(
         ["!closemarket"] => market.send::<GameChannel>(MarketAction::Close),
         ["!tradeaccept"] => social.send::<GameChannel>(SocialAction::TradeAccept),
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
+        ["!wander", secs] => script.wander_until = Some(time.elapsed_secs() + secs.parse::<f32>().unwrap()),
         ["!state"] => print_state(&script.state, &content),
         ["!where"] => match me.single() {
             Ok((pos, zone, hp)) => println!(
