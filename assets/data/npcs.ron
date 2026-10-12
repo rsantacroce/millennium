@@ -132,4 +132,15 @@
         appearance: (body: 0, skin: 4, jacket: 1, pants: 1, cap: 2),
         dialogue: "glitch",
     ),
+    // Only out at night (game time; see shared/src/clock.rs).
+    (
+        id: "vinnie",
+        name: "Vinnie",
+        zone: 1,
+        position: (14.0, -6.3),
+        facing: 180.0,
+        appearance: (body: 2, skin: 2, jacket: 2, pants: 0, cap: 3),
+        dialogue: "vinnie",
+        hours: Some((20.0, 4.0)),
+    ),
 ]

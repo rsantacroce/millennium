@@ -51,8 +51,9 @@ fn update_hud(
     mut text: Single<&mut Text, With<HudText>>,
 ) {
     let zone = zones.get(local.zone).map_or("?", |z| z.name);
+    let clock = shared::clock::label(shared::clock::hour(shared::clock::now_ms()));
     let mut content = format!(
-        "{} - {}    ${}\nClick/WASD move | E talk | G car | Enter chat\nI inventory | L quests | K skills\nTab target | R attack | F power swing\nZ/C rotate | V camera: {} | M map",
+        "{} - {}    ${}    {clock}\nClick/WASD move | E talk | G car | Enter chat\nI inventory | L quests | K skills\nTab target | R attack | F power swing\nZ/C rotate | V camera: {} | M map",
         local.name,
         zone,
         state.cash,

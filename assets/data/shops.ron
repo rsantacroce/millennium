@@ -83,4 +83,10 @@
         faction: Some("zeros"),
         requires: [("acoustic_coupler", 100), ("laptop", 300)],
     ),
+    (
+        id: "late_night_dogs",
+        name: "Vinnie's Late-Night Dogs",
+        sells: [("hot_dog", 4), ("soda", 1), ("diner_coffee", 6)],
+        buy_rate: 0.0,
+    ),
 ]

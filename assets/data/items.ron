@@ -328,4 +328,16 @@
         value: 120,
         gear: Some((slot: Accessory, skills: [(Hacking, 2), (Electronics, 1)])),
     ),
+    // --- Night life (Milestone 5).
+    (
+        id: "hot_dog",
+        name: "Late-Night Hot Dog",
+        description: "Mustard, onions, questionable relish. Heals 20 and +1 Fitness for 3 minutes.",
+        value: 3,
+        max_stack: 10,
+        heal: Some(20),
+        buff: Some((skill: Fitness, levels: 1, seconds: 180.0)),
+        on_use: Some("Exactly what you needed at this hour."),
+    ),
+    (id: "spray_can", name: "Spray Can", description: "Half full, nozzle crusted. A tagger dropped it.", value: 2, max_stack: 20),
 ]

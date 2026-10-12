@@ -23,6 +23,7 @@ use shared::protocol::{
     PlayerId, Position, SystemNotice,
 };
 use shared::zone::ZoneId;
+use std::collections::HashMap;
 
 /// How close you must be to talk to (or trade with) an NPC. A little slack over what the
 /// client uses, to absorb latency.
@@ -62,16 +63,21 @@ pub struct GameplayPlugin;
 
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_npcs)
+        app.init_resource::<ShiftWorkers>()
+            .add_systems(Startup, spawn_npcs)
+            .add_systems(Update, shift_change)
             .add_systems(Update, (handle_actions, walk_away_closes, tick_channels, expire_buffs).chain());
     }
 }
 
 /// NPCs are ordinary replicated entities in their zone's room.
-fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<crate::cluster::Cluster>) {
-    let ours: Vec<_> = content.npcs.iter().filter(|n| cluster.owns(n.zone_id())).collect();
-    for npc in &ours {
-        commands.spawn((
+/// NPC entities that come and go with the time of day.
+#[derive(Resource, Default)]
+struct ShiftWorkers(HashMap<String, Entity>);
+
+fn spawn_npc(commands: &mut Commands, rooms: &ZoneRooms, npc: &shared::content::NpcDef) -> Entity {
+    commands
+        .spawn((
             Name::new(format!("NPC {}", npc.name)),
             NpcTag(npc.id.clone()),
             DisplayName(npc.name.clone()),
@@ -80,9 +86,47 @@ fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRoom
             npc.appearance,
             Replicate::to_clients(NetworkTarget::All),
             Rooms::single(rooms.room(npc.zone_id())),
-        ));
+        ))
+        .id()
+}
+
+fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<crate::cluster::Cluster>) {
+    // NPCs with opening hours are handled by `shift_change`.
+    let ours: Vec<_> = content.npcs.iter().filter(|n| cluster.owns(n.zone_id()) && n.hours.is_none()).collect();
+    for npc in &ours {
+        spawn_npc(&mut commands, &rooms, npc);
     }
     info!("spawned {} NPCs", ours.len());
+}
+
+/// Every few seconds: NPCs with opening hours turn up or go home.
+fn shift_change(
+    mut workers: ResMut<ShiftWorkers>,
+    content: Res<Content>,
+    rooms: Res<ZoneRooms>,
+    cluster: Res<crate::cluster::Cluster>,
+    time: Res<Time<Real>>,
+    mut next: Local<f64>,
+    mut commands: Commands,
+) {
+    if time.elapsed_secs_f64() < *next {
+        return;
+    }
+    *next = time.elapsed_secs_f64() + 2.0;
+    let hour = shared::clock::hour(crate::persistence::now_ms());
+    for npc in content.npcs.iter().filter(|n| n.hours.is_some() && cluster.owns(n.zone_id())) {
+        match (npc.present(hour), workers.0.get(&npc.id)) {
+            (true, None) => {
+                let e = spawn_npc(&mut commands, &rooms, npc);
+                workers.0.insert(npc.id.clone(), e);
+            }
+            (false, Some(&e)) => {
+                commands.entity(e).despawn();
+                workers.0.remove(&npc.id);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Turns rule events into chat-window notices.
@@ -217,7 +261,10 @@ fn handle_actions(
         }
         // From the driver's seat you can't pull right up to someone on the sidewalk.
         let range = if driving { INTERACT_RANGE + DRIVER_EXTRA_RANGE } else { INTERACT_RANGE };
-        let near = |npc_id: &str| content.npc(npc_id).filter(|n| n.zone_id() == *zone && n.pos().distance(pos.0) <= range);
+        let hour = shared::clock::hour(crate::persistence::now_ms());
+        let near = |npc_id: &str| {
+            content.npc(npc_id).filter(|n| n.zone_id() == *zone && n.present(hour) && n.pos().distance(pos.0) <= range)
+        };
 
         match action {
             GameAction::Interact { npc } => {
@@ -336,7 +383,9 @@ fn handle_actions(
                     continue;
                 }
                 let item = progress.inventory.get(slot as usize).cloned().flatten();
-                if item.and_then(|s| content.item(&s.item).and_then(|d| d.heal)).is_some() && health.current >= health.max {
+                // Pure healing is wasted at full health (food with a buff is still worth eating).
+                let def = item.and_then(|s| content.item(&s.item));
+                if def.is_some_and(|d| d.heal.is_some() && d.buff.is_none()) && health.current >= health.max {
                     out.notice(link, SystemNotice::info("You're already in great shape."));
                     continue;
                 }

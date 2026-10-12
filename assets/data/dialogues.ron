@@ -573,4 +573,24 @@
             ),
         ],
     ),
+    (
+        id: "vinnie",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Dogs! Hot dogs! Best thing open after eight, guaranteed, because nothing else is open after eight.",
+                options: [
+                    (text: "One dog, everything on it.", effects: [OpenShop("late_night_dogs")], goto: None),
+                    (text: "Quiet night?", goto: Some("night")),
+                    (text: "Later, Vinnie.", goto: None),
+                ],
+            ),
+            (
+                id: "night",
+                text: "Quiet? The taggers come out after dark. Spray cans everywhere. City Services pays good attention to anybody who runs 'em off, if you catch my drift.",
+                options: [(text: "Caught.", goto: None)],
+            ),
+        ],
+    ),
 ]

@@ -110,7 +110,7 @@ impl Plugin for CombatPlugin {
             .add_message::<MobKnockedOut>()
             .add_systems(Startup, spawn_all_mobs)
             .add_systems(FixedUpdate, mob_ai)
-            .add_systems(Update, (player_attacks, apply_kills, regenerate, respawn_mobs, sync_max_health).chain());
+            .add_systems(Update, (player_attacks, apply_kills, regenerate, respawn_mobs, mob_hours, sync_max_health).chain());
     }
 }
 
@@ -149,7 +149,9 @@ fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms:
 
 fn spawn_all_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<Cluster>) {
     // In a cluster, each server runs the mobs of its own zones.
-    let ours: Vec<usize> = (0..content.spawns.len()).filter(|i| cluster.owns(content.spawns[*i].zone_id())).collect();
+    // Night-only spawns are handled by `mob_hours`.
+    let ours: Vec<usize> =
+        (0..content.spawns.len()).filter(|i| cluster.owns(content.spawns[*i].zone_id()) && content.spawns[*i].hours.is_none()).collect();
     for i in &ours {
         spawn_mob(&mut commands, &mut mobs, &content, &rooms, *i);
     }
@@ -160,8 +162,48 @@ fn respawn_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Con
     let now = time.elapsed_secs_f64();
     let due: Vec<usize> = mobs.respawns.iter().filter(|(_, at)| *at <= now).map(|(s, _)| *s).collect();
     mobs.respawns.retain(|(_, at)| *at > now);
+    let hour = shared::clock::hour(crate::persistence::now_ms());
     for spawn in due {
+        // Out of hours: `mob_hours` brings it back when it's time.
+        if content.spawns[spawn].hours.is_some_and(|h| !shared::clock::within(h, hour)) {
+            continue;
+        }
         spawn_mob(&mut commands, &mut mobs, &content, &rooms, spawn);
+    }
+}
+
+/// Every few seconds: night-only mobs come out or go home.
+fn mob_hours(
+    mut commands: Commands,
+    mut mobs: ResMut<Mobs>,
+    content: Res<Content>,
+    rooms: Res<ZoneRooms>,
+    cluster: Res<Cluster>,
+    brains: Query<(Entity, &MobTag, &MobBrain)>,
+    time: Res<Time<Real>>,
+    mut next: Local<f64>,
+) {
+    let now = time.elapsed_secs_f64();
+    if now < *next {
+        return;
+    }
+    *next = now + 3.0;
+    let hour = shared::clock::hour(crate::persistence::now_ms());
+    for (i, spawn) in content.spawns.iter().enumerate() {
+        let Some(hours) = spawn.hours else { continue };
+        if !cluster.owns(spawn.zone_id()) {
+            continue;
+        }
+        let alive = brains.iter().find(|(_, _, b)| b.spawn == i);
+        let pending = mobs.respawns.iter().any(|(s, _)| *s == i);
+        match (shared::clock::within(hours, hour), alive) {
+            (true, None) if !pending => spawn_mob(&mut commands, &mut mobs, &content, &rooms, i),
+            (false, Some((e, tag, _))) => {
+                mobs.by_id.remove(&tag.id);
+                commands.entity(e).despawn();
+            }
+            _ => {}
+        }
     }
 }
 

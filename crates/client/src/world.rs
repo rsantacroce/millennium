@@ -28,14 +28,31 @@ impl Plugin for WorldPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.62, 0.74, 0.86)))
             .insert_resource(GlobalAmbientLight { color: Color::srgb(0.85, 0.88, 1.0), brightness: 400.0, ..default() })
             .init_resource::<ShownZone>()
+            .init_resource::<NightGlow>()
             .add_systems(Startup, spawn_sun)
-            .add_systems(Update, follow_zone)
+            .add_systems(Update, (follow_zone, day_night).chain())
             .add_systems(Update, (fade_occluders, show_nearby_signs).after(crate::camera::CameraUpdate));
     }
 }
 
+#[derive(Component)]
+struct Sun;
+
+/// A streetlamp's light (brightness follows the night).
+#[derive(Component)]
+struct StreetLight;
+
+/// Materials that glow at night: lit windows and lamp heads, with their night emissive.
+#[derive(Resource, Default)]
+struct NightGlow {
+    materials: Vec<(Handle<StandardMaterial>, LinearRgba)>,
+    /// The night amount they were last set for.
+    applied: f32,
+}
+
 fn spawn_sun(mut commands: Commands) {
     commands.spawn((
+        Sun,
         DirectionalLight { illuminance: 9_000.0, shadow_maps_enabled: true, ..default() },
         Transform::from_xyz(30.0, 60.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
         CascadeShadowConfigBuilder { maximum_distance: 140.0, ..default() }.build(),
@@ -53,6 +70,7 @@ fn follow_zone(
     scenery: Query<Entity, With<Scenery>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut glow: ResMut<NightGlow>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
     let wanted = me.single().copied().unwrap_or(zones.starting_zone().id);
@@ -73,7 +91,9 @@ fn follow_zone(
     if shown.0.is_some() && me.single().is_ok() {
         sfx.write(PlaySfx(Sfx::Subway));
     }
-    build_zone(&mut commands, zone, &mut meshes, &mut materials);
+    glow.materials.clear();
+    glow.applied = -1.0;
+    build_zone(&mut commands, zone, &mut meshes, &mut materials, &mut glow);
     shown.0 = Some(wanted);
     info!("now showing {}", zone.name);
 }
@@ -82,7 +102,97 @@ fn rgb([r, g, b]: [f32; 3]) -> Color {
     Color::srgb(r, g, b)
 }
 
-fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+/// Sun, sky and lights follow the world clock (`shared::clock`).
+fn day_night(
+    mut sun: Query<(&mut DirectionalLight, &mut Transform), With<Sun>>,
+    mut lamps: Query<&mut PointLight, With<StreetLight>>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+    mut clear: ResMut<ClearColor>,
+    mut glow: ResMut<NightGlow>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let hour = shared::clock::hour(shared::clock::now_ms());
+    let day = shared::clock::daylight(hour);
+    let night = 1.0 - day;
+    if let Ok((mut light, mut transform)) = sun.single_mut() {
+        light.illuminance = 400.0 + 8_600.0 * day;
+        // The sun swings across the sky over the day; the "moon" sits high at night.
+        let angle = ((hour - 6.0) / 12.0).clamp(0.0, 1.0) * std::f32::consts::PI;
+        let elevation = if day > 0.0 { 20.0 + 60.0 * angle.sin() } else { 60.0 };
+        let azimuth = if day > 0.0 { angle } else { 1.0 };
+        let dir = Vec3::new(azimuth.cos() * 50.0, elevation, azimuth.sin() * 30.0 + 10.0);
+        *transform = Transform::from_translation(dir).looking_at(Vec3::ZERO, Vec3::Y);
+        light.color = if day > 0.0 && day < 1.0 { Color::srgb(1.0, 0.75, 0.5) } else if day == 0.0 { Color::srgb(0.6, 0.7, 1.0) } else { Color::WHITE };
+    }
+    ambient.brightness = 150.0 + 250.0 * day;
+    ambient.color = Color::srgb(0.85 - 0.3 * night, 0.88 - 0.25 * night, 1.0);
+    let sky = |d: [f32; 3], n: [f32; 3]| Color::srgb(n[0] + (d[0] - n[0]) * day, n[1] + (d[1] - n[1]) * day, n[2] + (d[2] - n[2]) * day);
+    let wanted = sky([0.62, 0.74, 0.86], [0.04, 0.05, 0.12]);
+    if clear.0 != wanted {
+        clear.0 = wanted;
+    }
+    for mut lamp in &mut lamps {
+        lamp.intensity = 60_000.0 * night;
+    }
+    if (glow.applied - night).abs() > 0.02 {
+        glow.applied = night;
+        for (handle, emissive) in &glow.materials {
+            if let Some(mut m) = materials.get_mut(handle) {
+                m.emissive = *emissive * night;
+            }
+        }
+    }
+}
+
+/// Lamp posts along the streets, on alternating sides; every other one casts real light.
+fn spawn_streetlamps(commands: &mut Commands, root: Entity, zone: &ZoneLayout, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, glow: &mut NightGlow) {
+    const SPACING: f32 = 14.0;
+    const MAX_LIGHTS: usize = 14;
+    let pole = materials.add(StandardMaterial { base_color: Color::srgb(0.25, 0.27, 0.3), perceptual_roughness: 0.6, ..default() });
+    let bulb_glow = LinearRgba::rgb(6.0, 5.0, 2.5);
+    let bulb = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.95, 0.75), ..default() });
+    glow.materials.push((bulb.clone(), bulb_glow));
+    let pole_mesh = meshes.add(Cylinder::new(0.08, 4.5));
+    let bulb_mesh = meshes.add(Cuboid::new(0.5, 0.2, 0.5));
+    let mut lights = 0;
+    let mut n = 0;
+    for street in &zone.streets {
+        let s = street.size();
+        let c = street.center();
+        let along_x = s.x > s.y;
+        let (len, half_w) = if along_x { (s.x, s.y / 2.0) } else { (s.y, s.x / 2.0) };
+        let mut t = -len / 2.0 + SPACING / 2.0;
+        while t < len / 2.0 {
+            let side = if n % 2 == 0 { 1.0 } else { -1.0 };
+            n += 1;
+            let offset = half_w + 0.7;
+            let p = if along_x { Vec2::new(c.x + t, c.y + side * offset) } else { Vec2::new(c.x + side * offset, c.y + t) };
+            t += SPACING;
+            let blocked = zone.obstacles.iter().any(|o| o.rect.inflate(0.6).contains(p))
+                || zone.streets.iter().any(|st| st.contains(p))
+                || zone.portals.iter().any(|pt| pt.rect.inflate(1.0).contains(p))
+                || !zone.bounds.contains(p);
+            if blocked {
+                continue;
+            }
+            let lamp = commands
+                .spawn((Mesh3d(pole_mesh.clone()), MeshMaterial3d(pole.clone()), Transform::from_xyz(p.x, 2.25, p.y), ChildOf(root)))
+                .id();
+            commands.spawn((Mesh3d(bulb_mesh.clone()), MeshMaterial3d(bulb.clone()), Transform::from_xyz(0.0, 2.3, 0.0), ChildOf(lamp)));
+            if lights < MAX_LIGHTS && n % 2 == 0 {
+                lights += 1;
+                commands.spawn((
+                    StreetLight,
+                    PointLight { intensity: 0.0, range: 14.0, color: Color::srgb(1.0, 0.85, 0.6), shadow_maps_enabled: false, ..default() },
+                    Transform::from_xyz(0.0, 2.0, 0.0),
+                    ChildOf(lamp),
+                ));
+            }
+        }
+    }
+}
+
+fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>, glow: &mut NightGlow) {
     // Subway doorways glow, so you can find them.
     let portal = materials.add(StandardMaterial {
         base_color: Color::srgb(0.2, 1.0, 0.6),
@@ -175,6 +285,9 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
         }
         // Each building gets its own materials so it can fade on its own.
         let window_mat = mat(Color::srgb(0.25, 0.35, 0.45), 0.2);
+        // Lit windows at night (some buildings warmer than others).
+        let warmth = (obstacle.name.len() % 3) as f32 * 0.3;
+        glow.materials.push((window_mat.clone(), LinearRgba::rgb(1.6, 1.2 + warmth * 0.3, 0.5 + warmth)));
         let trim_mat = mat(color.darker(0.15), 0.9);
         let floors = (h / 3.5).floor() as i32;
         let mut part = |commands: &mut Commands, mesh: Mesh, material: Handle<StandardMaterial>, at: Vec3| {
@@ -224,6 +337,7 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
             children![(Text::new(obstacle.name), crate::theme::text_font(12.0), TextColor(Color::srgb(1.0, 0.92, 0.6)))],
         ));
     }
+    spawn_streetlamps(commands, root, zone, meshes, materials, glow);
 }
 
 /// The side of a building that faces the nearest street: (outward normal, face center in

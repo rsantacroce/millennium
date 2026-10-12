@@ -200,6 +200,9 @@ pub struct MobSpawn {
     /// Wanders up to this far from its spawn point while idle.
     #[serde(default)]
     pub wander: f32,
+    /// Only out between these hours (see `clock::within`); `None` = always.
+    #[serde(default)]
+    pub hours: Option<(f32, f32)>,
 }
 
 impl MobSpawn {
@@ -237,6 +240,9 @@ pub struct NpcDef {
     /// instead of a body. See `PROPS`.
     #[serde(default)]
     pub prop: Option<String>,
+    /// Only around between these hours (see `clock::within`); `None` = always.
+    #[serde(default)]
+    pub hours: Option<(f32, f32)>,
 }
 
 /// Props an "NPC" can be drawn as.
@@ -274,6 +280,11 @@ impl HackDef {
 }
 
 impl NpcDef {
+    /// Around at this hour?
+    pub fn present(&self, hour: f32) -> bool {
+        self.hours.is_none_or(|h| crate::clock::within(h, hour))
+    }
+
     pub fn pos(&self) -> Vec2 {
         Vec2::new(self.position.0, self.position.1)
     }

@@ -14,6 +14,7 @@ use core::time::Duration;
 pub mod appearance;
 pub mod auth;
 pub mod chat;
+pub mod clock;
 pub mod combat;
 pub mod config;
 pub mod content;
