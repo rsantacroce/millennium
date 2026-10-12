@@ -27,7 +27,7 @@ pub fn now_ms() -> i64 {
 pub fn daylight(hour: f32) -> f32 {
     let ramp = |from: f32| ((hour - from).clamp(0.0, 1.0) * std::f32::consts::PI / 2.0).sin();
     match hour {
-        h if h < 6.0 || h >= 20.0 => 0.0,
+        h if !(6.0..20.0).contains(&h) => 0.0,
         h if h < 7.0 => ramp(6.0),
         h if h < 19.0 => 1.0,
         _ => 1.0 - ramp(19.0),
