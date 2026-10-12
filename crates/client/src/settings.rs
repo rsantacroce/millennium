@@ -35,11 +35,12 @@ pub enum Action {
     RotateLeft,
     RotateRight,
     Minimap,
+    Map,
     Settings,
 }
 
 impl Action {
-    pub const ALL: [Action; 19] = [
+    pub const ALL: [Action; 20] = [
         Action::MoveForward,
         Action::MoveBack,
         Action::MoveLeft,
@@ -58,6 +59,7 @@ impl Action {
         Action::RotateLeft,
         Action::RotateRight,
         Action::Minimap,
+        Action::Map,
         Action::Settings,
     ];
 
@@ -81,6 +83,7 @@ impl Action {
             Action::RotateLeft => "Rotate camera left",
             Action::RotateRight => "Rotate camera right",
             Action::Minimap => "Minimap",
+            Action::Map => "Map",
             Action::Settings => "Settings",
         }
     }
@@ -104,7 +107,8 @@ impl Action {
             Action::CameraMode => KeyCode::KeyV,
             Action::RotateLeft => KeyCode::KeyZ,
             Action::RotateRight => KeyCode::KeyC,
-            Action::Minimap => KeyCode::KeyM,
+            Action::Minimap => KeyCode::KeyN,
+            Action::Map => KeyCode::KeyM,
             Action::Settings => KeyCode::F10,
         }
     }
@@ -171,9 +175,20 @@ impl<'de> Deserialize<'de> for Keybinds {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let names: BTreeMap<Action, String> = BTreeMap::deserialize(d)?;
         let mut binds = Keybinds::default();
-        for (action, name) in names {
-            if let Some(key) = key_from_name(&name) {
-                binds.0.insert(action, key);
+        for (action, name) in &names {
+            if let Some(key) = key_from_name(name) {
+                binds.0.insert(*action, key);
+            }
+        }
+        // A file from an older version may clash with a newer action's default (e.g. Minimap
+        // was M before the map took it): actions the file didn't mention give way.
+        for action in Action::ALL {
+            let clash = Action::ALL.iter().any(|a| *a != action && binds.key(*a) == binds.key(action));
+            if clash && !names.contains_key(&action) {
+                let free = KEYS.iter().map(|(k, _)| *k).find(|k| Action::ALL.iter().all(|a| binds.key(*a) != *k));
+                if let Some(free) = free {
+                    binds.0.insert(action, free);
+                }
             }
         }
         Ok(binds)
@@ -388,6 +403,10 @@ mod tests {
         // A partial or old file still loads, with defaults for the rest.
         let old: Settings = toml::from_str("volume = 0.8").unwrap();
         assert_eq!(old.keys.key(Action::MoveForward), KeyCode::KeyW);
+        // An older file had Minimap on M, before the map existed: no clash after loading.
+        let older: Settings = toml::from_str("[keys]\nMinimap = \"M\"").unwrap();
+        assert_eq!(older.keys.key(Action::Minimap), KeyCode::KeyM);
+        assert_ne!(older.keys.key(Action::Map), KeyCode::KeyM);
     }
 
     #[test]

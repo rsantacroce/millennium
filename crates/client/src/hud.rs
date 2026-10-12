@@ -56,7 +56,7 @@ fn update_hud(
     use crate::settings::{key_name, Action};
     let k = |a: Action| key_name(settings.keys.key(a));
     let mut content = format!(
-        "{} - {}    ${}    {clock}\nClick/{}{}{}{} move | {} talk | {} car | Enter chat\n{} inventory | {} quests | {} skills | {} settings\n{} target | {} attack | {} power swing\n{}/{} rotate | {} camera: {} | {} map",
+        "{} - {}    ${}    {clock}\nClick/{}{}{}{} move | {} talk | {} car | Enter chat\n{} inventory | {} quests | {} skills | {} settings\n{} target | {} attack | {} power swing\n{}/{} rotate | {} camera: {} | {} map | {} minimap",
         local.name,
         zone,
         state.cash,
@@ -77,6 +77,7 @@ fn update_hud(
         k(Action::RotateRight),
         k(Action::CameraMode),
         rig.mode.label(),
+        k(Action::Map),
         k(Action::Minimap),
     );
     // Food buffs, with time left by our own clock (the server drops them when they run out).

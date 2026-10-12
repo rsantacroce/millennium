@@ -198,7 +198,8 @@ These are the defaults; every key can be rebound in the settings (F10).
 | Z / C | Rotate the camera 45° |
 | Right-drag | Orbit (and tilt, in third person) |
 | Mouse wheel | Zoom (scroll the chat history when hovering over it) |
-| M | Toggle the minimap |
+| M | Map of the zone (streets, buildings, exits, people, you) |
+| N | Toggle the minimap |
 | Enter | Open chat; Enter again sends, Esc cancels |
 | F10 | Settings: volume, interface size, shadows, street lights, camera speed, key bindings (saved in `saves/settings.toml`) |
 | Tab | Next field (sign-on window) / next chat tab (while typing) |
