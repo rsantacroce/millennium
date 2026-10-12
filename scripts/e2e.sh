@@ -9,6 +9,10 @@
 # 3. The server is killed with SIGKILL: no shutdown, no final save.
 # 4. A new server starts on the same database; the player logs back in, and everything the
 #    tutorial gave them must still be there.
+# 5. A backup is restored into a new database (SQLite: the copy the server makes at startup;
+#    Postgres: backup-postgres.sh and restore-postgres.sh), and the player must find it all there.
+#
+# For Postgres, PG_DUMP, PG_RESTORE and PSQL can point at the server's own tools (see the scripts).
 #
 # Needs `cargo build -p server` and `cargo build -p shared --examples` first (separately: building
 # both packages in one command only builds the examples).
@@ -32,10 +36,12 @@ cat > "$work/server.toml" <<EOF
 tls_dir = "$work/tls"
 [database]
 url = "$DATABASE_URL"
+backup_dir = "$work/backups"
 EOF
 
+# start_server [database url]: the URL overrides the config (the server reads DATABASE_URL).
 start_server() {
-  "$server" --config "$work/server.toml" >> "$work/server.log" 2>&1 &
+  DATABASE_URL=${1:-$DATABASE_URL} "$server" --config "$work/server.toml" >> "$work/server.log" 2>&1 &
   pid=$!
   # Wait for the login service (TCP 5888).
   for _ in $(seq 1 60); do
@@ -67,11 +73,36 @@ pid=
 
 echo "== 4. restart and log back in"
 start_server
+# check_state FILE WHAT: the last STATE line in FILE still has the tutorial's rewards.
+check_state() {
+  local state
+  state=$(grep -a "STATE" "$1" | tail -1)
+  echo "$state"
+  for expect in 'welcome=done' '\$34' 'First Aid Kit x1'; do
+    grep -q "$expect" <<<"$state" || { cat "$1"; echo "lost $2: $expect" >&2; exit 1; }
+  done
+}
 play --step "!wait 1" --step "!state" > "$work/after.txt"
-after=$(grep -a "STATE" "$work/after.txt" | tail -1)
-echo "$after"
-for expect in 'welcome=done' '\$34' 'First Aid Kit x1'; do
-  grep -q "$expect" <<<"$after" || { cat "$work/after.txt"; echo "lost after the crash: $expect" >&2; exit 1; }
-done
+check_state "$work/after.txt" "after the crash"
 
-echo "== passed: the tutorial's results survived kill -9 on $(cut -d: -f1 <<<"$DATABASE_URL")"
+echo "== 5. restore a backup into a new database"
+kill "$pid"; wait "$pid" 2>/dev/null || true; pid=
+case $DATABASE_URL in
+  sqlite:*)
+    # The server backs up its save file at every startup; the newest is from step 4.
+    latest=$(ls -1 "$work/backups"/*.db | sort | tail -1)
+    echo "restoring $latest"
+    cp "$latest" "$work/restored.db"
+    restored="sqlite://$work/restored.db"
+    ;;
+  *)
+    dump=$(scripts/backup-postgres.sh "$work/backups" 5)
+    restored="${DATABASE_URL%/*}/millennium_restored"
+    DATABASE_URL=$restored scripts/restore-postgres.sh "$dump"
+    ;;
+esac
+start_server "$restored"
+play --step "!wait 1" --step "!state" > "$work/restored.txt"
+check_state "$work/restored.txt" "in the restored backup"
+
+echo "== passed on $(cut -d: -f1 <<<"$DATABASE_URL"): the tutorial's results survived kill -9, and a restored backup"

@@ -1,7 +1,7 @@
 //! The database thread.
 
 use super::postgres::PgStore;
-use super::sqlite::SqliteStore;
+use super::sqlite::{self, SqliteStore};
 use super::{DbCommand, DbResult};
 use crate::config::DatabaseConfig;
 use tokio::sync::mpsc;
@@ -37,7 +37,7 @@ pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<C
             tracing::warn!("no database configured: using an in-memory database (data is lost on restart)");
             "sqlite::memory:".to_string()
         } else {
-            url
+            url.clone()
         };
         let store = runtime.block_on(SqliteStore::open(&url)).map_err(|e| format!("{url}: {e}"))?;
         tracing::info!("opened {url}");
@@ -50,6 +50,19 @@ pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<C
         Store::Postgres(pg)
     };
 
+    // Backups of a SQLite save file: at startup, then every interval, between commands.
+    let backups = match &store {
+        Store::Sqlite(_) => sqlite::file_of(&url).filter(|_| config.backup_interval_minutes > 0.0).map(|file| {
+            let name = file.file_stem().map_or("world".into(), |s| s.to_string_lossy().into_owned());
+            (std::path::PathBuf::from(&config.backup_dir), name, config.backup_keep)
+        }),
+        Store::Postgres(_) => {
+            tracing::info!("Postgres: back it up with scripts/backup-postgres.sh (pg_dump)");
+            None
+        }
+    };
+    let backup_every = std::time::Duration::from_secs_f32(config.backup_interval_minutes.max(0.01) * 60.0);
+
     let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<DbCommand>();
     let (res_tx, res_rx) = crossbeam_channel::unbounded::<DbResult>();
 
@@ -58,7 +71,25 @@ pub fn spawn_worker(config: &DatabaseConfig, history: HistoryLimits) -> Result<C
         .spawn(move || {
             runtime.block_on(async move {
                 let mut store = store;
-                while let Some(cmd) = cmd_rx.recv().await {
+                // The first tick fires straight away: a backup at every startup.
+                let mut backup_timer = tokio::time::interval(backup_every);
+                backup_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    let cmd = tokio::select! {
+                        cmd = cmd_rx.recv() => match cmd {
+                            Some(cmd) => cmd,
+                            None => break,
+                        },
+                        _ = backup_timer.tick(), if backups.is_some() => {
+                            if let (Store::Sqlite(db), Some((dir, name, keep))) = (&store, &backups) {
+                                match db.backup(dir, name, *keep).await {
+                                    Ok(path) => tracing::info!("backed up to {}", path.display()),
+                                    Err(e) => tracing::error!("backup failed: {e}"),
+                                }
+                            }
+                            continue;
+                        }
+                    };
                     let result = match &mut store {
                         Store::Postgres(pg) => pg.handle(cmd, history).await,
                         Store::Sqlite(db) => db.handle(cmd, history).await,

@@ -119,11 +119,24 @@ pub struct DatabaseConfig {
     pub max_connections: u32,
     /// How often moved characters are written back.
     pub save_interval_secs: f32,
+    /// SQLite save files only: a consistent copy is written here at startup and then every
+    /// `backup_interval_minutes` (0 = never). Postgres: see `scripts/backup-postgres.sh`.
+    pub backup_dir: String,
+    pub backup_interval_minutes: f32,
+    /// Backups to keep; older ones are deleted.
+    pub backup_keep: usize,
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
-        Self { url: String::new(), max_connections: 5, save_interval_secs: 10.0 }
+        Self {
+            url: String::new(),
+            max_connections: 5,
+            save_interval_secs: 10.0,
+            backup_dir: "saves/backups".into(),
+            backup_interval_minutes: 60.0,
+            backup_keep: 48,
+        }
     }
 }
 

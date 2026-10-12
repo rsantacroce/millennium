@@ -23,6 +23,11 @@ max_clients = 64
 url = "postgres://millennium:millennium@localhost:5433/millennium"
 max_connections = 5
 save_interval_secs = 10.0
+# SQLite save files only: a consistent copy goes here at startup and then every interval
+# (0 = off), keeping the newest `backup_keep`. Postgres: use scripts/backup-postgres.sh.
+backup_dir = "saves/backups"
+backup_interval_minutes = 60.0
+backup_keep = 48
 
 [chat]
 # Token bucket: bursts of up to `burst` messages, refilling `per_second`.

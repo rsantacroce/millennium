@@ -141,6 +141,12 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 
 - `cargo run -p shared --example catalog` prints every zone, character, item, quest, shop,
   recipe, rival, hack, faction, car and race as HTML tables (the website's asset list).
+- **CI** (`.github/workflows/ci.yml`) runs on every push: clippy with warnings as errors, all the
+  tests with a real Postgres (the store tests run on both SQLite and Postgres; set
+  `TEST_DATABASE_URL` to run the Postgres ones locally), the economy check, and `scripts/e2e.sh`
+  on Postgres.
+- `DATABASE_URL=sqlite:///tmp/e2e.db scripts/e2e.sh` runs the crash-and-restore test by hand
+  (build the server and the smoke tool first).
 - `cargo test --workspace` runs the unit tests:
   - movement and collision
   - chat parsing, filter and sanitizer, rate limiter
@@ -555,6 +561,23 @@ building, with the street far below.
   Postgres or SQLite is chosen by the URL. ECS systems send commands down a channel and get
   results back as Bevy messages. The login service waits on a reply channel instead. Commands are
   handled in order, so a logout save always lands before the next login load.
+
+### Backups
+
+- **SQLite** (Host Game, small servers): the server copies its save file into
+  `saves/backups/<name>-<UTC time>-NN.db` at every start and then every hour, keeping the newest 48
+  (`backup_dir`, `backup_interval_minutes` and `backup_keep` under `[database]`). The copy is made
+  with SQLite's `VACUUM INTO` on the database thread, between commands, so it's always a
+  consistent snapshot even while people play. **To restore:** stop the server (or close the hosted
+  game), copy a backup over the save file (e.g. `saves/world.db`), and delete any `world.db-wal`
+  and `world.db-shm` next to it.
+- **Postgres:** `DATABASE_URL=... scripts/backup-postgres.sh [dir] [keep]` takes a `pg_dump`
+  (safe while the server runs) and keeps the newest copies; run it from cron or a systemd timer.
+  `DATABASE_URL=... scripts/restore-postgres.sh FILE` restores one (into a new database, or over
+  an existing one with the server stopped).
+- **Tested:** `scripts/e2e.sh` (run in CI on Postgres, and by hand on SQLite) plays the tutorial,
+  `kill -9`s the server, restarts it, then restores a backup into a new database. Both times the
+  player's progress must be intact.
 
 ### Music
 

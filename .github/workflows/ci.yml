@@ -43,7 +43,7 @@ jobs:
         run: cargo run -p shared --example economy > economy.txt && tail -5 economy.txt
 
   e2e:
-    name: Crash test on Postgres
+    name: Crash and restore test on Postgres
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -67,7 +67,11 @@ jobs:
         run: |
           cargo build -p server
           cargo build -p shared --examples
-      - name: Play the tutorial, kill -9 the server, restart, check nothing was lost
+      - name: Play the tutorial, kill -9, restart, restore a backup, check nothing was lost
         env:
           DATABASE_URL: postgres://millennium:millennium@localhost:5432/millennium
+          # pg_dump must be at least the server's version: use the server image's own tools.
+          PG_DUMP: docker run --rm --network host postgres:17 pg_dump
+          PG_RESTORE: docker run -i --rm --network host postgres:17 pg_restore
+          PSQL: docker run -i --rm --network host postgres:17 psql
         run: scripts/e2e.sh

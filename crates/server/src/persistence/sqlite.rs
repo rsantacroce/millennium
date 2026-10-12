@@ -6,7 +6,7 @@ use super::worker::HistoryLimits;
 use super::*;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use sqlx::{Sqlite, Transaction};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub struct SqliteStore {
@@ -15,7 +15,34 @@ pub struct SqliteStore {
 
 type CharacterRow = (i64, String, i64, i64, i64, i64, i64, i64);
 
+/// The file behind a `sqlite:` URL, or `None` for an in-memory database.
+pub fn file_of(url: &str) -> Option<PathBuf> {
+    if url.contains(":memory:") || !url.starts_with("sqlite:") {
+        return None;
+    }
+    let path = url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
+    let path = path.split('?').next().unwrap_or_default();
+    (!path.is_empty()).then(|| PathBuf::from(path))
+}
+
 impl SqliteStore {
+    /// Writes a consistent copy of the database to `dir/<name>-<UTC time>-<nn>.db` (SQLite's
+    /// `VACUUM INTO`, safe while the game runs), then deletes all but the newest `keep` copies.
+    pub async fn backup(&self, dir: &Path, name: &str, keep: usize) -> Result<PathBuf, String> {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+        // The counter keeps two backups in the same second apart, and names sorting by age.
+        let mut n = 1;
+        let mut path = dir.join(format!("{name}-{stamp}-{n:02}.db"));
+        while path.exists() {
+            n += 1;
+            path = dir.join(format!("{name}-{stamp}-{n:02}.db"));
+        }
+        sqlx::query("VACUUM INTO ?").bind(path.to_string_lossy().into_owned()).execute(&self.pool).await.map_err(|e| e.to_string())?;
+        prune_backups(dir, name, keep);
+        Ok(path)
+    }
+
     /// Opens (creating if needed) e.g. `sqlite://saves/world.db` or `sqlite::memory:`.
     pub async fn open(url: &str) -> Result<Self, sqlx::Error> {
         let in_memory = url.contains(":memory:");
@@ -1013,6 +1040,24 @@ impl SqliteStore {
     }
 }
 
+/// Deletes all but the newest `keep` backups named `<name>-<time>.db` in `dir`.
+fn prune_backups(dir: &Path, name: &str, keep: usize) {
+    let prefix = format!("{name}-");
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut backups: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "db") && p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.starts_with(&prefix)))
+        .collect();
+    // The timestamp makes names sort by age.
+    backups.sort();
+    let excess = backups.len().saturating_sub(keep.max(1));
+    for old in &backups[..excess] {
+        if let Err(e) = std::fs::remove_file(old) {
+            tracing::warn!("couldn't delete old backup {}: {e}", old.display());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1040,6 +1085,39 @@ mod tests {
         assert_eq!(load(&mut s, acc, id).await.character.state, state);
         drop(s);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn backups_restore_and_rotate() {
+        let dir = std::env::temp_dir().join(format!("millennium-backup-{}", std::process::id()));
+        let mut s = SqliteStore::open(&format!("sqlite://{}/world.db", dir.display())).await.unwrap();
+        let acc = account(&mut s, "Neo").await;
+        let id = character(&mut s, acc, "Neo").await.unwrap();
+        let mut state = PlayerState::new(25);
+        state.apply(&[Effect::GiveItem("walkman".into(), 1)], &shared::content::Content::builtin()).unwrap();
+        s.handle(DbCommand::SaveState { character_id: id, state: state.clone() }, LIMITS).await;
+
+        let backups = dir.join("backups");
+        let first = s.backup(&backups, "world", 2).await.unwrap();
+        // Restoring is opening the copy: everything is there.
+        let mut restored = SqliteStore::open(&format!("sqlite://{}", first.display())).await.unwrap();
+        assert_eq!(load(&mut restored, acc, id).await.character.state, state);
+        drop(restored);
+
+        // Only the newest `keep` survive.
+        let second = s.backup(&backups, "world", 2).await.unwrap();
+        let third = s.backup(&backups, "world", 2).await.unwrap();
+        assert!(!first.exists() && second.exists() && third.exists());
+        drop(s);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn save_file_paths() {
+        assert_eq!(file_of("sqlite://saves/world.db"), Some(PathBuf::from("saves/world.db")));
+        assert_eq!(file_of("sqlite:///abs/w.db?mode=rwc"), Some(PathBuf::from("/abs/w.db")));
+        assert_eq!(file_of("sqlite::memory:"), None);
+        assert_eq!(file_of("postgres://x@y/z"), None);
     }
 
     #[tokio::test]
