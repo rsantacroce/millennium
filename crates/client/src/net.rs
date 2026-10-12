@@ -154,6 +154,7 @@ fn start_auth(
 }
 
 fn poll_auth(
+    mut commands: Commands,
     task: Res<AuthTask>,
     mut ticket: ResMut<Ticket>,
     mut status: ResMut<LoginStatus>,
@@ -164,6 +165,9 @@ fn poll_auth(
         Err(TryRecvError::Empty) => return,
         Err(TryRecvError::Disconnected) => Err("login thread crashed".into()),
     };
+    if let Ok(Some(code)) = result.as_ref().map(|t| t.recovery_code.clone()) {
+        commands.insert_resource(crate::account_ui::NewRecoveryCode(code));
+    }
     match result.and_then(|t| ConnectToken::try_from_bytes(&t.token).map_err(|e| format!("bad token: {e:?}"))) {
         Ok(token) => {
             ticket.token = Some(token);

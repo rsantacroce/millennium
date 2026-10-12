@@ -131,4 +131,6 @@ pub enum ChatAction {
     Resolve { id: i64 },
     /// Admin only: send me the admin panel's data (`AdminPanel`).
     AdminPanel,
+    /// Admin only: a new recovery code for someone who lost theirs (shown to the admin).
+    IssueRecovery { name: String },
 }

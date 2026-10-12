@@ -30,14 +30,14 @@ impl Plugin for LoginUiPlugin {
 #[derive(Component)]
 struct LoginRoot;
 #[derive(Component)]
-struct NameField;
+pub(crate) struct NameField;
 #[derive(Component)]
 struct PasswordField;
 /// The bullets drawn over the (invisible) password text.
 #[derive(Component)]
 struct PasswordMask;
 #[derive(Component)]
-struct ServerField;
+pub(crate) struct ServerField;
 #[derive(Component)]
 struct SignOnButton;
 #[derive(Component)]
@@ -170,6 +170,7 @@ fn spawn_login_window(mut commands: Commands, existing: Query<(), With<LoginRoot
                             row.spawn((RegisterButton, button("New Account")));
                             row.spawn((SignOnButton, button("Sign On")));
                         });
+                    crate::account_ui::spawn_links(body);
                     body.spawn((
                         Text::new(if host::can_host() {
                             "Host Game runs a world on this computer that friends can join."

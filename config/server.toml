@@ -61,6 +61,12 @@ clock_shift_hours = 0.0
 # addr = "203.0.113.7:5890"
 # zones = [2, 4]
 
+[metrics]
+# Status page (/), Prometheus metrics (/metrics) and a health check (/health). Empty = off.
+# For operators only: keep it on 127.0.0.1 or behind a firewall.
+# bind = "127.0.0.1:9188"
+log_every_secs = 60.0                # a status line in the log (0 = never)
+
 [hub]
 # Only used by `millennium-server --hub`: where zone servers connect (keep it private).
 # bind = "127.0.0.1:5900"

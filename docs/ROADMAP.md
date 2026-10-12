@@ -39,10 +39,12 @@ What a new player notices first.
 - [x] Automatic backups (SQLite file copies, `pg_dump`) and a restore test
 - [x] CI: build, test, clippy and `economy` on every push
 - [x] A server package: a Docker image, a systemd unit and a deployment guide (`docs/deploy.md`)
-- [ ] Load test with many smoke-tool bots: players per zone server, bandwidth, tick time
-- [ ] Moderation tools: kick, ban, an admin panel, chat reports
-- [ ] Account recovery (password reset), and account deletion
-- [ ] Metrics and dashboards (online players, tick time, database latency)
+- [x] Load test with many smoke-tool bots: players per zone server, bandwidth, tick time (`scripts/loadtest.sh`; results in the README)
+- [ ] Find the occasional 50-80 ms frames with 100+ players in one zone (averages are 2-4 ms)
+- [ ] Interest management: only replicate players within sight, so bandwidth stops growing with the square of a zone's population (28 KB/s per player at 200 in one zone; dial-up is ~7 KB/s)
+- [x] Moderation tools: kick, ban, an admin panel, chat reports
+- [x] Account recovery (password reset with recovery codes), and account deletion
+- [x] Metrics and dashboards (online players, tick time, database latency): `/metrics`, a status page, a log line
 
 ## Next: content
 

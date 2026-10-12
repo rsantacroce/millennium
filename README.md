@@ -269,7 +269,10 @@ everything waiting for you. Listing costs 5% of the start price; e-Bid keeps 5% 
 | `/invite name`, `/leave`, `/kick name` | Parties (up to 5) |
 | `/friend add name`, `/friend remove name` | Friends list (saved) |
 | `/crew create Name TAG`, `/crew invite name`, `/crew kick name`, `/crew leave`, `/crew disband` | Crews (saved) |
+| `/report name what happened` | Tell the admins (saved with that player's last 10 lines of chat) |
 | `/mute name [minutes]`, `/unmute name` | Admins only (`chat.admins` in the server config: account names) |
+| `/mod kick name [reason]`, `/mod ban name [hours\|perm] [reason]`, `/mod unban name` | Admins: disconnect; ban the account (24 h by default); lift a ban |
+| `/mod reports`, `/mod resolve id`, `/mod resetcode name`, `/admin` | Admins: the report queue; a new recovery code for someone who lost theirs; the admin window |
 | `/help`, `/clear` | Local |
 
 The server enforces everything; the client is never trusted:
@@ -563,6 +566,58 @@ building, with the street far below.
   Postgres or SQLite is chosen by the URL. ECS systems send commands down a channel and get
   results back as Bevy messages. The login service waits on a reply channel instead. Commands are
   handled in order, so a logout save always lands before the next login load.
+
+### Accounts and recovery
+
+Accounts have no email address, so a forgotten password is reset with a **recovery code**:
+- **Getting a code:** the server issues one when the account is created (older accounts get one
+  at their next login). The client shows it once, in a "write this down" box. Only its argon2 hash
+  is stored, like the password.
+- **Resetting:** *Forgot password?* on the sign-on screen takes the name, the code and a new
+  password, and hands back a fresh code (each code works once).
+- **Lost the code too:** an admin can issue a new one with `/mod resetcode NAME` and pass it on.
+- **Other account changes**, also on the sign-on screen: *Change password* (needs the current
+  one) and *Delete account* (needs the password and typing DELETE).
+- **Deleting an account** removes its characters and everything they own, in one transaction.
+  Anyone bidding on its auctions is refunded through e-Bid claims, its own bids are dropped, and
+  a crew it led goes to the longest-standing member. If it's playing, the game logs it out first
+  and deletes it once the logout save is written (database commands run in order).
+
+All of this goes through the login service over TLS, never the game connection.
+`server/tests/accounts.rs` plays every path against a real embedded server.
+
+### Moderation
+
+- **Reports:** `/report NAME WHAT` stores the report with the reported player's last 10 lines of
+  chat, as the server saw them. Admins who are online get a notice.
+- **Admin commands:** `/mod kick`, `/mod ban NAME [hours|perm] [reason]`, `/mod unban`,
+  `/mod reports` and `/mod resolve ID`. Plus `/admin`, a window listing everyone on the server
+  (with Kick, Mute and Ban buttons) and the open reports (rest the mouse on one to see what was
+  said).
+- **Bans** are on the account, in the database. They kick the player straight away, and the
+  login service refuses the account with the reason and the end date.
+
+### Metrics and load testing
+
+- **The server's own numbers:** players per zone, connections, frame time, database latency and
+  queue, bandwidth (lightyear's transport counters), joins and entities. They're sampled every
+  5 s, and a status line goes to the log every minute.
+- **Over HTTP:** with `[metrics] bind = "127.0.0.1:9188"` the server also serves `/metrics`
+  (Prometheus), `/` (a status page) and `/health`. Keep that address private.
+- **Load test:** `scripts/loadtest.sh BOTS SECONDS` starts a server and N headless bots that
+  wander around Downtown and chat (all in one zone: the worst case), then summarises the
+  metrics, CPU and memory. On an M4 Pro (release build, server and bots on one machine):
+
+  | Bots in one zone | Frame time (avg / worst) | Database per command | Out per player | CPU (one core) | Memory |
+  |---|---|---|---|---|---|
+  | 100 | 1.8 ms / 57 ms | 0.25 ms | 15 KB/s | 51% | 244 MB |
+  | 200 | 4.2 ms / 81 ms | 0.25 ms | 28 KB/s | 67% | 275 MB |
+
+  - **Averages:** far inside the 33 ms tick budget.
+  - **Worst frames:** an occasional spike goes over it. The spikes grow with the number of
+    players, so they're probably server work, not just CPU contention (on the roadmap).
+  - **Bandwidth per player** grows with the number of players in sight, since everyone in a zone
+    sees everyone else.
 
 ### Backups
 

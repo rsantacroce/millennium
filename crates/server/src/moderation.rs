@@ -141,6 +141,16 @@ fn handle_requests(
             ChatAction::ListReports => db.send(DbCommand::ListReports { link, panel: false }),
             ChatAction::AdminPanel => db.send(DbCommand::ListReports { link, panel: true }),
             ChatAction::Resolve { id } => db.send(DbCommand::ResolveReport { link, id: *id, by: req.name.clone() }),
+            ChatAction::IssueRecovery { name } => {
+                let code = shared::auth::format_recovery_code(rand::random());
+                let (db, target_name) = (db.clone(), name.clone());
+                info!("{} issued a new recovery code for {name}", req.name);
+                // Hashing takes a moment: not on the game loop.
+                std::thread::spawn(move || match crate::auth::hash_password(&shared::auth::normalize_recovery_code(&code)) {
+                    Ok(recovery_hash) => db.send(DbCommand::SetRecoveryByName { link, target_name, recovery_hash, code }),
+                    Err(e) => error!("couldn't hash a recovery code: {e}"),
+                });
+            }
             _ => {}
         }
     }
@@ -196,6 +206,14 @@ fn handle_db_results(
                 if let Ok(mut tx) = panel_tx.get_mut(*link) {
                     tx.send::<ChatNetChannel>(AdminPanel { players: list, reports: reports.clone() });
                 }
+            }
+            DbResult::RecoveryIssued { link, target_name, found, code } => {
+                let text = if *found {
+                    format!("New recovery code for {target_name}: {code} (it replaces their old one). Pass it on privately.")
+                } else {
+                    format!("No player named {target_name}.")
+                };
+                notify(&mut notice_tx, *link, SystemNotice::info(text));
             }
             DbResult::ReportResolved { link, id, ok } => {
                 let text = if *ok { format!("Report #{id} resolved.") } else { format!("No open report #{id}.") };

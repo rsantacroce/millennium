@@ -81,6 +81,8 @@ pub struct Credentials {
     /// Banned until this time (Unix ms), and why.
     pub banned_until_ms: Option<i64>,
     pub ban_reason: Option<String>,
+    /// Argon2 hash of the recovery code (`None` until one has been issued).
+    pub recovery_hash: Option<String>,
 }
 
 impl Credentials {
@@ -127,6 +129,11 @@ pub enum DbCommand {
     /// Replies `None` if the name is taken.
     CreateAccount { username: String, password_hash: String, reply: Reply<Option<Credentials>> },
     SetPasswordHash { account_id: i64, password_hash: String },
+    SetRecoveryHash { account_id: i64, recovery_hash: String },
+    /// An admin issuing a new recovery code (`code` comes back in the result to show them).
+    SetRecoveryByName { link: Entity, target_name: String, recovery_hash: String, code: String },
+    /// Deletes the account, its characters and everything they own. Replies whether it existed.
+    DeleteAccount { account_id: i64, reply: Reply<bool> },
 
     // Character select.
     ListCharacters { link: Entity, account_id: i64 },
@@ -203,6 +210,7 @@ pub enum DbResult {
     ReportFiled { link: Entity, target_name: String, id: Option<i64> },
     Reports { link: Entity, reports: Vec<shared::protocol::ReportInfo>, panel: bool },
     ReportResolved { link: Entity, id: i64, ok: bool },
+    RecoveryIssued { link: Entity, target_name: String, found: bool, code: String },
     /// `target` is `None` if no such character exists.
     FriendUpdated { link: Entity, target_name: String, target: Option<(u64, String)>, add: bool },
     /// A crew change finished: `Ok(crew id)` to reload, or a message for the player.

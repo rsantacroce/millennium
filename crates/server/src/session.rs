@@ -137,9 +137,38 @@ impl Plugin for SessionPlugin {
             .insert_resource(SaveTimer(Timer::from_seconds(interval.max(1.0), TimerMode::Repeating)))
             .add_observer(on_connected)
             .add_observer(on_disconnected)
-            .add_systems(Update, (receive_session_actions, finish_remote_logouts, handle_db_results, save_positions, sync_progress))
+            .add_systems(Update, (receive_session_actions, finish_remote_logouts, handle_db_results, save_positions, sync_progress, delete_accounts))
             .add_systems(Last, save_on_shutdown);
     }
+}
+
+/// Account deletions from the login service. A player who's online is logged out first; the
+/// delete is queued only once their logout save is (database commands run in order), so the
+/// save can't land on rows that are already gone.
+fn delete_accounts(
+    auth: Res<crate::auth::AuthService>,
+    online: Res<OnlinePlayers>,
+    mut links: Query<&mut MessageSender<SessionUpdate>>,
+    mut pending: Local<Vec<crate::auth::Deletion>>,
+    db: Res<Db>,
+    mut commands: Commands,
+) {
+    while let Ok((account_id, reply)) = auth.deletions.try_recv() {
+        if let Some(&link) = online.accounts.get(&account_id) {
+            if let Ok(mut sender) = links.get_mut(link) {
+                send(&mut sender, SessionUpdate::Kicked { reason: "This account has been deleted.".into() });
+            }
+            commands.entity(link).insert(Disconnecting);
+        }
+        pending.push((account_id, reply));
+    }
+    pending.retain(|(account_id, reply)| {
+        if online.accounts.contains_key(account_id) {
+            return true;
+        }
+        db.send(DbCommand::DeleteAccount { account_id: *account_id, reply: reply.clone() });
+        false
+    });
 }
 
 fn send(sender: &mut MessageSender<SessionUpdate>, update: SessionUpdate) {

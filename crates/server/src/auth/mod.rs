@@ -77,13 +77,20 @@ struct Ctx {
     active: AtomicUsize,
     /// Failed password attempts per IP: (count, window start).
     failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
+    /// Account deletions, handed to the game loop (see `session::delete_accounts`).
+    deletions: crossbeam_channel::Sender<Deletion>,
 }
+
+/// An account to delete, and where to say whether it worked.
+pub type Deletion = (i64, std::sync::mpsc::Sender<Result<bool, String>>);
 
 /// The running login service. Dropping it stops the listener.
 #[derive(Resource)]
 pub struct AuthService {
     /// SHA-256 of the login service's certificate.
     pub fingerprint: String,
+    /// Account deletions from the login service, for the game loop to carry out.
+    pub deletions: crossbeam_channel::Receiver<Deletion>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -98,6 +105,7 @@ impl AuthService {
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         info!("login service on tcp://{} (certificate fingerprint {fingerprint})", net.auth_bind);
         let fingerprint_out = fingerprint.clone();
+        let (deletions_tx, deletions) = crossbeam_channel::unbounded();
 
         let ctx = Arc::new(Ctx {
             db,
@@ -106,6 +114,7 @@ impl AuthService {
             tls,
             active: AtomicUsize::new(0),
             failures: Mutex::new(HashMap::new()),
+            deletions: deletions_tx,
         });
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
@@ -113,7 +122,7 @@ impl AuthService {
             .name("login-service".into())
             .spawn(move || accept_loop(listener, ctx, flag))
             .map_err(|e| e.to_string())?;
-        Ok(Self { fingerprint: fingerprint_out, stop, thread: Some(thread) })
+        Ok(Self { fingerprint: fingerprint_out, deletions, stop, thread: Some(thread) })
     }
 }
 
@@ -159,44 +168,118 @@ fn serve(stream: TcpStream, peer: SocketAddr, ctx: &Ctx) -> Result<(), String> {
     let conn = ServerConnection::new(ctx.tls.clone()).map_err(|e| e.to_string())?;
     let mut tls = StreamOwned::new(conn, stream);
     let request: AuthRequest = read_frame(&mut tls).map_err(|e| e.to_string())?;
-    let response = match handle(&request, peer.ip(), ctx) {
-        Ok(ticket) => AuthResponse::Ok(ticket),
-        Err(message) => AuthResponse::Error(message),
-    };
+    let response = handle(&request, peer.ip(), ctx).unwrap_or_else(AuthResponse::Error);
     write_frame(&mut tls, &response).map_err(|e| e.to_string())?;
     tls.conn.send_close_notify();
     let _ = std::io::Write::flush(&mut tls);
     Ok(())
 }
 
-fn handle(req: &AuthRequest, peer: IpAddr, ctx: &Ctx) -> Result<LoginTicket, String> {
+fn handle(req: &AuthRequest, peer: IpAddr, ctx: &Ctx) -> Result<AuthResponse, String> {
     if req.version != AUTH_VERSION {
         return Err("Your game is out of date. Please update.".into());
     }
     validate_name(req.username.trim()).map_err(|e| format!("Sorry, {e}."))?;
-    validate_password(&req.password).map_err(|e| format!("Sorry, {e}."))?;
     check_throttle(ctx, peer)?;
     let username = req.username.trim().to_string();
 
-    let creds = match req.mode {
-        AuthMode::Register => register(ctx, &username, &req.password)?,
-        AuthMode::Login { create_if_missing } => {
-            match ctx.db.ask(|reply| DbCommand::GetCredentials { username: username.clone(), reply })? {
-                Some(creds) => {
-                    verify(ctx, &creds, &req.password, peer)?;
-                    creds
+    match &req.mode {
+        AuthMode::Register | AuthMode::Login { .. } => {
+            validate_password(&req.password).map_err(|e| format!("Sorry, {e}."))?;
+            let creds = match req.mode {
+                AuthMode::Login { create_if_missing } => match lookup(ctx, &username)? {
+                    Some(creds) => {
+                        verify(ctx, &creds, &req.password, peer)?;
+                        creds
+                    }
+                    None if create_if_missing => register(ctx, &username, &req.password)?,
+                    None => return Err(format!("There's no account named {username}. Create one first.")),
+                },
+                _ => register(ctx, &username, &req.password)?,
+            };
+            if let Some((until, reason)) = creds.ban_at(crate::persistence::now_ms()) {
+                info!("refused banned account {} from {peer}", creds.username);
+                return Err(crate::moderation::ban_message(until, reason));
+            }
+            // New accounts, and accounts from before recovery codes, get one now (shown once).
+            let recovery_code = if creds.recovery_hash.is_none() { Some(new_recovery_code(ctx, creds.account_id)?) } else { None };
+            info!("{} logged in from {peer}", creds.username);
+            issue_ticket(ctx, &creds, req.server_ip, recovery_code).map(AuthResponse::Ok)
+        }
+        AuthMode::ChangePassword { new_password } => {
+            validate_password(new_password).map_err(|e| format!("Sorry, the new {e}."))?;
+            let creds = existing(ctx, &username)?;
+            verify(ctx, &creds, &req.password, peer)?;
+            set_password(ctx, &creds, new_password)?;
+            info!("{} changed their password", creds.username);
+            Ok(AuthResponse::Done { message: "Your password has been changed.".into(), recovery_code: None })
+        }
+        AuthMode::Reset { recovery_code, new_password } => {
+            validate_password(new_password).map_err(|e| format!("Sorry, the new {e}."))?;
+            let creds = existing(ctx, &username)?;
+            verify_recovery(ctx, &creds, recovery_code, peer)?;
+            set_password(ctx, &creds, new_password)?;
+            // A used code is spent: here's the next one.
+            let code = new_recovery_code(ctx, creds.account_id)?;
+            info!("{} reset their password with a recovery code", creds.username);
+            Ok(AuthResponse::Done { message: "Your password has been reset.".into(), recovery_code: Some(code) })
+        }
+        AuthMode::Delete => {
+            let creds = existing(ctx, &username)?;
+            verify(ctx, &creds, &req.password, peer)?;
+            if creds.ban_at(crate::persistence::now_ms()).is_some() {
+                return Err("A banned account can't be deleted. Contact an admin.".into());
+            }
+            // The game loop deletes it (after logging it out and saving, if it's playing).
+            let (reply, answer) = std::sync::mpsc::channel();
+            ctx.deletions.send((creds.account_id, reply)).map_err(|_| "The server is shutting down; try again.".to_string())?;
+            match answer.recv_timeout(Duration::from_secs(20)) {
+                Ok(Ok(_)) => {
+                    info!("{} deleted their account", creds.username);
+                    Ok(AuthResponse::Done { message: format!("The account {} and its characters are gone. Goodbye!", creds.username), recovery_code: None })
                 }
-                None if create_if_missing => register(ctx, &username, &req.password)?,
-                None => return Err(format!("There's no account named {username}. Create one first.")),
+                Ok(Err(e)) => Err(format!("Couldn't delete the account: {e}")),
+                Err(_) => Err("The server didn't answer in time; try again.".into()),
             }
         }
-    };
-    if let Some((until, reason)) = creds.ban_at(crate::persistence::now_ms()) {
-        info!("refused banned account {} from {peer}", creds.username);
-        return Err(crate::moderation::ban_message(until, reason));
     }
-    info!("{} logged in from {peer}", creds.username);
-    issue_ticket(ctx, &creds, req.server_ip)
+}
+
+fn lookup(ctx: &Ctx, username: &str) -> Result<Option<Credentials>, String> {
+    ctx.db.ask(|reply| DbCommand::GetCredentials { username: username.to_string(), reply })
+}
+
+fn existing(ctx: &Ctx, username: &str) -> Result<Credentials, String> {
+    lookup(ctx, username)?.ok_or_else(|| format!("There's no account named {username}."))
+}
+
+fn set_password(ctx: &Ctx, creds: &Credentials, password: &str) -> Result<(), String> {
+    let hash = hash_password(password)?;
+    ctx.db.send(DbCommand::SetPasswordHash { account_id: creds.account_id, password_hash: hash });
+    Ok(())
+}
+
+/// Makes a new recovery code for the account, stores its hash, and returns it (to show once).
+fn new_recovery_code(ctx: &Ctx, account_id: i64) -> Result<String, String> {
+    let code = shared::auth::format_recovery_code(rand::random());
+    let recovery_hash = hash_password(&shared::auth::normalize_recovery_code(&code))?;
+    ctx.db.send(DbCommand::SetRecoveryHash { account_id, recovery_hash });
+    Ok(code)
+}
+
+/// Checks a recovery code like a password (and counts failures the same way).
+fn verify_recovery(ctx: &Ctx, creds: &Credentials, code: &str, peer: IpAddr) -> Result<(), String> {
+    let Some(stored) = &creds.recovery_hash else {
+        return Err("This account has no recovery code yet. Ask an admin for one.".into());
+    };
+    let parsed = PasswordHash::new(stored).map_err(|_| "Account data is corrupt; contact an admin.".to_string())?;
+    if Argon2::default().verify_password(shared::auth::normalize_recovery_code(code).as_bytes(), &parsed).is_ok() {
+        ctx.failures.lock().unwrap().remove(&peer);
+        Ok(())
+    } else {
+        ctx.failures.lock().unwrap().entry(peer).or_insert((0, Instant::now())).0 += 1;
+        Err("That recovery code doesn't match.".into())
+    }
 }
 
 fn register(ctx: &Ctx, username: &str, password: &str) -> Result<Credentials, String> {
@@ -235,17 +318,18 @@ fn check_throttle(ctx: &Ctx, peer: IpAddr) -> Result<(), String> {
     }
 }
 
-fn hash_password(password: &str) -> Result<String, String> {
+/// Argon2 hash of a password or recovery code (slow on purpose: keep it off the game loop).
+pub(crate) fn hash_password(password: &str) -> Result<String, String> {
     Argon2::default()
         .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| format!("could not hash password: {e}"))
 }
 
-fn issue_ticket(ctx: &Ctx, creds: &Credentials, server_ip: IpAddr) -> Result<LoginTicket, String> {
+fn issue_ticket(ctx: &Ctx, creds: &Credentials, server_ip: IpAddr, recovery_code: Option<String>) -> Result<LoginTicket, String> {
     let game_addr = SocketAddr::new(server_ip, ctx.game_port);
     let token = make_token(game_addr, ctx.private_key, creds.account_id, 0, 0)?;
-    Ok(LoginTicket { token, account: creds.username.clone() })
+    Ok(LoginTicket { token, account: creds.username.clone(), recovery_code })
 }
 
 #[cfg(test)]

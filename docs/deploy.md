@@ -196,6 +196,15 @@ Players need a client from the same version: an older client gets "protocol does
 
 ## Checking on it
 
+- **Status page and metrics:**
+  - Set `[metrics] bind = "127.0.0.1:9188"` and open `http://127.0.0.1:9188/` (through an SSH
+    tunnel from your laptop: `ssh -L 9188:127.0.0.1:9188 your-server`). It shows players per
+    zone, frame time, database latency and bandwidth.
+  - `/metrics` is in the Prometheus format, for Prometheus and Grafana.
+  - `/health` answers `ok`, for uptime checks.
+  - A status line goes to the log every minute either way.
+- **Moderation:** add your account to `[chat] admins`, then type `/admin` in game. See
+  *Moderation* in the README.
 - **Logs:** `journalctl -u millennium-server` or `docker logs millennium`. Logins, knockouts,
   backups, zone transfers and errors all show up there.
 - **"failed to start database":** the database URL is wrong or Postgres isn't up yet. systemd

@@ -74,7 +74,9 @@ echo "time,players,frame_avg_s,frame_max_s,db_avg_s,db_max_s,sent_bytes,recv_byt
 echo "== $bots bots for ${secs}s ($profile build); samples in $csv"
 # Log in in waves of 10: account creation hashes a password (argon2), which is meant to be slow.
 for i in $(seq 1 "$bots"); do
-  "$smoke" --known "$work/known.txt" --interval 0.5 --name "Bot$i" --character "Bot$i" \
+  # Lower priority: on one machine, the bots must not steal the server's CPU (that's not what
+  # we're measuring).
+  nice -n 10 "$smoke" --known "$work/known.txt" --interval 0.5 --name "Bot$i" --character "Bot$i" \
     --step "!wander $secs" > "$work/bot$i.log" 2>&1 &
   (( i % 10 == 0 )) && sleep 2
 done

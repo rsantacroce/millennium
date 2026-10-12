@@ -133,6 +133,24 @@ impl ServerCertVerifier for PinnedVerifier {
 /// Talks to the login service at `server` and returns a ticket for the game server.
 /// Blocking: call it from a background thread.
 pub fn request_ticket(server: SocketAddr, request: &AuthRequest, trust: Trust) -> Result<LoginTicket, String> {
+    match exchange(server, request, trust)? {
+        AuthResponse::Ok(ticket) => Ok(ticket),
+        AuthResponse::Done { message, .. } => Err(message),
+        AuthResponse::Error(e) => Err(e),
+    }
+}
+
+/// A password change, reset or account deletion: (what happened, a new recovery code if any).
+pub fn account_request(server: SocketAddr, request: &AuthRequest, trust: Trust) -> Result<(String, Option<String>), String> {
+    match exchange(server, request, trust)? {
+        AuthResponse::Done { message, recovery_code } => Ok((message, recovery_code)),
+        AuthResponse::Ok(_) => Ok(("Done.".into(), None)),
+        AuthResponse::Error(e) => Err(e),
+    }
+}
+
+/// One request and its answer over TLS, checking the server's certificate.
+fn exchange(server: SocketAddr, request: &AuthRequest, trust: Trust) -> Result<AuthResponse, String> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let verifier = Arc::new(PinnedVerifier {
         server: server.to_string(),
@@ -157,8 +175,7 @@ pub fn request_ticket(server: SocketAddr, request: &AuthRequest, trust: Trust) -
 
     let result = write_frame(&mut tls, request).and_then(|_| read_frame::<AuthResponse>(&mut tls));
     match result {
-        Ok(AuthResponse::Ok(ticket)) => Ok(ticket),
-        Ok(AuthResponse::Error(e)) => Err(e),
+        Ok(response) => Ok(response),
         Err(_) if *verifier.mismatch.lock().unwrap() => Err(match &verifier.trust {
             Trust::Pinned(known) => format!(
                 "The server's identity has changed since you last connected. If the server was \

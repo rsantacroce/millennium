@@ -278,6 +278,42 @@ macro_rules! store_tests {
         assert!(!s.resolve_report(id, "Admin").await.unwrap());
         assert!(s.open_reports().await.unwrap().is_empty());
     }
+
+    #[tokio::test]
+    async fn deleting_an_account_tidies_up_after_it() {
+        let Some(mut s) = store().await else { return };
+        let a = account(&mut s, "Alice").await;
+        let b = account(&mut s, "Bob").await;
+        let alice = character(&mut s, a, "Alice").await.unwrap();
+        let bob = character(&mut s, b, "Bob").await.unwrap();
+        // Alice leads a crew Bob is in, and sells a walkman Bob has bid on.
+        let crew = s.create_crew(alice, "Wharf Rats", "WRC").await.unwrap().unwrap();
+        s.handle(DbCommand::JoinCrew { link: Entity::PLACEHOLDER, character_id: bob, crew_id: crew }, LIMITS).await;
+        let st = PlayerState::new(100);
+        let listing = NewListing {
+            stack: ItemStack { item: "walkman".into(), qty: 1 },
+            item_name: "Walkman".into(),
+            start_price: 10,
+            buyout: None,
+            expires_at_ms: now_ms() + 60_000,
+            max_active: 10,
+        };
+        assert!(s.market_create(alice, &st, &listing).await.unwrap().is_ok());
+        let id = s.market_search("walk", 0).await.unwrap().0[0].id;
+        assert!(s.market_bid(bob, &st, id, 15).await.unwrap().0.is_ok());
+
+        assert!(s.delete_account(a).await.unwrap());
+        assert!(!s.delete_account(a).await.unwrap(), "already gone");
+        assert!(s.credentials("Alice").await.unwrap().is_none());
+        // Bob gets his bid back, and the crew is his now.
+        let claims = s.market_claims(bob).await.unwrap();
+        assert_eq!((claims[0].cash, claims[0].reason.as_str()), (15, "Refund: Walkman (the seller left)"));
+        let roster = s.load_crew(crew).await.unwrap().unwrap();
+        assert_eq!(roster.members, vec![(bob, "Bob".to_string(), CrewRank::Leader)]);
+        assert!(s.market_search("", 0).await.unwrap().0.is_empty(), "her listing went with her");
+        // The name is free again.
+        assert!(s.create_account("alice", "hash").await.unwrap().is_some());
+    }
     };
 }
 

@@ -16,7 +16,7 @@ use std::io::{self, Read, Write};
 use std::net::IpAddr;
 
 /// Bumped when `AuthRequest`/`AuthResponse` change.
-pub const AUTH_VERSION: u32 = 1;
+pub const AUTH_VERSION: u32 = 2;
 /// Largest frame either side will accept (a connect token is 2 KiB).
 pub const MAX_FRAME: usize = 8 * 1024;
 
@@ -35,12 +35,26 @@ pub struct AuthRequest {
     pub server_ip: IpAddr,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum AuthMode {
     /// Log in. With `create_if_missing`, an unknown name is registered instead (Host Game, dev tools).
     Login { create_if_missing: bool },
     /// Create a new account. Fails if the name is taken.
     Register,
+    /// `password` is the current one.
+    ChangePassword { new_password: String },
+    /// Forgot the password: prove it's yours with the account's recovery code instead.
+    /// (`password` is ignored.)
+    Reset { recovery_code: String, new_password: String },
+    /// Delete the account and all its characters, for good. `password` is the current one.
+    Delete,
+}
+
+impl AuthMode {
+    /// Modes that log in (answered with a ticket); the rest answer with `AuthResponse::Done`.
+    pub fn logs_in(&self) -> bool {
+        matches!(self, AuthMode::Login { .. } | AuthMode::Register)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -49,12 +63,31 @@ pub struct LoginTicket {
     pub token: Vec<u8>,
     /// The account name with its stored capitalisation.
     pub account: String,
+    /// A new recovery code, shown to the player once (after registering, or for an account that
+    /// didn't have one). Only its hash is kept on the server.
+    pub recovery_code: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum AuthResponse {
     Ok(LoginTicket),
     Error(String),
+    /// A password change, reset or deletion went through; maybe with a new recovery code.
+    Done { message: String, recovery_code: Option<String> },
+}
+
+/// Letters and digits that can't be mistaken for each other (no 0/O, 1/I/L).
+const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/// A recovery code like `K7QM-2XVD-PR9T` from 12 random bytes (about 59 bits).
+pub fn format_recovery_code(random: [u8; 12]) -> String {
+    let chars: Vec<char> = random.iter().map(|b| CODE_ALPHABET[*b as usize % CODE_ALPHABET.len()] as char).collect();
+    chars.chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-")
+}
+
+/// How players may type a code back: any case, with or without dashes and spaces.
+pub fn normalize_recovery_code(code: &str) -> String {
+    code.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
 }
 
 pub fn validate_password(password: &str) -> Result<(), String> {
@@ -111,6 +144,15 @@ mod tests {
         let mut buf = ((MAX_FRAME + 1) as u32).to_be_bytes().to_vec();
         buf.extend(std::iter::repeat_n(0, 16));
         assert!(read_frame::<AuthRequest>(&mut buf.as_slice()).is_err());
+    }
+
+    #[test]
+    fn recovery_codes() {
+        let code = format_recovery_code([7, 200, 31, 0, 255, 128, 64, 99, 1, 2, 3, 250]);
+        assert_eq!(code.len(), 14);
+        assert_eq!(code.matches('-').count(), 2);
+        assert!(code.chars().all(|c| c == '-' || CODE_ALPHABET.contains(&(c as u8))));
+        assert_eq!(normalize_recovery_code(&code.to_lowercase().replace('-', " ")), code.replace('-', ""));
     }
 
     #[test]

@@ -134,6 +134,23 @@ impl SqliteStore {
                 .file_report(reporter_id, &target_name, &reason, &context)
                 .await
                 .map(|id| Some(DbResult::ReportFiled { link, target_name, id })),
+            DbCommand::SetRecoveryHash { account_id, recovery_hash } => sqlx::query("UPDATE accounts SET recovery_hash = ? WHERE id = ?")
+                .bind(recovery_hash)
+                .bind(account_id)
+                .execute(&self.pool)
+                .await
+                .map(|_| None),
+            DbCommand::SetRecoveryByName { link, target_name, recovery_hash, code } => sqlx::query("UPDATE accounts SET recovery_hash = ? WHERE id = (SELECT account_id FROM characters WHERE name = ?)")
+                .bind(recovery_hash)
+                .bind(&target_name)
+                .execute(&self.pool)
+                .await
+                .map(|r| Some(DbResult::RecoveryIssued { link, target_name, found: r.rows_affected() > 0, code })),
+            DbCommand::DeleteAccount { account_id, reply } => {
+                let result = self.delete_account(account_id).await;
+                let _ = reply.send(result.as_ref().map(|b| *b).map_err(|e| e.to_string()));
+                result.map(|_| None)
+            }
             DbCommand::ListReports { link, panel } => self.open_reports().await.map(|reports| Some(DbResult::Reports { link, reports, panel })),
             DbCommand::ResolveReport { link, id, by } => {
                 self.resolve_report(id, &by).await.map(|ok| Some(DbResult::ReportResolved { link, id, ok }))
@@ -251,12 +268,19 @@ impl SqliteStore {
     }
 
     async fn credentials(&self, username: &str) -> Result<Option<Credentials>, sqlx::Error> {
-        let row: Option<(i64, String, Option<String>, Option<i64>, Option<String>)> =
-            sqlx::query_as("SELECT id, username, password_hash, banned_until_ms, ban_reason FROM accounts WHERE username = ?")
+        let row: Option<(i64, String, Option<String>, Option<i64>, Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT id, username, password_hash, banned_until_ms, ban_reason, recovery_hash FROM accounts WHERE username = ?")
                 .bind(username)
                 .fetch_optional(&self.pool)
                 .await?;
-        Ok(row.map(|(account_id, username, password_hash, banned_until_ms, ban_reason)| Credentials { account_id, username, password_hash, banned_until_ms, ban_reason }))
+        Ok(row.map(|(account_id, username, password_hash, banned_until_ms, ban_reason, recovery_hash)| Credentials {
+            account_id,
+            username,
+            password_hash,
+            banned_until_ms,
+            ban_reason,
+            recovery_hash,
+        }))
     }
 
     async fn create_account(&self, username: &str, hash: &str) -> Result<Option<Credentials>, sqlx::Error> {
@@ -269,7 +293,14 @@ impl SqliteStore {
         .bind(now_ms())
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(account_id, username)| Credentials { account_id, username, password_hash: Some(hash.into()), banned_until_ms: None, ban_reason: None }))
+        Ok(row.map(|(account_id, username)| Credentials {
+            account_id,
+            username,
+            password_hash: Some(hash.into()),
+            banned_until_ms: None,
+            ban_reason: None,
+            recovery_hash: None,
+        }))
     }
 
     async fn list(&self, link: Entity, account_id: i64) -> Result<DbResult, sqlx::Error> {
@@ -580,6 +611,41 @@ impl SqliteStore {
         .fetch_all(&self.pool)
         .await?;
         Ok(Some(CrewRoster { name, tag, members: members.into_iter().map(|(id, n, r)| (id, n, crew_rank(r))).collect() }))
+    }
+
+    /// Deletes an account with everything its characters own, tidying up what others depend on:
+    /// bidders on their auctions are refunded, their own bids are dropped, and crews they lead go
+    /// to the longest-standing member (or are removed if nobody's left). One transaction.
+    async fn delete_account(&self, account_id: i64) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let characters: Vec<i64> = sqlx::query_scalar("SELECT id FROM characters WHERE account_id = ?").bind(account_id).fetch_all(&mut *tx).await?;
+        for c in &characters {
+            sqlx::query(
+                "INSERT INTO market_claims (character_id, item, quantity, cash, reason, created_at_ms)
+             SELECT bidder_id, NULL, NULL, bid, 'Refund: ' || item_name || ' (the seller left)', ?
+             FROM market_listings WHERE seller_id = ? AND status = 0 AND bidder_id IS NOT NULL AND bid IS NOT NULL",
+            )
+            .bind(now_ms())
+                .bind(*c)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("UPDATE market_listings SET bid = NULL, bidder_id = NULL WHERE bidder_id = ? AND status = 0").bind(*c).execute(&mut *tx).await?;
+            let led: Vec<i64> = sqlx::query_scalar("SELECT crew_id FROM crew_members WHERE character_id = ? AND rank = 1").bind(*c).fetch_all(&mut *tx).await?;
+            for crew in led {
+                let heir: Option<i64> = sqlx::query_scalar("SELECT character_id FROM crew_members WHERE crew_id = ? AND character_id <> ? ORDER BY joined_at_ms, character_id LIMIT 1")
+                    .bind(crew)
+                    .bind(*c)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                match heir {
+                    Some(h) => sqlx::query("UPDATE crew_members SET rank = 1 WHERE character_id = ?").bind(h).execute(&mut *tx).await?,
+                    None => sqlx::query("DELETE FROM crews WHERE id = ?").bind(crew).execute(&mut *tx).await?,
+                };
+            }
+        }
+        let gone = sqlx::query("DELETE FROM accounts WHERE id = ?").bind(account_id).execute(&mut *tx).await?.rows_affected() > 0;
+        tx.commit().await?;
+        Ok(gone)
     }
 
     async fn set_ban(&self, target_name: &str, until_ms: Option<i64>, reason: Option<&str>) -> Result<bool, sqlx::Error> {

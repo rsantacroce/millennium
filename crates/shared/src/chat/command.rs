@@ -13,7 +13,7 @@
 //! /report Bob spamming       -> tell the admins (with Bob's recent chat)
 //! /mute Bob 10, /unmute Bob   (admins)
 //! /mod kick Bob [reason], /mod ban Bob [hours|perm] [reason], /mod unban Bob,
-//! /mod reports, /mod resolve 3, /admin (the admin window)   (admins)
+//! /mod reports, /mod resolve 3, /mod resetcode Bob, /admin (the admin window)   (admins)
 //! /give walkman 2, /givecar hatchback, /givecash 500, /givexp hacking 400   (admins, for testing)
 //! /help, /clear
 //! ```
@@ -158,6 +158,7 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
                 }
                 "unban" => Ok(ChatInput::Action(ChatAction::Unban { name: one_name(rest, "/mod unban <name>")? })),
                 "reports" => Ok(ChatInput::Action(ChatAction::ListReports)),
+                "resetcode" => Ok(ChatInput::Action(ChatAction::IssueRecovery { name: one_name(rest, "/mod resetcode <name>")? })),
                 "resolve" => {
                     let id = rest.trim().trim_start_matches('#').parse().map_err(|_| ParseError::Usage("/mod resolve <report id>"))?;
                     Ok(ChatInput::Action(ChatAction::Resolve { id }))
@@ -244,6 +245,7 @@ mod tests {
         assert_eq!(parse_input("/mod unban Bob"), action(ChatAction::Unban { name: "Bob".into() }));
         assert_eq!(parse_input("/mod resolve #7"), action(ChatAction::Resolve { id: 7 }));
         assert_eq!(parse_input("/mod reports"), action(ChatAction::ListReports));
+        assert_eq!(parse_input("/mod resetcode Bob"), action(ChatAction::IssueRecovery { name: "Bob".into() }));
         assert_eq!(parse_input("/admin"), action(ChatAction::AdminPanel));
         assert!(parse_input("/mod dance").is_err());
     }
