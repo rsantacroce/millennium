@@ -124,7 +124,8 @@ fn day_night(
         *transform = Transform::from_translation(dir).looking_at(Vec3::ZERO, Vec3::Y);
         light.color = if day > 0.0 && day < 1.0 { Color::srgb(1.0, 0.75, 0.5) } else if day == 0.0 { Color::srgb(0.6, 0.7, 1.0) } else { Color::WHITE };
     }
-    ambient.brightness = 150.0 + 250.0 * day;
+    // Night is dark, but not so dark you can't play.
+    ambient.brightness = 230.0 + 170.0 * day;
     ambient.color = Color::srgb(0.85 - 0.3 * night, 0.88 - 0.25 * night, 1.0);
     let sky = |d: [f32; 3], n: [f32; 3]| Color::srgb(n[0] + (d[0] - n[0]) * day, n[1] + (d[1] - n[1]) * day, n[2] + (d[2] - n[2]) * day);
     let wanted = sky([0.62, 0.74, 0.86], [0.04, 0.05, 0.12]);
@@ -232,6 +233,8 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
         );
     } else {
         let wood = mat(Color::srgb(0.55, 0.40, 0.25), 0.9);
+        let roof_lamp = mat(Color::srgb(1.0, 0.95, 0.75), 0.5);
+        glow.materials.push((roof_lamp.clone(), LinearRgba::rgb(6.0, 5.0, 2.5)));
         let wall = mat(Color::srgb(0.50, 0.38, 0.32), 0.9);
         for r in &zone.walkable {
             let (s, c) = (r.size(), r.center());
@@ -242,6 +245,14 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
                 // A roof: the building under it reaches down to the street.
                 spawn(commands, (Mesh3d(meshes.add(Cuboid::new(s.x, -drop, s.y))), MeshMaterial3d(wall.clone()), Transform::from_xyz(c.x, drop / 2.0 - 0.05, c.y)));
                 spawn(commands, (Mesh3d(meshes.add(Plane3d::default().mesh().size(s.x, s.y))), MeshMaterial3d(ground.clone()), Transform::from_xyz(c.x, 0.0, c.y)));
+                // A work lamp on every roof, for the night.
+                let lamp = spawn(commands, (Mesh3d(meshes.add(Cuboid::new(0.3, 0.3, 0.3))), MeshMaterial3d(roof_lamp.clone()), Transform::from_xyz(c.x, 2.6, c.y)));
+                commands.spawn((
+                    StreetLight,
+                    PointLight { intensity: 0.0, range: s.x.max(s.y), color: Color::srgb(1.0, 0.85, 0.6), shadow_maps_enabled: false, ..default() },
+                    Transform::default(),
+                    ChildOf(lamp),
+                ));
             }
         }
     }
