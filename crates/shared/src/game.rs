@@ -919,7 +919,7 @@ mod tests {
         assert_eq!((look.jacket, look.shades, look.cap), (Some(1), true, None));
         // Taking it off needs room, and puts it back in the inventory.
         s.take_off(GearSlot::Body, &c).unwrap();
-        assert!(s.gear.get(&GearSlot::Body).is_none());
+        assert!(!s.gear.contains_key(&GearSlot::Body));
         assert_eq!(s.count("bomber_jacket"), 1);
         assert!(s.take_off(GearSlot::Feet, &c).is_err());
         // A soda can't be worn.
