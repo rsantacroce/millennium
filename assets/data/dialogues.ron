@@ -368,9 +368,21 @@
         start: "hello",
         nodes: [
             (
+                id: "retreat_offer",
+                text: "The board is holding its retreat at the Pine Motel. Don't ask me why. This briefcase needs to be there, and I don't trust couriers. You have a car, I hear. Drive it out to Pinecrest, give it to the motel manager.",
+                options: [
+                    (text: "Consider it delivered.", effects: [GiveItem("briefcase", 1), StartQuest("corporate_retreat")], goto: None),
+                    (text: "What's in it?", goto: Some("retreat_what")),
+                ],
+            ),
+            (id: "retreat_what", text: "Quarterly projections. Probably. Don't open it.", options: [(text: "Fine.", effects: [GiveItem("briefcase", 1), StartQuest("corporate_retreat")], goto: None), (text: "Pass.", goto: None)]),
+            (id: "retreat_done", text: "Splendid. The board is pleased, which means I am pleased, which means you get paid.", options: [(text: "Pleasure.", goto: None)]),
+            (
                 id: "hello",
                 text: "Pemberton, Meridian Corp, Facilities. Make it quick, we have four hundred days to make every computer in this building understand the year 2000.",
                 options: [
+                    (text: "Anything else for Meridian?", when: [QuestDone("y2k_compliance"), QuestNotStarted("corporate_retreat")], goto: Some("retreat_offer")),
+                    (text: "The briefcase arrived.", when: [QuestAt("corporate_retreat", 1)], effects: [CompleteQuest("corporate_retreat")], goto: Some("retreat_done")),
                     (text: "Need help with that?", when: [QuestNotStarted("y2k_compliance")], goto: Some("offer")),
                     (text: "About those modems...", when: [QuestAt("y2k_compliance", 0)], goto: Some("reminder")),
                     (
@@ -446,9 +458,22 @@
         start: "hello",
         nodes: [
             (
+                id: "watch_offer",
+                text: "Eggs on my windows, toilet paper in my trees. Run four of them off and I'll give you something for that house of yours. Or the house you'll have one day.",
+                options: [
+                    (text: "Neighborhood Watch, reporting for duty.", effects: [ResetKills("prankster"), StartQuest("neighborhood_watch")], goto: None),
+                    (text: "Kids will be kids.", goto: None),
+                ],
+            ),
+            (id: "watch_reminder", text: "Four pranksters. They hang around the backyards behind the houses.", options: [(text: "On it.", goto: None)]),
+            (id: "watch_done", text: "Peace and quiet! Here, an army footlocker. Every house needs one.", options: [(text: "Thanks, Doug.", goto: None)]),
+            (
                 id: "hello",
                 text: "Welcome to Value Grocer, where the value is... somewhere. Aisle six, probably.",
                 options: [
+                    (text: "Those pranksters out back...", when: [QuestNotStarted("neighborhood_watch")], goto: Some("watch_offer")),
+                    (text: "Still on prankster patrol.", when: [QuestAt("neighborhood_watch", 0)], goto: Some("watch_reminder")),
+                    (text: "The pranksters are gone.", when: [QuestAt("neighborhood_watch", 1)], effects: [CompleteQuest("neighborhood_watch")], goto: Some("watch_done")),
                     (text: "Let me see what you've got.", effects: [OpenShop("value_grocer")], goto: None),
                     (text: "Any cooking tips?", goto: Some("tips")),
                     (text: "Bye.", goto: None),
@@ -540,9 +565,20 @@
         start: "hello",
         nodes: [
             (
+                id: "ghost_read",
+                text: "Ha! That's ours. A relay for the pirate radio, bouncing the signal off the church tower. We lost it last fall. The Pinecrest ghost is... us. Don't tell the sheriff.",
+                options: [(text: "Our secret.", goto: None)],
+            ),
+            (
                 id: "hello",
                 text: "...You're blocking my signal. What do you want?",
                 options: [
+                    (
+                        text: "Can you read this floppy? GHOST.EXE.",
+                        when: [QuestAt("ghost_in_the_machine", 0), HasItem("strange_floppy", 1)],
+                        effects: [TakeItem("strange_floppy", 1), CompleteQuest("ghost_in_the_machine")],
+                        goto: Some("ghost_read"),
+                    ),
                     (text: "I heard you're a hacker.", when: [QuestNotStarted("phreaking_101")], goto: Some("intro")),
                     (text: "Still working on that payphone.", when: [QuestAt("phreaking_101", 0)], goto: Some("phone_reminder")),
                     (text: "The payphone's mine.", when: [QuestAt("phreaking_101", 1)], effects: [CompleteQuest("phreaking_101")], goto: Some("welcome")),
@@ -618,9 +654,19 @@
         start: "hello",
         nodes: [
             (
+                id: "radio_offer",
+                text: "Somebody locked me out of my own junction box. The station's been playing the same Celine Dion song for two days. Hack it back for me?",
+                options: [(text: "I'll fix it.", effects: [StartQuest("radio_free_maple")], goto: None), (text: "I like Celine.", goto: None)],
+            ),
+            (id: "radio_reminder", text: "The junction box by the antenna. It's a tough one, Hacking 5 or so.", options: [(text: "Right.", goto: None)]),
+            (id: "radio_done", text: "Radio Free Maple lives! Here, a poster from the last show. This one goes out to you.", options: [(text: "Rock on.", goto: None)]),
+            (
                 id: "hello",
                 text: "Welcome to the top of the world! Well, the top of the Riverside Apartments. You're listening to Radio Free Maple, 87.9, as long as nobody finds the antenna.",
                 options: [
+                    (text: "Need help with the station?", when: [QuestNotStarted("radio_free_maple")], goto: Some("radio_offer")),
+                    (text: "About the antenna...", when: [QuestAt("radio_free_maple", 0)], goto: Some("radio_reminder")),
+                    (text: "You're back on the air.", when: [QuestAt("radio_free_maple", 1)], effects: [CompleteQuest("radio_free_maple")], goto: Some("radio_done")),
                     (text: "How did you get a radio station up here?", goto: Some("radio")),
                     (text: "Anything interesting up here?", goto: Some("secrets")),
                     (text: "Keep it down.", goto: None),
@@ -681,9 +727,17 @@
         start: "hello",
         nodes: [
             (
+                id: "coffee_offer",
+                text: "Coffee machine died this morning. You know how many truckers come through here? Brew me three thermoses and I'll owe you.",
+                options: [(text: "Three coffees, coming up.", effects: [StartQuest("running_on_empty")], goto: None), (text: "I don't drink coffee.", goto: None)],
+            ),
+            (id: "coffee_done", text: "You're a lifesaver. Here, Mo left this cap. He won't miss it.", options: [(text: "Thanks, Rhonda.", goto: None)]),
+            (
                 id: "hello",
                 text: "Gas-N-Go, last stop for coffee till Pinecrest. Pump's broken, before you ask.",
                 options: [
+                    (text: "Anything I can help with?", when: [QuestNotStarted("running_on_empty")], goto: Some("coffee_offer")),
+                    (text: "Here's your coffee.", when: [QuestAt("running_on_empty", 1), HasItem("diner_coffee", 3)], effects: [TakeItem("diner_coffee", 3), CompleteQuest("running_on_empty")], goto: Some("coffee_done")),
                     (text: "What've you got?", effects: [OpenShop("gas_n_go")], goto: None),
                     (text: "Where does this road go?", goto: Some("road")),
                     (text: "Bye.", goto: None),
@@ -753,9 +807,26 @@
         start: "hello",
         nodes: [
             (
+                id: "ghost_offer",
+                text: "Folks say the church bell tower lights up at night. Pastor says it's not him. I say it's kids. Take a look after dark, would you? Tower door's on Main Street.",
+                options: [(text: "I'll look into it.", effects: [StartQuest("pinecrest_ghost")], goto: None), (text: "I don't believe in ghosts.", goto: None)],
+            ),
+            (
+                id: "ghost_found",
+                text: "GHOST.EXE? That's no ghost, that's a computer. I can't make heads or tails of it. Keep it, and find somebody who can. Thank you kindly.",
+                options: [(text: "I know someone.", goto: None)],
+            ),
+            (
                 id: "hello",
                 text: "Afternoon. Pinecrest is a quiet town and I aim to keep it that way. You staying long?",
                 options: [
+                    (text: "Anything strange going on?", when: [QuestNotStarted("pinecrest_ghost")], goto: Some("ghost_offer")),
+                    (
+                        text: "I found this floppy in the bell tower.",
+                        when: [QuestAt("pinecrest_ghost", 1), HasItem("strange_floppy", 1)],
+                        effects: [CompleteQuest("pinecrest_ghost"), StartQuest("ghost_in_the_machine")],
+                        goto: Some("ghost_found"),
+                    ),
                     (text: "Anything going on?", goto: Some("news")),
                     (text: "Just passing through.", goto: None),
                 ],
@@ -772,9 +843,17 @@
         start: "hello",
         nodes: [
             (
+                id: "trail_offer",
+                text: "Litterbugs. Campers who leave their soda cans in the lake. Three of them, at least, need to be shown the exit.",
+                options: [(text: "I'll show them.", effects: [ResetKills("litterbug"), StartQuest("trail_mix")], goto: None), (text: "Not today.", goto: None)],
+            ),
+            (id: "trail_done", text: "The lake thanks you. Here, a hat. Sun's brutal up here.", options: [(text: "Thanks, Dale.", goto: None)]),
+            (
                 id: "hello",
                 text: "Welcome to Hollow Pines. Take only pictures, leave only footprints. And watch out for poachers, they've been setting traps all over the woods.",
                 options: [
+                    (text: "Anything else?", when: [QuestDone("leave_no_trace"), QuestNotStarted("trail_mix")], goto: Some("trail_offer")),
+                    (text: "The campsites are clean.", when: [QuestAt("trail_mix", 1)], effects: [CompleteQuest("trail_mix")], goto: Some("trail_done")),
                     (text: "Want me to deal with them?", when: [QuestNotStarted("leave_no_trace")], goto: Some("offer")),
                     (text: "Still working on it.", when: [QuestAt("leave_no_trace", 0)], goto: Some("reminder")),
                     (text: "The poachers are gone.", when: [QuestAt("leave_no_trace", 1)], effects: [CompleteQuest("leave_no_trace")], goto: Some("reward")),
@@ -827,7 +906,13 @@
     (
         id: "house_door_2",
         start: "hello",
-        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(2)], goto: None), (text: "Leave.", goto: None)])],
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [
+                    (
+                        text: "Leave a newspaper on the step.",
+                        when: [QuestAt("paper_route", 0), HasItem("newspapers", 1)],
+                        effects: [TakeItem("newspapers", 1), SetQuestStage("paper_route", 1)],
+                        goto: None,
+                    ),(text: "Go up to the door.", effects: [House(2)], goto: None), (text: "Leave.", goto: None)])],
     ),
     (
         id: "house_door_3",
@@ -837,12 +922,24 @@
     (
         id: "house_door_4",
         start: "hello",
-        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(4)], goto: None), (text: "Leave.", goto: None)])],
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [
+                    (
+                        text: "Leave a newspaper on the step.",
+                        when: [QuestAt("paper_route", 1), HasItem("newspapers", 1)],
+                        effects: [TakeItem("newspapers", 1), SetQuestStage("paper_route", 2)],
+                        goto: None,
+                    ),(text: "Go up to the door.", effects: [House(4)], goto: None), (text: "Leave.", goto: None)])],
     ),
     (
         id: "house_door_5",
         start: "hello",
-        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(5)], goto: None), (text: "Leave.", goto: None)])],
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [
+                    (
+                        text: "Leave a newspaper on the step.",
+                        when: [QuestAt("paper_route", 2), HasItem("newspapers", 1)],
+                        effects: [TakeItem("newspapers", 1), SetQuestStage("paper_route", 3)],
+                        goto: None,
+                    ),(text: "Go up to the door.", effects: [House(5)], goto: None), (text: "Leave.", goto: None)])],
     ),
     (
         id: "marge",
@@ -862,6 +959,81 @@
                 text: "Five on the market right now, $400 each, ask at the front door. Once you're in, buy some furniture and use it at home to put it down. A stove for cooking, a workbench, a computer, a waterbed... a footlocker for your things.",
                 options: [(text: "Thanks, Marge.", goto: None)],
             ),
+        ],
+    ),
+    (
+        id: "kevin",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Aw man, flat tire. Mr. Henderson is gonna kill me if his paper's late again.",
+                options: [
+                    (text: "I can deliver them.", when: [QuestNotStarted("paper_route")], effects: [GiveItem("newspapers", 3), StartQuest("paper_route")], goto: Some("route")),
+                    (text: "All delivered.", when: [QuestAt("paper_route", 3)], effects: [CompleteQuest("paper_route")], goto: Some("done")),
+                    (text: "Bummer, kid.", goto: None),
+                ],
+            ),
+            (id: "route", text: "Really? Three Willow Court first, then Four Willow Court, then Twenty Oak Lane. Just leave them on the step!", options: [(text: "Got it.", goto: None)]),
+            (id: "done", text: "You're the best! Here, I got these skate shoes for my birthday but they're too big. They'll fit you.", options: [(text: "Thanks, Kevin.", goto: None)]),
+        ],
+    ),
+    (
+        id: "dolores",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to the Pine Motel. Cable TV, ice machine, no vacancies... well, all vacancies. Except this week.",
+                options: [
+                    (text: "You look worried.", when: [QuestNotStarted("motel_mixup")], goto: Some("keys_offer")),
+                    (text: "Found your keys.", when: [QuestAt("motel_mixup", 1), HasItem("motel_keys", 1)], effects: [TakeItem("motel_keys", 1), CompleteQuest("motel_mixup")], goto: Some("keys_done")),
+                    (
+                        text: "A briefcase from Meridian Corp.",
+                        when: [QuestAt("corporate_retreat", 0), HasItem("briefcase", 1)],
+                        effects: [TakeItem("briefcase", 1), SetQuestStage("corporate_retreat", 1)],
+                        goto: Some("briefcase"),
+                    ),
+                    (text: "Just looking.", goto: None),
+                ],
+            ),
+            (
+                id: "keys_offer",
+                text: "I dropped every room key I own up at the Hollow Pines lookout, taking pictures. And a whole corporate board arrives tomorrow! Could you look for them?",
+                options: [(text: "I'll find them.", effects: [StartQuest("motel_mixup")], goto: None), (text: "Good luck.", goto: None)],
+            ),
+            (id: "keys_done", text: "Oh thank heavens. Here, for your trouble, and the gas.", options: [(text: "Anytime.", goto: None)]),
+            (id: "briefcase", text: "For the board, yes. I'll put it in room six. It's ticking, did you notice? Probably a clock.", options: [(text: "Probably.", goto: None)]),
+        ],
+    ),
+    (
+        id: "bell_tower",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "The tower door is unlocked. A green light blinks way up in the belfry.",
+                options: [
+                    (text: "Climb up and look.", when: [QuestAt("pinecrest_ghost", 0)], effects: [GiveItem("strange_floppy", 1), SetQuestStage("pinecrest_ghost", 1)], goto: Some("found")),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+            (id: "found", text: "Behind the bell: a box of circuit boards, a car battery, and a floppy disk in the drive. GHOST.EXE. You take the disk.", options: [(text: "Spooky.", goto: None)]),
+        ],
+    ),
+    (
+        id: "glinting_keys",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Something shiny in the grass by the trail.",
+                options: [
+                    (text: "Pick it up.", when: [QuestAt("motel_mixup", 0)], effects: [GiveItem("motel_keys", 1), SetQuestStage("motel_mixup", 1)], goto: Some("found")),
+                    (text: "Leave it.", goto: None),
+                ],
+            ),
+            (id: "found", text: "A ring of keys on a plastic diamond: PINE MOTEL.", options: [(text: "Found them.", goto: None)]),
         ],
     ),
 ]

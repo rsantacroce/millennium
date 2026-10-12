@@ -169,4 +169,9 @@
     (id: "house_door_3", name: "Front Door", zone: 5, position: (16.0, -7.6), facing: 180.0, dialogue: "house_door_3", prop: Some("none")),
     (id: "house_door_4", name: "Front Door", zone: 5, position: (10.1, -30.0), facing: 270.0, dialogue: "house_door_4", prop: Some("none")),
     (id: "house_door_5", name: "Front Door", zone: 5, position: (2.0, 22.6), facing: 0.0, dialogue: "house_door_5", prop: Some("none")),
+    // --- Milestone 6 quests.
+    (id: "kevin", name: "Kevin", zone: 5, position: (-26.0, 6.0), facing: 0.0, appearance: (body: 0, skin: 2, jacket: 4, pants: 0, cap: 3), dialogue: "kevin"),
+    (id: "dolores", name: "Dolores", zone: 8, position: (-28.0, 7.7), facing: 0.0, appearance: (body: 1, skin: 3, jacket: 6, pants: 1, cap: 0), dialogue: "dolores"),
+    (id: "bell_tower", name: "Church Bell Tower", zone: 8, position: (22.0, 7.6), facing: 0.0, dialogue: "bell_tower", prop: Some("none"), hours: Some((20.0, 4.0))),
+    (id: "glinting_keys", name: "Something Glinting", zone: 9, position: (12.0, -29.0), facing: 0.0, dialogue: "glinting_keys", prop: Some("none")),
 ]

@@ -412,4 +412,9 @@
         description: "Four guys looking moody in a parking lot. Signed, probably.",
         furniture: Some((look: "poster")),
     ),
+    // --- Milestone 6 quest items.
+    (id: "newspapers", name: "Bundle of Newspapers", tags: ["junk"], description: "The Maple Heights Herald. Three copies, rubber-banded.", value: 0, quest_item: true, max_stack: 3),
+    (id: "strange_floppy", name: "Strange Floppy Disk", tags: ["electronics"], description: "Found in the church bell tower. The label just says GHOST.EXE.", value: 0, quest_item: true),
+    (id: "motel_keys", name: "Motel Room Keys", tags: ["junk"], description: "A ring of keys on a plastic diamond: PINE MOTEL.", value: 0, quest_item: true),
+    (id: "briefcase", name: "Locked Briefcase", tags: ["junk"], description: "Meridian Corp. Heavier than it looks. Do not open.", value: 0, quest_item: true),
 ]

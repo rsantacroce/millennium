@@ -242,8 +242,17 @@ fn walk(
     }
     if let Some(id) = script.fight {
         let target = mobs.iter().find(|(t, _)| t.id == id).map(|(_, p)| p.0);
+        // Like the real client: straight at it if the way is clear, else around obstacles.
+        let grid = navs.get(*zone);
         action.0 = match target {
-            Some(t) if t.distance(pos.0) > 1.4 => MoveIntent::from_direction((t - pos.0).normalize()),
+            Some(t) if t.distance(pos.0) > 1.4 => {
+                let next = if grid.is_none_or(|g| g.line_clear(pos.0, t)) {
+                    t
+                } else {
+                    grid.and_then(|g| g.find_path(pos.0, t)).and_then(|p| p.first().copied()).unwrap_or(t)
+                };
+                MoveIntent::from_direction((next - pos.0).normalize_or_zero())
+            }
             _ => MoveIntent::default(),
         };
         return;

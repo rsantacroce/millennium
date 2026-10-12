@@ -135,4 +135,86 @@
         ],
         rewards: (cash: 40, xp: [(Fitness, 150)], items: [("hiking_boots", 1)], rep: [("city", 100)]),
     ),
+    (
+        id: "neighborhood_watch",
+        name: "Neighborhood Watch",
+        stages: [
+            (log: "Doug at Value Grocer is fed up with the pranksters out back. Run off 4 of them.", advance_when: [Kills("prankster", 4)]),
+            (log: "Tell Doug at Value Grocer the pranksters are gone."),
+        ],
+        rewards: (cash: 30, xp: [(Fitness, 80)], items: [("footlocker", 1)], rep: [("city", 50)]),
+    ),
+    (
+        id: "paper_route",
+        name: "Paper Route",
+        stages: [
+            (log: "Kevin's bike has a flat. Deliver his papers: first to 3 Willow Court (the house at the end of the cul-de-sac, west side)."),
+            (log: "Next paper: 4 Willow Court, across the cul-de-sac."),
+            (log: "Last paper: 20 Oak Lane, south of Elm Street."),
+            (log: "Tell Kevin his papers are delivered."),
+        ],
+        rewards: (cash: 25, xp: [(Fitness, 60)], items: [("skate_shoes", 1)], rep: [("city", 20)]),
+    ),
+    (
+        id: "radio_free_maple",
+        name: "Radio Free Maple",
+        stages: [
+            (log: "Skyler wants the pirate radio playing something good: hack the antenna junction box on the rooftops (Hacking 5).", advance_when: [Hacked("pirate_antenna", 1)]),
+            (log: "Tell Skyler the station is back on the air."),
+        ],
+        rewards: (cash: 30, xp: [(Hacking, 120)], items: [("band_poster", 1)], rep: [("zeros", 60)]),
+    ),
+    (
+        id: "running_on_empty",
+        name: "Running on Empty",
+        stages: [
+            (log: "The coffee machine at the Gas-N-Go is broken and the truckers are getting cranky. Brew Rhonda 3 Thermoses of Coffee (Cooking 2: coffee beans and a frying pan, or your stove at home).", advance_when: [HasItem("diner_coffee", 3)]),
+            (log: "Bring the 3 Thermoses of Coffee to Rhonda at the Gas-N-Go."),
+        ],
+        rewards: (cash: 30, xp: [(Cooking, 100)], items: [("trucker_cap", 1)], rep: [("city", 20)]),
+    ),
+    (
+        id: "pinecrest_ghost",
+        name: "The Pinecrest Ghost",
+        stages: [
+            (log: "Sheriff Ruth says there are lights in the Pinecrest church bell tower at night. Have a look after 8 PM."),
+            (log: "You found a floppy disk in the bell tower, labelled GHOST.EXE. Show it to Sheriff Ruth."),
+        ],
+        rewards: (cash: 30, xp: [(Fitness, 60)], items: [], rep: [("city", 40)]),
+    ),
+    (
+        id: "ghost_in_the_machine",
+        name: "Ghost in the Machine",
+        stages: [
+            (log: "Sheriff Ruth can't read the GHOST.EXE floppy. Someone who knows computers might: Glitch, behind the Byte Cafe downtown."),
+        ],
+        rewards: (cash: 40, xp: [(Hacking, 150)], items: [], rep: [("zeros", 80)]),
+    ),
+    (
+        id: "motel_mixup",
+        name: "Motel Mix-up",
+        stages: [
+            (log: "Dolores at the Pine Motel dropped the room keys on a walk at the Hollow Pines lookout. Find them."),
+            (log: "Bring the keys back to Dolores at the Pine Motel."),
+        ],
+        rewards: (cash: 40, xp: [(Fitness, 60), (Driving, 60)], items: []),
+    ),
+    (
+        id: "trail_mix",
+        name: "Trail Mix",
+        stages: [
+            (log: "Ranger Dale wants the litterbug campers out of Hollow Pines. Run off 3 of them.", advance_when: [Kills("litterbug", 3)]),
+            (log: "Tell Ranger Dale the campsites are clean."),
+        ],
+        rewards: (cash: 30, xp: [(Fitness, 100)], items: [("bucket_hat", 1)], rep: [("city", 60)]),
+    ),
+    (
+        id: "corporate_retreat",
+        name: "Corporate Retreat",
+        stages: [
+            (log: "Mr. Pemberton needs a locked briefcase taken to the Pine Motel in Pinecrest, for the Meridian board's retreat. Give it to Dolores. Don't open it."),
+            (log: "Tell Mr. Pemberton the briefcase arrived."),
+        ],
+        rewards: (cash: 80, xp: [(Driving, 150)], items: [], rep: [("meridian", 100)]),
+    ),
 ]
