@@ -24,6 +24,9 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   discounts and lock their best items behind reputation).
 - **Clothing:** caps, jackets, shoes and accessories with armor, health and skill bonuses,
   shown on your character.
+- **Houses:** buy one of five houses in Maple Heights and furnish it from Home Comforts. A stove,
+  workbench and computer help with Cooking, Mechanics and Hacking at home; a waterbed leaves you
+  Well Rested; a footlocker stores 20 stacks. Your party can visit.
 - **Factions:** City Services, Meridian Corp, the Dockside Crew and the Zer0 Day hackers.
   Quests, fights and hacks change your reputation with them.
 - **Skills:** all seven:
@@ -207,6 +210,10 @@ it shows, type it in and press Enter before the timer runs out (Esc gives up).
 **Clothing and food:** *Use* a piece of clothing to wear it (the inventory lists what you're
 wearing, with *Off* buttons); the skills window shows gear and food bonuses as (+N). Active
 food buffs and the time of day are on the HUD.
+
+**Houses:** talk to a front door in Maple Heights to buy or go in. *Use* furniture in your
+inventory while at home to put it down; next to a piece, **E** uses it and **P** picks it up.
+Select an inventory item with the footlocker open to store it.
 
 **Driving:** steer with WASD or click where you want to go: the car turns toward that direction,
 faster the faster it's going. Pull away from the nose while stopped to back up and turn around.
@@ -459,6 +466,23 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
 - **Checking it:** `cargo run -p shared --example economy` prints every price, recipe margin,
   quest reward and income source, plus any buy-low-sell-high loop. A test fails if a loop
   exists.
+
+### Houses
+
+- **Interiors:** each of the five houses in Maple Heights has its own interior zone
+  (`ZoneId::house(plot)`, all with the same floor plan), so chat, replication rooms and cluster
+  ownership work as for any other zone.
+- **The front door** isn't a portal: it opens a menu, because what it does depends on who owns
+  the house (buy for $400, go in, or ring the bell, which lets you in if you're in the owner's
+  party).
+- **Buying** is one transaction: the house row plus the character's state with the price paid
+  (the same lock as an e-Bid payment).
+- **Furniture and the footlocker** belong to the owner's `PlayerState` (saved with the
+  character), so placing, picking up and storing are ordinary all-or-nothing rules. The server
+  keeps furniture entities in the world matching the owner's state.
+- **Home perks:** while you're inside your own house, `at_home` is on and the furniture's perks
+  count: tools you don't have to carry, bonus levels, a bed for a buff, a computer to practice
+  hacking on.
 
 ### Cooking and buffs
 

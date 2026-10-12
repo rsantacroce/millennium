@@ -52,7 +52,19 @@ pub struct PlayerState {
     /// Food buffs. Not saved: they wear off at logout.
     #[serde(default)]
     pub buffs: Vec<ActiveBuff>,
+    /// Furniture placed in your house, by slot (see `zone::FURNITURE_SLOTS`).
+    #[serde(default)]
+    pub furniture: BTreeMap<u8, ItemId>,
+    /// The footlocker, `STORAGE_SLOTS` long (empty until you have one).
+    #[serde(default)]
+    pub storage: Vec<Option<ItemStack>>,
+    /// In your own house right now: furniture perks apply. Set by the server, not saved.
+    #[serde(default)]
+    pub at_home: bool,
 }
+
+/// Slots in the footlocker.
+pub const STORAGE_SLOTS: usize = 20;
 
 /// Hack successes are counted (and saved) alongside kill counters, under this key.
 pub fn hack_counter(hack: &str) -> String {
@@ -89,6 +101,8 @@ pub enum GameEvent {
     Rep(FactionId, i32),
     /// The server runs the challenge.
     HackStarted(HackId),
+    /// The server shows the house's door menu.
+    HouseDoor(u8),
     /// The server creates the car (it lives in its own table, not in `PlayerState`).
     CarGranted(String),
     RaceStarted(String),
@@ -138,6 +152,8 @@ pub enum UseOutcome {
     Heal(u32, Option<(ItemId, BuffDef)>, String, Vec<GameEvent>),
     /// The item is now the equipped weapon.
     Equipped(Vec<GameEvent>),
+    /// Furniture: place it, if you're at home (the server decides where).
+    Furniture(ItemId),
 }
 
 /// Quest marker above an NPC's head.
@@ -167,6 +183,9 @@ impl PlayerState {
             gear: BTreeMap::new(),
             rep: BTreeMap::new(),
             buffs: Vec::new(),
+            furniture: BTreeMap::new(),
+            storage: Vec::new(),
+            at_home: false,
         }
     }
 
@@ -451,6 +470,7 @@ impl PlayerState {
             Effect::OpenMarket => events.push(GameEvent::OpenMarket),
             Effect::Rep(faction, delta) => self.change_rep(faction, *delta, events),
             Effect::Hack(hack) => events.push(GameEvent::HackStarted(hack.clone())),
+            Effect::House(plot) => events.push(GameEvent::HouseDoor(*plot)),
             Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
             Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
         }
@@ -561,6 +581,10 @@ impl PlayerState {
         if def.gear.is_some() {
             return self.wear(slot, content).map(UseOutcome::Equipped);
         }
+        if def.furniture.is_some() {
+            // Only the server knows whether you're at home and which spot is free.
+            return Ok(UseOutcome::Furniture(stack.item));
+        }
         if def.heal.is_some() || def.buff.is_some() {
             let text = def.on_use.clone().unwrap_or_default();
             let item = stack.item.clone();
@@ -624,10 +648,88 @@ impl PlayerState {
         self.gear.values().filter_map(|i| content.item(i)).filter_map(|d| d.gear.as_ref())
     }
 
-    /// Bonus levels from worn gear and food buffs.
+    /// Bonus levels from worn gear, food buffs and (at home) furniture.
     pub fn gear_bonus(&self, skill: Skill, content: &Content) -> u32 {
         let gear: u32 = self.worn(content).flat_map(|g| g.skills.iter()).filter(|(s, _)| *s == skill).map(|(_, b)| b).sum();
-        gear + self.buffs.iter().filter(|b| b.skill == skill).map(|b| b.levels).sum::<u32>()
+        let food: u32 = self.buffs.iter().filter(|b| b.skill == skill).map(|b| b.levels).sum();
+        let home: u32 = self.home_furniture(content).flat_map(|f| f.skills.iter()).filter(|(s, _)| *s == skill).map(|(_, b)| b).sum();
+        gear + food + home
+    }
+
+    /// Furniture that counts right now (only while you're at home).
+    fn home_furniture<'a>(&'a self, content: &'a Content) -> impl Iterator<Item = &'a crate::content::FurnitureDef> {
+        self.furniture.values().filter(move |_| self.at_home).filter_map(|i| content.item(i)).filter_map(|d| d.furniture.as_ref())
+    }
+
+    /// Do you have this tool to hand (in your inventory, or at home in the furniture)?
+    pub fn has_tool(&self, tool: &str, content: &Content) -> bool {
+        self.count(tool) > 0 || self.home_furniture(content).any(|f| f.tools.iter().any(|t| t == tool))
+    }
+
+    /// Puts the furniture in inventory `slot` into house slot `spot`.
+    pub fn place_furniture(&mut self, slot: usize, spot: u8, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(stack) = self.inventory.get(slot).cloned().flatten() else { return err("That slot is empty.") };
+        if content.item(&stack.item).and_then(|d| d.furniture.as_ref()).is_none() {
+            return err("That isn't furniture.");
+        }
+        if self.furniture.contains_key(&spot) {
+            return err("Something is already there.");
+        }
+        let events = self.transact(content, |s, events| s.take_item(&stack.item, 1, content, events))?;
+        self.furniture.insert(spot, stack.item.clone());
+        if content.item(&stack.item).and_then(|d| d.furniture.as_ref()).is_some_and(|f| f.action == crate::content::FurnitureAction::Storage) {
+            self.storage.resize(STORAGE_SLOTS, None);
+        }
+        Ok(events)
+    }
+
+    /// Picks up the furniture in house slot `spot` (it goes back into the inventory). The
+    /// footlocker can only be picked up empty.
+    pub fn pick_up_furniture(&mut self, spot: u8, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(item) = self.furniture.get(&spot).cloned() else { return err("There's nothing there.") };
+        let is_locker = content.item(&item).and_then(|d| d.furniture.as_ref()).is_some_and(|f| f.action == crate::content::FurnitureAction::Storage);
+        if is_locker && self.storage.iter().any(|s| s.is_some()) {
+            return err("Empty the footlocker first.");
+        }
+        let events = self.transact(content, |s, events| s.add_item(&item, 1, content, events))?;
+        self.furniture.remove(&spot);
+        Ok(events)
+    }
+
+    /// Moves `qty` from inventory `slot` into the footlocker (stacking where possible).
+    pub fn store(&mut self, slot: usize, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        if self.storage.len() < STORAGE_SLOTS {
+            return err("You need a footlocker at home for that.");
+        }
+        let Some(stack) = self.inventory.get(slot).cloned().flatten() else { return err("That slot is empty.") };
+        if content.item(&stack.item).is_some_and(|d| d.quest_item) {
+            return err("Keep that on you; someone's counting on it.");
+        }
+        let max = content.item(&stack.item).map_or(1, |d| d.max_stack);
+        let mut next = self.clone();
+        let mut left = stack.qty;
+        for s in next.storage.iter_mut().flatten().filter(|s| s.item == stack.item) {
+            let room = max.saturating_sub(s.qty).min(left);
+            s.qty += room;
+            left -= room;
+        }
+        while left > 0 {
+            let Some(empty) = next.storage.iter_mut().find(|s| s.is_none()) else { return err("The footlocker is full.") };
+            let n = left.min(max);
+            *empty = Some(ItemStack { item: stack.item.clone(), qty: n });
+            left -= n;
+        }
+        next.inventory[slot] = None;
+        *self = next;
+        Ok(vec![GameEvent::Lost(stack.item, stack.qty)])
+    }
+
+    /// Takes the stack in footlocker slot `slot` back into the inventory.
+    pub fn retrieve(&mut self, slot: usize, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(stack) = self.storage.get(slot).cloned().flatten() else { return err("That slot is empty.") };
+        let events = self.transact(content, |s, events| s.add_item(&stack.item, stack.qty, content, events))?;
+        self.storage[slot] = None;
+        Ok(events)
     }
 
     /// Starts (or refreshes) a food buff.
@@ -815,7 +917,7 @@ impl PlayerState {
             return err(format!("You need a {}.", content.item_name(&recipe.input)));
         }
         if let Some(tool) = &recipe.tool
-            && self.count(tool) == 0
+            && !self.has_tool(tool, content)
         {
             return err(format!("You need a {} for that.", content.item_name(tool)));
         }
@@ -1109,6 +1211,34 @@ mod tests {
         assert!(!s.expire_buffs(100_000));
         assert!(s.expire_buffs(200_000));
         assert_eq!(s.effective_level(Skill::Fitness, &c), base);
+    }
+
+    #[test]
+    fn furniture_and_storage() {
+        let c = content();
+        let mut s = PlayerState::new(0);
+        s.apply(&[Effect::GiveItem("stove".into(), 1), Effect::GiveItem("footlocker".into(), 1), Effect::GiveItem("cheese".into(), 3)], &c).unwrap();
+        s.apply(&[Effect::GiveItem("bread".into(), 1)], &c).unwrap();
+        assert!(matches!(s.use_item(0, &c).unwrap(), UseOutcome::Furniture(_)));
+        s.place_furniture(0, 0, &c).unwrap();
+        assert!(s.place_furniture(1, 0, &c).is_err(), "spot taken");
+        s.place_furniture(1, 1, &c).unwrap();
+        assert_eq!(s.storage.len(), STORAGE_SLOTS, "the footlocker gives storage");
+        // The stove only helps at home.
+        let grilled = c.recipe_for("cheese").unwrap();
+        assert!(s.can_craft(grilled, &c).is_err(), "no pan, not home");
+        s.at_home = true;
+        s.can_craft(grilled, &c).unwrap();
+        assert_eq!(s.effective_level(Skill::Cooking, &c), 2);
+        // Storage: put the cheese away and get it back.
+        let cheese = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "cheese")).unwrap();
+        s.store(cheese, &c).unwrap();
+        assert_eq!(s.count("cheese"), 0);
+        assert!(s.pick_up_furniture(1, &c).is_err(), "empty the footlocker first");
+        s.retrieve(0, &c).unwrap();
+        assert_eq!(s.count("cheese"), 3);
+        s.pick_up_furniture(1, &c).unwrap();
+        assert_eq!(s.count("footlocker"), 1);
     }
 
     #[test]

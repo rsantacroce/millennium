@@ -819,4 +819,49 @@
             (id: "view", text: "You stand there a while. It's quiet up here.", options: [(text: "...", goto: None)]),
         ],
     ),
+    (
+        id: "house_door_1",
+        start: "hello",
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(1)], goto: None), (text: "Leave.", goto: None)])],
+    ),
+    (
+        id: "house_door_2",
+        start: "hello",
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(2)], goto: None), (text: "Leave.", goto: None)])],
+    ),
+    (
+        id: "house_door_3",
+        start: "hello",
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(3)], goto: None), (text: "Leave.", goto: None)])],
+    ),
+    (
+        id: "house_door_4",
+        start: "hello",
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(4)], goto: None), (text: "Leave.", goto: None)])],
+    ),
+    (
+        id: "house_door_5",
+        start: "hello",
+        nodes: [(id: "hello", text: "A front door with a brass knocker.", options: [(text: "Go up to the door.", effects: [House(5)], goto: None), (text: "Leave.", goto: None)])],
+    ),
+    (
+        id: "marge",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Home Comforts! Everything for the home, dear. Are you buying or browsing? Well, look around either way.",
+                options: [
+                    (text: "Show me the furniture.", effects: [OpenShop("home_comforts")], goto: None),
+                    (text: "Any houses for sale around here?", goto: Some("houses")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "houses",
+                text: "Five on the market right now, $400 each, ask at the front door. Once you're in, buy some furniture and use it at home to put it down. A stove for cooking, a workbench, a computer, a waterbed... a footlocker for your things.",
+                options: [(text: "Thanks, Marge.", goto: None)],
+            ),
+        ],
+    ),
 ]

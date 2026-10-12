@@ -362,4 +362,54 @@
         value: 25,
         gear: Some((slot: Accessory, skills: [(Driving, 2)])),
     ),
+    // --- Furniture (Milestone 6). Use it at home to put it down; it works while you're home.
+    (
+        id: "stove", name: "Avocado Green Stove", tags: ["tool"], value: 60,
+        description: "Four burners, one works perfectly. At home: counts as a frying pan, +1 Cooking.",
+        furniture: Some((look: "stove", tools: ["frying_pan"], skills: [(Cooking, 1)])),
+    ),
+    (
+        id: "workbench", name: "Garage Workbench", tags: ["tool"], value: 80,
+        description: "Pegboard included. At home: counts as a wrench and screwdrivers, +1 Mechanics, +1 Electronics.",
+        furniture: Some((look: "workbench", tools: ["wrench", "screwdriver_set"], skills: [(Mechanics, 1), (Electronics, 1)])),
+    ),
+    (
+        id: "computer_desk", name: "Computer Desk", tags: ["electronics"], value: 120,
+        description: "A beige tower, a 15\" CRT and a 56k modem that screams. At home: +1 Hacking, and practice hacks.",
+        furniture: Some((look: "desk", skills: [(Hacking, 1)], action: Practice("home_pc"))),
+    ),
+    (
+        id: "waterbed", name: "Waterbed", tags: ["junk"], value: 70,
+        description: "It sloshes. Sleep on it for Well Rested: +1 Fitness and Driving for 20 minutes.",
+        furniture: Some((look: "bed", action: Rest((skill: Fitness, levels: 1, seconds: 1200.0)))),
+    ),
+    (
+        id: "footlocker", name: "Footlocker", tags: ["junk"], value: 40,
+        description: "Army surplus, padlock included. 20 slots of storage in your house.",
+        furniture: Some((look: "footlocker", action: Storage)),
+    ),
+    (
+        id: "crt_tv", name: "27\" CRT Television", tags: ["electronics"], value: 50,
+        description: "Weighs as much as a car. Gets four channels and the weather.",
+        furniture: Some((
+            look: "tv",
+            action: Watch([
+                "The news says the Y2K bug will either end civilization or nothing will happen. Experts disagree.",
+                "A music video: five guys in white suits, dancing in the rain. It's very serious about itself.",
+                "An infomercial for a knife that cuts through a shoe. You almost call.",
+                "The weather: sunny, with a chance of the year 2000.",
+                "A sitcom where six friends drink coffee. You've seen this one.",
+            ]),
+        )),
+    ),
+    (
+        id: "lava_lamp", name: "Lava Lamp", tags: ["junk"], value: 15,
+        description: "Hypnotic purple blobs. Does nothing, beautifully.",
+        furniture: Some((look: "lamp")),
+    ),
+    (
+        id: "band_poster", name: "Band Poster", tags: ["junk"], value: 8,
+        description: "Four guys looking moody in a parking lot. Signed, probably.",
+        furniture: Some((look: "poster")),
+    ),
 ]

@@ -23,6 +23,8 @@
 //!   brake), `!race` (drive through the current race's checkpoints)
 //! - hacking: talk to a terminal and `!choose Hack`, then `!hack` (types the code back) or
 //!   `!hack wrong`
+//! - houses: talk to `house_door_N` and `!choose Go up`, then `!house N buy|enter`; at home `!use ITEM`
+//!   puts furniture down, `!furniture SPOT use|pickup`, `!store ITEM`, `!retrieve SLOT`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
@@ -429,6 +431,13 @@ fn receive(
                 println!("HACK   {name}: code {code} (shown {show_secs:.1}s, {seconds}s to answer)");
                 script.hack_code = Some(code);
             }
+            GameUpdate::HouseMenu { plot, name, owner, mine, price } => {
+                println!("HOUSE  #{plot} {name}: owner {owner:?}, mine={mine}, price ${price}");
+            }
+            GameUpdate::OpenStorage => {
+                let stored: Vec<String> = script.state.storage.iter().flatten().map(|s| format!("{} x{}", s.item, s.qty)).collect();
+                println!("HOUSE  footlocker: {stored:?}");
+            }
             GameUpdate::HackEnded { success } => {
                 println!("HACK   ended, success={success}");
                 script.hack_code = None;
@@ -541,6 +550,19 @@ fn run_script(
             Some(code) => send(GameAction::HackAnswer { code }),
             None => println!("       (no hack in progress)"),
         },
+        ["!house", plot, choice] => {
+            let choice = if *choice == "buy" { HouseChoice::Buy } else { HouseChoice::Enter };
+            send(GameAction::House { plot: plot.parse().unwrap(), choice });
+        }
+        ["!furniture", spot, choice] => {
+            let choice = if *choice == "pickup" { FurnitureChoice::PickUp } else { FurnitureChoice::Use };
+            send(GameAction::Furniture { spot: spot.parse().unwrap(), choice });
+        }
+        ["!store", item] => match slot_of(&script.state, item) {
+            Some(slot) => send(GameAction::Store { slot }),
+            None => println!("       (no {item} in inventory)"),
+        },
+        ["!retrieve", n] => send(GameAction::Retrieve { slot: n.parse().unwrap() }),
         ["!hack", "wrong"] => send(GameAction::HackAnswer { code: "0000".into() }),
         ["!takeoff", slot] => match shared::content::GearSlot::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(slot)) {
             Some(slot) => send(GameAction::TakeOff { slot }),

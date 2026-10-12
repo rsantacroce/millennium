@@ -56,4 +56,13 @@
         rep: [("zeros", 8)],
         cooldown_secs: 75.0,
     ),
+    (
+        id: "home_pc",
+        name: "Your Home Computer",
+        level: 1, length: 5, seconds: 8.0,
+        cash: (0, 0), xp: 15,
+        loot: [],
+        rep: [],
+        cooldown_secs: 20.0,
+    ),
 ]

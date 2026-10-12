@@ -28,6 +28,16 @@ impl ZoneId {
     pub const ROUTE_9: ZoneId = ZoneId(7);
     pub const PINECREST: ZoneId = ZoneId(8);
     pub const PARK: ZoneId = ZoneId(9);
+
+    /// The inside of house `plot` (1..=5): see [`HOUSES`].
+    pub fn house(plot: u8) -> ZoneId {
+        ZoneId(100 + plot as u16)
+    }
+
+    /// Which house this is the inside of, if any.
+    pub fn house_plot(self) -> Option<u8> {
+        HOUSES.iter().find(|h| ZoneId::house(h.plot) == self).map(|h| h.plot)
+    }
 }
 
 /// Walking into `rect` takes you to `arrive` in zone `to`.
@@ -76,6 +86,8 @@ pub struct ZoneLayout {
     pub outskirts: [f32; 3],
     /// If not empty, only these areas can be stood on (rooftops: everything else is a drop).
     pub walkable: Vec<Rect>,
+    /// Inside a building: lit by a ceiling light, not the sky.
+    pub indoor: bool,
 }
 
 impl ZoneLayout {
@@ -98,7 +110,8 @@ pub struct ZoneRegistry {
 impl Default for ZoneRegistry {
     fn default() -> Self {
         let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops(), route_9(), pinecrest(), hollow_pines()];
-        Self { zones: zones.into_iter().map(|z| (z.id, z)).collect() }
+        let houses = HOUSES.iter().map(house_interior);
+        Self { zones: zones.into_iter().chain(houses).map(|z| (z.id, z)).collect() }
     }
 }
 
@@ -180,6 +193,7 @@ pub fn downtown_block() -> ZoneLayout {
         ground: [0.68, 0.67, 0.64],
         outskirts: [0.36, 0.50, 0.30],
         walkable: vec![],
+        indoor: false,
     }
 }
 
@@ -221,6 +235,7 @@ pub fn galleria_mall() -> ZoneLayout {
         ground: [0.86, 0.84, 0.80],
         outskirts: [0.30, 0.28, 0.32],
         walkable: vec![],
+        indoor: false,
     }
 }
 
@@ -259,6 +274,7 @@ pub fn rooftops() -> ZoneLayout {
         // Tar and gravel up here; asphalt far below.
         ground: [0.36, 0.35, 0.34],
         outskirts: [0.20, 0.20, 0.22],
+        indoor: false,
     }
 }
 
@@ -297,6 +313,7 @@ pub fn route_9() -> ZoneLayout {
         ground: [0.55, 0.52, 0.42],
         outskirts: [0.38, 0.50, 0.30],
         walkable: vec![],
+        indoor: false,
     }
 }
 
@@ -330,6 +347,7 @@ pub fn pinecrest() -> ZoneLayout {
         ground: [0.58, 0.60, 0.48],
         outskirts: [0.34, 0.48, 0.28],
         walkable: vec![],
+        indoor: false,
     }
 }
 
@@ -371,6 +389,88 @@ pub fn hollow_pines() -> ZoneLayout {
         ground: [0.36, 0.46, 0.28],
         outskirts: [0.20, 0.32, 0.18],
         walkable: vec![],
+        indoor: false,
+    }
+}
+
+/// A house you can buy in Maple Heights.
+#[derive(Debug, Clone, Copy)]
+pub struct House {
+    pub plot: u8,
+    pub name: &'static str,
+    /// Where its front door is, outside in Maple Heights.
+    pub door: (f32, f32),
+    /// Which way the door faces (degrees, 0 = north), i.e. where you come out.
+    pub facing: f32,
+}
+
+/// What a house costs.
+pub const HOUSE_PRICE: i64 = 400;
+
+pub const HOUSES: [House; 5] = [
+    House { plot: 1, name: "12 Elm Street", door: (-22.0, -7.6), facing: 180.0 },
+    House { plot: 2, name: "3 Willow Court", door: (-16.1, -30.0), facing: 90.0 },
+    House { plot: 3, name: "14 Elm Street", door: (16.0, -7.6), facing: 180.0 },
+    House { plot: 4, name: "4 Willow Court", door: (10.1, -30.0), facing: 270.0 },
+    House { plot: 5, name: "20 Oak Lane", door: (2.0, 22.6), facing: 0.0 },
+];
+
+pub fn house(plot: u8) -> Option<&'static House> {
+    HOUSES.iter().find(|h| h.plot == plot)
+}
+
+impl House {
+    /// Just outside the front door, where you come out.
+    pub fn outside(&self) -> Vec2 {
+        let dir = Vec2::from_angle((self.facing - 90.0).to_radians());
+        Vec2::new(self.door.0, self.door.1) + dir * 1.6
+    }
+}
+
+/// Where furniture goes in a house: (spot, which way it faces in degrees).
+pub const FURNITURE_SLOTS: [((f32, f32), f32); 8] = [
+    ((-6.6, -4.6), 180.0), // kitchen, by the back wall
+    ((-4.2, -4.6), 180.0),
+    ((-1.6, -4.6), 180.0),
+    ((-6.6, 1.0), 90.0), // living room, by the side wall
+    ((-3.0, 0.5), 180.0),
+    ((5.6, -4.4), 180.0), // bedroom
+    ((6.4, -0.5), 270.0),
+    ((6.4, 3.6), 270.0),
+];
+
+/// Every house has the same floor plan: a kitchen and living room, and a bedroom behind a
+/// partition. Walls are waist-high so the camera can see in (a doll's house cut-away).
+pub fn house_interior(house: &House) -> ZoneLayout {
+    let wall = |r| prop("Wall", r, 1.0, [0.85, 0.80, 0.70]);
+    ZoneLayout {
+        id: ZoneId::house(house.plot),
+        name: house.name,
+        bounds: Rect::new(-8.0, -6.0, 8.0, 6.0),
+        spawn: Vec2::new(0.0, 3.8),
+        streets: vec![],
+        obstacles: vec![
+            // Outside walls (the front one has the door in it)...
+            wall(rect(0.0, -5.85, 16.0, 0.3)),
+            wall(rect(-7.85, 0.0, 0.3, 12.0)),
+            wall(rect(7.85, 0.0, 0.3, 12.0)),
+            wall(rect(-4.75, 5.85, 6.5, 0.3)),
+            wall(rect(4.75, 5.85, 6.5, 0.3)),
+            // ...and the partition to the bedroom, with a doorway at the front.
+            wall(rect(3.0, -2.0, 0.3, 8.0)),
+            prop("Kitchen Counter", rect(-4.0, -5.6, 7.0, 0.8), 0.95, [0.55, 0.45, 0.35]),
+        ],
+        portals: vec![Portal {
+            name: "Front Door",
+            rect: Rect::new(-1.0, 5.2, 1.0, 6.0),
+            to: ZoneId::SUBURBS,
+            arrive: house.outside(),
+            road: false,
+        }],
+        ground: [0.62, 0.45, 0.30],
+        outskirts: [0.12, 0.10, 0.09],
+        walkable: vec![],
+        indoor: true,
     }
 }
 
@@ -393,6 +493,8 @@ pub fn maple_heights() -> ZoneLayout {
             building("Metro Station (Maple Heights)", rect(-36.0, 0.0, 6.0, 8.0), 4.0, [0.30, 0.55, 0.30]),
             building("Value Grocer", rect(-18.0, 14.0, 16.0, 10.0), 5.0, [0.85, 0.80, 0.70]),
             building("Sunny Side Diner", rect(18.0, 14.0, 14.0, 9.0), 4.5, [0.80, 0.85, 0.90]),
+            building("Home Comforts", rect(0.0, 13.0, 11.0, 8.0), 4.5, [0.75, 0.60, 0.45]),
+            // The five houses for sale (see HOUSES); their doors are props in npcs.ron.
             house(-22.0, -13.0, [0.85, 0.75, 0.55]),
             house(-22.0, -30.0, [0.60, 0.70, 0.80]),
             house(16.0, -13.0, [0.90, 0.88, 0.80]),
@@ -419,6 +521,7 @@ pub fn maple_heights() -> ZoneLayout {
         ground: [0.50, 0.66, 0.38],
         outskirts: [0.36, 0.52, 0.30],
         walkable: vec![],
+        indoor: false,
     }
 }
 
@@ -458,6 +561,7 @@ pub fn abandoned_factory() -> ZoneLayout {
         ground: [0.48, 0.46, 0.43],
         outskirts: [0.36, 0.33, 0.28],
         walkable: vec![],
+        indoor: false,
     }
 }
 
@@ -499,6 +603,7 @@ pub fn harbor_docks() -> ZoneLayout {
         ground: [0.52, 0.52, 0.50],
         outskirts: [0.12, 0.25, 0.38],
         walkable: vec![],
+        indoor: false,
     }
 }
 

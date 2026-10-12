@@ -11,7 +11,7 @@
 //! /r thanks          -> reply to the last person who whispered you (/reply)
 //! /ignore Bob, /unignore Bob, /ignorelist
 //! /mute Bob 10, /unmute Bob   (admins)
-//! /give walkman 2, /givecar hatchback   (admins, for testing)
+//! /give walkman 2, /givecar hatchback, /givecash 500   (admins, for testing)
 //! /help, /clear
 //! ```
 
@@ -130,6 +130,10 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
                 q => q.parse().map_err(|_| ParseError::Usage(USAGE))?,
             };
             Ok(ChatInput::Action(ChatAction::Give { item, qty }))
+        }
+        "givecash" => {
+            let amount = args.trim().parse().map_err(|_| ParseError::Usage("/givecash <amount>"))?;
+            Ok(ChatInput::Action(ChatAction::GiveCash { amount }))
         }
         "givecar" => Ok(ChatInput::Action(ChatAction::GiveCar { model: one_name(args, "/givecar <model>")? })),
         "help" | "?" => Ok(ChatInput::Help),

@@ -162,4 +162,11 @@
     (id: "sheriff_ruth", name: "Sheriff Ruth", zone: 8, position: (2.0, -6.8), facing: 180.0, appearance: (body: 1, skin: 4, jacket: 7, pants: 1, cap: 8), dialogue: "sheriff_ruth"),
     (id: "ranger_dale", name: "Ranger Dale", zone: 9, position: (7.6, 24.0), facing: 270.0, appearance: (body: 1, skin: 1, jacket: 7, pants: 7, cap: 8), dialogue: "ranger_dale"),
     (id: "scenic_lookout", name: "Scenic Lookout", zone: 9, position: (20.0, -30.6), facing: 0.0, dialogue: "lookout", prop: Some("none")),
+    // --- Houses for sale (Milestone 6): front doors, and the furniture store.
+    (id: "marge", name: "Marge", zone: 5, position: (0.0, 7.7), facing: 0.0, appearance: (body: 1, skin: 1, jacket: 2, pants: 9, cap: 0), dialogue: "marge"),
+    (id: "house_door_1", name: "Front Door", zone: 5, position: (-22.0, -7.6), facing: 180.0, dialogue: "house_door_1", prop: Some("none")),
+    (id: "house_door_2", name: "Front Door", zone: 5, position: (-16.1, -30.0), facing: 90.0, dialogue: "house_door_2", prop: Some("none")),
+    (id: "house_door_3", name: "Front Door", zone: 5, position: (16.0, -7.6), facing: 180.0, dialogue: "house_door_3", prop: Some("none")),
+    (id: "house_door_4", name: "Front Door", zone: 5, position: (10.1, -30.0), facing: 270.0, dialogue: "house_door_4", prop: Some("none")),
+    (id: "house_door_5", name: "Front Door", zone: 5, position: (2.0, 22.6), facing: 0.0, dialogue: "house_door_5", prop: Some("none")),
 ]

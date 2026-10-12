@@ -345,7 +345,11 @@ fn handle_chat_actions(
                 };
                 notify(&mut notice_tx, link, SystemNotice::info(text));
             }
-            ChatAction::Mute { .. } | ChatAction::Unmute { .. } | ChatAction::Give { .. } | ChatAction::GiveCar { .. }
+            ChatAction::Mute { .. }
+            | ChatAction::Unmute { .. }
+            | ChatAction::Give { .. }
+            | ChatAction::GiveCar { .. }
+            | ChatAction::GiveCash { .. }
                 if !is_admin =>
             {
                 notify(&mut notice_tx, link, SystemNotice::warn("Only admins can do that."));
@@ -367,6 +371,12 @@ fn handle_chat_actions(
                     Err(e) => format!("Can't: {e}"),
                 };
                 notify(&mut notice_tx, link, SystemNotice::info(text));
+            }
+            ChatAction::GiveCash { amount } => {
+                let Ok(mut progress) = progress.get_mut(player) else { continue };
+                let amount = amount.clamp(1, 100_000);
+                let _ = progress.apply(&[shared::content::Effect::GiveCash(amount)], &content);
+                notify(&mut notice_tx, link, SystemNotice::info(format!("Gave you ${amount}.")));
             }
             ChatAction::GiveCar { model } => match shared::vehicle::model(&model) {
                 Some(_) => {

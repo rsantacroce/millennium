@@ -158,6 +158,7 @@ fn receive(
     mut combat: ResMut<crate::combat_ui::CombatInbox>,
     mut race: ResMut<crate::cars::RaceInbox>,
     mut hack: ResMut<crate::hack_ui::HackInbox>,
+    mut house: ResMut<crate::house_ui::HouseInbox>,
     mut sfx: MessageWriter<PlaySfx>,
     time: Res<Time>,
 ) {
@@ -199,6 +200,7 @@ fn receive(
             update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
             update @ (GameUpdate::Race { .. } | GameUpdate::RaceEnded { .. }) => race.0.push(update),
             update @ (GameUpdate::HackChallenge { .. } | GameUpdate::HackEnded { .. }) => hack.0.push(update),
+            update @ (GameUpdate::HouseMenu { .. } | GameUpdate::OpenStorage) => house.0.push(update),
         }
     }
 }
@@ -525,7 +527,14 @@ fn render_inventory(
                 commands.spawn((ChildOf(body), label(format!("Worn on: {}", g.slot.name()), 12.0, theme::TEXT)));
             }
             let row = commands.spawn((ChildOf(body), Node { column_gap: Val::Px(4.0), ..default() })).id();
-            commands.spawn((ChildOf(row), Click::Use, button(if def.gear.is_some() { "Wear" } else { "Use" })));
+            let verb = if def.gear.is_some() {
+                "Wear"
+            } else if def.furniture.is_some() {
+                "Put down"
+            } else {
+                "Use"
+            };
+            commands.spawn((ChildOf(row), Click::Use, button(verb)));
             let trading = state.effective_level(Skill::Trading, &content);
             let demand = numbers.demand.get(&def.id).copied().unwrap_or(1.0);
             if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.offer_for(&def, trading, demand)) {

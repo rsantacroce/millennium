@@ -8,6 +8,7 @@
 use crate::combat::{Fighter, Mobs};
 use crate::market::{ActiveMarket, MarketPending};
 use crate::hacking::{HackAction, HackRequest};
+use crate::housing::{HouseAction, HouseRequest};
 use crate::vehicles::{CarAction, CarRequest};
 use shared::vehicle::Driving;
 use crate::session::{PlayerLink, Progress, Session};
@@ -241,7 +242,8 @@ pub fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         | GameEvent::OpenMarket
         | GameEvent::CarGranted(_)
         | GameEvent::RaceStarted(_)
-        | GameEvent::HackStarted(_) => return None,
+        | GameEvent::HackStarted(_)
+        | GameEvent::HouseDoor(_) => return None,
         GameEvent::Equipped(item) if is_gear(item) => format!("You put on the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) if is_gear(item) => format!("You take off the {}.", content.item_name(item)),
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
@@ -315,6 +317,7 @@ fn handle_actions(
     time: Res<Time<Real>>,
     mut cars: MessageWriter<CarRequest>,
     mut hacks: MessageWriter<HackRequest>,
+    mut houses: MessageWriter<HouseRequest>,
     mut market: ResMut<ShopMarket>,
     mut commands: Commands,
 ) {
@@ -417,6 +420,9 @@ fn handle_actions(
                         GameEvent::HackStarted(hack) => {
                             hacks.write(HackRequest { player, action: HackAction::Start(hack.clone()) });
                         }
+                        GameEvent::HouseDoor(plot) => {
+                            houses.write(HouseRequest { player, link, action: HouseAction::Door(*plot) });
+                        }
                         _ => {}
                     }
                 }
@@ -518,6 +524,9 @@ fn handle_actions(
                         out.notice(link, SystemNotice::info(parts.join(" ").trim().to_string()));
                     }
                     Ok(UseOutcome::Equipped(events)) => out.events(link, &events, &content),
+                    Ok(UseOutcome::Furniture(_)) => {
+                        houses.write(HouseRequest { player, link, action: HouseAction::Place(slot as usize) });
+                    }
                     Err(e) => out.error(link, e),
                 }
             }
@@ -540,6 +549,18 @@ fn handle_actions(
             }
             GameAction::HackCancel => {
                 hacks.write(HackRequest { player, action: HackAction::Cancel });
+            }
+            GameAction::House { plot, choice } => {
+                houses.write(HouseRequest { player, link, action: HouseAction::Choice(plot, choice) });
+            }
+            GameAction::Furniture { spot, choice } => {
+                houses.write(HouseRequest { player, link, action: HouseAction::Furniture(spot, choice) });
+            }
+            GameAction::Store { slot } => {
+                houses.write(HouseRequest { player, link, action: HouseAction::Store(slot as usize) });
+            }
+            GameAction::Retrieve { slot } => {
+                houses.write(HouseRequest { player, link, action: HouseAction::Retrieve(slot as usize) });
             }
             GameAction::Attack { .. } | GameAction::PowerSwing if driving => {
                 out.notice(link, SystemNotice::info("You can't fight from behind the wheel."));

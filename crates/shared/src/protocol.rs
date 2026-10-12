@@ -71,6 +71,34 @@ pub enum GameAction {
     /// The code typed into a hack (see `GameUpdate::HackChallenge`).
     HackAnswer { code: String },
     HackCancel,
+    /// At a house's front door (after `GameUpdate::HouseMenu`).
+    House { plot: u8, choice: HouseChoice },
+    /// Something in a house (by furniture spot).
+    Furniture { spot: u8, choice: FurnitureChoice },
+    /// Footlocker: put an inventory slot away / take a footlocker slot out.
+    Store { slot: u8 },
+    Retrieve { slot: u8 },
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HouseChoice {
+    Buy,
+    /// Your own house, or ring the bell (you're let in if you're in the owner's party).
+    Enter,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FurnitureChoice {
+    Use,
+    /// Owner only: back into the inventory.
+    PickUp,
+}
+
+/// A piece of furniture standing in a house (replicated to whoever is inside).
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Furniture {
+    pub spot: u8,
+    pub item: String,
 }
 
 /// Trading, parties, friends and crews.
@@ -234,6 +262,10 @@ pub enum GameUpdate {
     /// A hack: memorize `code` (shown for `show_secs`), then type it within `seconds`.
     HackChallenge { name: String, code: String, show_secs: f32, seconds: f32 },
     HackEnded { success: bool },
+    /// At a house's front door.
+    HouseMenu { plot: u8, name: String, owner: Option<String>, mine: bool, price: i64 },
+    /// The footlocker was opened (its contents are in `State`).
+    OpenStorage,
 }
 
 /// Recent chat sent once, right after login.
@@ -404,6 +436,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<Health>().replicate();
         app.component::<CrewTag>().replicate();
         app.component::<crate::appearance::Outfit>().replicate();
+        app.component::<Furniture>().replicate();
         app.component::<crate::vehicle::ParkedCar>().replicate();
         // Like Position: predicted for the driver, interpolated for everyone else.
         app.component::<crate::vehicle::Driving>()

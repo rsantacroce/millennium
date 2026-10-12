@@ -195,6 +195,11 @@ impl SqliteStore {
                 .execute(&self.pool)
                 .await
                 .map(|_| None),
+            DbCommand::LoadHouses => self.load_houses().await.map(|h| Some(DbResult::Houses(h))),
+            DbCommand::BuyHouse { link, character_id, plot, state } => self
+                .buy_house(character_id, plot, &state)
+                .await
+                .map(|result| Some(DbResult::HouseBought { link, plot, result })),
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -323,6 +328,14 @@ impl SqliteStore {
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
+        let furniture: Vec<(i32, String)> = sqlx::query_as("SELECT spot, item FROM furniture WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
+        let stored: Vec<(i32, String, i64)> = sqlx::query_as("SELECT slot, item, quantity FROM storage_items WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
         let rep: Vec<(String, i32)> = sqlx::query_as("SELECT faction, rep FROM reputation WHERE character_id = ?")
             .bind(character_id)
             .fetch_all(&self.pool)
@@ -338,6 +351,8 @@ impl SqliteStore {
         let mut state = assemble_state(cash, items, quests, skills);
         state.weapon = weapon;
         state.rep = rep.into_iter().collect();
+        state.furniture = furniture.into_iter().map(|(s, i)| (s as u8, i)).collect();
+        restore_storage(&mut state, stored);
         state.gear = gear.into_iter().filter_map(|(slot, item)| Some((shared::content::GearSlot::from_name(&slot)?, item))).collect();
         state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
 
@@ -558,6 +573,8 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
         "DELETE FROM kill_counters WHERE character_id = ?",
         "DELETE FROM equipment WHERE character_id = ?",
         "DELETE FROM reputation WHERE character_id = ?",
+        "DELETE FROM furniture WHERE character_id = ?",
+        "DELETE FROM storage_items WHERE character_id = ?",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -592,6 +609,24 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
             .bind(character_id)
             .bind(mob)
             .bind(*kills as i64)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (spot, item) in &state.furniture {
+        sqlx::query("INSERT INTO furniture (character_id, spot, item) VALUES (?, ?, ?)")
+            .bind(character_id)
+            .bind(*spot as i32)
+            .bind(item)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (slot, stack) in state.storage.iter().enumerate() {
+        let Some(stack) = stack else { continue };
+        sqlx::query("INSERT INTO storage_items (character_id, slot, item, quantity) VALUES (?, ?, ?, ?)")
+            .bind(character_id)
+            .bind(slot as i32)
+            .bind(&stack.item)
+            .bind(stack.qty as i64)
             .execute(&mut **tx)
             .await?;
     }
@@ -929,6 +964,52 @@ impl SqliteStore {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().next().map(car_from))
+    }
+}
+
+impl SqliteStore {
+    async fn load_houses(&self) -> Result<Vec<HouseRecord>, sqlx::Error> {
+        let rows: Vec<(i32, i64, String)> =
+            sqlx::query_as("SELECT h.plot, h.owner_id, c.name FROM houses h JOIN characters c ON c.id = h.owner_id ORDER BY h.plot")
+                .fetch_all(&self.pool)
+                .await?;
+        let mut houses = Vec::new();
+        for (plot, owner_id, owner_name) in rows {
+            let furniture: Vec<(i32, String)> = sqlx::query_as("SELECT spot, item FROM furniture WHERE character_id = ? ORDER BY spot")
+                .bind(owner_id)
+                .fetch_all(&self.pool)
+                .await?;
+            houses.push(HouseRecord {
+                plot: plot as u8,
+                owner_id,
+                owner_name,
+                furniture: furniture.into_iter().map(|(s, i)| (s as u8, i)).collect(),
+            });
+        }
+        Ok(houses)
+    }
+
+    /// One transaction: the house must be free and the buyer must not own one already.
+    async fn buy_house(&self, character_id: i64, plot: u8, state: &PlayerState) -> Result<Result<(), String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let taken: Option<(i64,)> = sqlx::query_as("SELECT owner_id FROM houses WHERE plot = ? OR owner_id = ?")
+            .bind(plot as i32)
+            .bind(character_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some((owner,)) = taken {
+            let why = if owner == character_id { "You already own a house." } else { "Someone just bought it." };
+            return Ok(Err(why.into()));
+        }
+        sqlx::query("INSERT INTO houses (plot, owner_id, bought_at_ms) VALUES (?, ?, ?)")
+            .bind(plot as i32)
+            .bind(character_id)
+            .bind(now_ms())
+            .execute(&mut *tx)
+            .await?;
+        write_state(&mut tx, character_id, state).await?;
+        tx.commit().await?;
+        Ok(Ok(()))
     }
 }
 

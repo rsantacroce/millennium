@@ -103,7 +103,42 @@ pub struct ItemDef {
     /// Categories ("electronics", "food"...): which shops will buy it.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Can be placed in your house.
+    #[serde(default)]
+    pub furniture: Option<FurnitureDef>,
 }
+
+/// A piece of furniture: what it looks like, and what it does while you're home.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+pub struct FurnitureDef {
+    /// Which model to draw (see `FURNITURE_LOOKS`).
+    pub look: String,
+    /// At home, these count as owned tools (a stove is a frying pan).
+    #[serde(default)]
+    pub tools: Vec<ItemId>,
+    /// At home, bonus levels (like gear).
+    #[serde(default)]
+    pub skills: Vec<(Skill, u32)>,
+    #[serde(default)]
+    pub action: FurnitureAction,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Default)]
+pub enum FurnitureAction {
+    /// Just nice to look at.
+    #[default]
+    Look,
+    /// Lie down: a buff.
+    Rest(BuffDef),
+    /// The footlocker: your house storage.
+    Storage,
+    /// Practice on your own machine (a hack with no payout).
+    Practice(HackId),
+    /// Something to watch: one of these lines at random.
+    Watch(Vec<String>),
+}
+
+pub const FURNITURE_LOOKS: [&str; 8] = ["stove", "workbench", "desk", "bed", "footlocker", "tv", "lamp", "poster"];
 
 /// Item categories shops can buy (see `ShopDef::buys`).
 pub const ITEM_TAGS: [&str; 6] = ["electronics", "car_part", "food", "clothes", "tool", "junk"];
@@ -368,6 +403,8 @@ pub enum Effect {
     Rep(FactionId, i32),
     /// Starts a hack (see `hacks.ron`).
     Hack(HackId),
+    /// A house's front door (see `zone::HOUSES`): buy, go in, or ring the bell.
+    House(u8),
 }
 
 pub type FactionId = String;
@@ -645,6 +682,20 @@ impl Content {
             if def.tags.is_empty() || def.tags.iter().any(|t| !ITEM_TAGS.contains(&t.as_str())) {
                 errors.push(format!("item `{}`: needs a category from ITEM_TAGS", def.id));
             }
+            if let Some(f) = &def.furniture {
+                let ctx = format!("item `{}`", def.id);
+                if !FURNITURE_LOOKS.contains(&f.look.as_str()) || def.gear.is_some() || def.max_stack != 1 {
+                    errors.push(format!("{ctx}: furniture needs a known look, and can't stack or be worn"));
+                }
+                if let FurnitureAction::Practice(h) = &f.action
+                    && !self.hacks.contains_key(h)
+                {
+                    errors.push(format!("{ctx}: practice hack `{h}` doesn't exist"));
+                }
+                for t in f.tools.iter().filter(|t| !self.items.contains_key(*t)) {
+                    errors.push(format!("{ctx}: unknown tool `{t}`"));
+                }
+            }
             if let Some(g) = &def.gear {
                 let ctx = format!("item `{}`", def.id);
                 if g.color.is_some_and(|c| c as usize >= crate::appearance::CLOTHES.len()) {
@@ -741,6 +792,7 @@ impl Content {
                                 errors.push(format!("{ctx}: unknown mob `{m}`"))
                             }
                             Effect::Hack(h) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
+                            Effect::House(p) if crate::zone::house(*p).is_none() => errors.push(format!("{ctx}: no house {p}")),
                             Effect::Rep(f, _) if !self.factions.contains_key(f) => {
                                 errors.push(format!("{ctx}: unknown faction `{f}`"))
                             }

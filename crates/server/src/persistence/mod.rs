@@ -155,6 +155,12 @@ pub enum DbCommand {
     LoadCars,
     CreateCar { link: Entity, character_id: i64, model: String, zone: ZoneId, position: Vec2, heading: f32 },
     SaveCar { car: i64, zone: ZoneId, position: Vec2, heading: f32 },
+    // Houses.
+    /// Every owned house, with its furniture.
+    LoadHouses,
+    /// Buys `plot` (if nobody has, and the character has no house) and saves `state` (with
+    /// the price paid) in the same transaction.
+    BuyHouse { link: Entity, character_id: i64, plot: u8, state: PlayerState },
     /// One car, for a driver arriving from another server.
     LoadCar { player: Entity, car: i64 },
     /// Replies with this result once every earlier command has been processed (e.g. "the
@@ -190,8 +196,19 @@ pub enum DbResult {
     Cars(Vec<CarRecord>),
     CarCreated { link: Entity, car: CarRecord },
     CarLoaded { player: Entity, car: Option<CarRecord> },
+    Houses(Vec<HouseRecord>),
+    HouseBought { link: Entity, plot: u8, result: Result<(), String> },
     /// A transferring player's state is saved (see `cluster`).
     TransferSaved { link: Entity },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HouseRecord {
+    pub plot: u8,
+    pub owner_id: i64,
+    pub owner_name: String,
+    /// (spot, item)
+    pub furniture: Vec<(u8, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +235,20 @@ pub struct NewListing {
 
 // Listing status: 0 = active, 1 = sold, 2 = expired (returned), 3 = cancelled. The SQL uses
 // the numbers directly.
+
+/// Puts saved footlocker rows back. The footlocker's slots exist if there's a footlocker in
+/// the house (or anything stored).
+fn restore_storage(state: &mut PlayerState, rows: Vec<(i32, String, i64)>) {
+    let has_locker = state.furniture.values().any(|i| i == "footlocker");
+    if has_locker || !rows.is_empty() {
+        state.storage = vec![None; shared::game::STORAGE_SLOTS];
+    }
+    for (slot, item, qty) in rows {
+        if let Some(s) = state.storage.get_mut(slot as usize) {
+            *s = Some(shared::game::ItemStack { item, qty: qty as u32 });
+        }
+    }
+}
 
 /// A listing row as both stores read it.
 type ListingRow = (i64, String, String, i64, i64, Option<i64>, Option<i64>, Option<String>, i64);

@@ -113,4 +113,20 @@
         sells: [("soda", 2), ("diner_coffee", 6), ("hot_dog", 5), ("first_aid_kit", 6), ("wraparound_shades", 18)],
         buy_rate: 0.0,
     ),
+    (
+        id: "home_comforts",
+        name: "Home Comforts",
+        sells: [
+            ("stove", 70),
+            ("workbench", 95),
+            ("computer_desk", 140),
+            ("waterbed", 85),
+            ("footlocker", 45),
+            ("crt_tv", 60),
+            ("lava_lamp", 18),
+            ("band_poster", 10),
+        ],
+        buy_rate: 0.3,
+        buys: ["junk", "electronics", "tool"],
+    ),
 ]
