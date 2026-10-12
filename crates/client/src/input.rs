@@ -192,9 +192,9 @@ fn buffer_input(
     combat: Res<CombatState>,
     targets: Query<&Position, (With<MobTag>, Without<InputMarker<MoveIntent>>)>,
     navs: Res<NavGrids>,
-    mut query: Query<(&mut ActionState<MoveIntent>, &Position, &ZoneId), With<InputMarker<MoveIntent>>>,
+    mut query: Query<(&mut ActionState<MoveIntent>, &Position, &ZoneId, Option<&shared::vehicle::Driving>), With<InputMarker<MoveIntent>>>,
 ) {
-    let Ok((mut action, pos, zone)) = query.single_mut() else { return };
+    let Ok((mut action, pos, zone, driving)) = query.single_mut() else { return };
     let mut axis = Vec2::ZERO;
     // While typing in the chat box, keys belong to the text field.
     if !chat.0 {
@@ -231,6 +231,8 @@ fn buffer_input(
                 world_dir = (next - pos.0).normalize_or_zero();
             }
         }
+    } else if let Some(car) = driving {
+        world_dir = drive_path(&mut path, pos.0, car);
     } else {
         while let Some(&wp) = path.waypoints.front() {
             if pos.0.distance(wp) > 0.3 {
@@ -242,6 +244,31 @@ fn buffer_input(
     }
     // Always write a value: "no keys" is a real input, distinct from a missing one.
     action.0 = MoveIntent::from_direction(world_dir);
+}
+
+/// Click-to-move in a car: a car can't stop on a dime or turn on the spot, so waypoints count
+/// as reached from a few meters away, and it brakes in time to stop at the last one.
+fn drive_path(path: &mut ClickPath, pos: Vec2, car: &shared::vehicle::Driving) -> Vec2 {
+    const REACH: f32 = 2.5;
+    let stopping = car.speed * car.speed / (2.0 * car.model().brake);
+    while let Some(&wp) = path.waypoints.front() {
+        let last = path.waypoints.len() == 1;
+        let reach = if last { REACH + stopping } else { REACH };
+        if pos.distance(wp) > reach {
+            return (wp - pos).normalize();
+        }
+        if !last {
+            path.waypoints.pop_front();
+            continue;
+        }
+        // Braking for the end: ask for the opposite of where we're rolling until stopped.
+        let rolling = Vec2::from_angle(car.heading) * car.speed;
+        if rolling.length() > 0.5 {
+            return -rolling.normalize();
+        }
+        path.waypoints.pop_front();
+    }
+    Vec2::ZERO
 }
 
 fn predict_movement(

@@ -285,7 +285,7 @@ fn open_close(mut commands: Commands, view: Res<MarketView>, roots: Query<Entity
     if !view.open {
         return;
     }
-    let node = Node { left: Val::Px(12.0), top: Val::Px(60.0), width: Val::Px(470.0), ..default() };
+    let node = Node { left: Val::Px(12.0), top: Val::Px(124.0), width: Val::Px(470.0), ..default() };
     let body = spawn_window(&mut commands, MarketRoot, node, "e-Bid - the online auction house", Click::Close);
     let tabs = commands.spawn((ChildOf(body), Node { column_gap: Val::Px(2.0), ..default() })).id();
     for (tab, name) in [(Tab::Browse, "Browse"), (Tab::Sell, "Sell"), (Tab::Mine, "My auctions"), (Tab::Claims, "Claims")] {
