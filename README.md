@@ -56,6 +56,8 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 - **Scaling out:** optionally run the zones on several server processes, linked by a world hub
   (see [Running the world on several servers](#running-the-world-on-several-servers)).
 
+What's next (including ideas to explore, like a peer-to-peer version): [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Quick start
 
 You need Rust (stable, 1.88 or newer) and Docker.

@@ -2,3 +2,6 @@
 *.log
 .env
 /saves
+
+# Working notes for future sessions (see MEMORY.md itself)
+/MEMORY.md
