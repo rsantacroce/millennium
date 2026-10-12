@@ -34,6 +34,11 @@ impl WorldEventView {
         self.phase() == EventPhase::Bug
     }
 
+    /// The whole event happens at night (see `world::day_night`).
+    pub fn night(&self) -> bool {
+        self.phase() != EventPhase::None
+    }
+
     /// Party time (countdown and the party itself): `music` plays something to dance to.
     pub fn partying(&self) -> bool {
         matches!(self.phase(), EventPhase::Countdown | EventPhase::Party)
@@ -93,8 +98,8 @@ fn firework_assets(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut
     .map(|c| materials.add(glow(c)))
     .collect();
     commands.insert_resource(FireworkAssets {
-        mesh: meshes.add(Sphere::new(0.18)),
-        spark: meshes.add(Cuboid::new(0.14, 0.14, 0.14)),
+        mesh: meshes.add(Sphere::new(0.25)),
+        spark: meshes.add(Sphere::new(0.22)),
         colors,
     });
 }
@@ -137,8 +142,9 @@ fn banner(
                 position_type: PositionType::Absolute,
                 top: Val::Px(10.0),
                 left: Val::Percent(50.0),
-                margin: UiRect::left(Val::Px(-210.0)),
-                width: Val::Px(420.0),
+                // A little right of centre: clear of the HUD text (top left) and the minimap.
+                margin: UiRect::left(Val::Px(-190.0)),
+                width: Val::Px(500.0),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 padding: UiRect::all(Val::Px(6.0)),
@@ -150,10 +156,10 @@ fn banner(
             BorderColor::all(Color::srgb(0.2, 1.0, 0.4)),
             Pickable::IGNORE,
             children![
-                (BannerTitle, Text::new(""), theme::text_font(17.0).with_font_weight(FontWeight::BOLD), TextColor(Color::srgb(0.3, 1.0, 0.5))),
+                (BannerTitle, Text::new(""), theme::text_font(16.0).with_font_weight(FontWeight::BOLD), TextColor(Color::srgb(0.3, 1.0, 0.5))),
                 (BannerLine, Text::new(""), theme::text_font(12.0), TextColor(Color::WHITE), TextLayout::justify(Justify::Center)),
                 (
-                    Node { width: Val::Px(380.0), height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), ..default() },
+                    Node { width: Val::Px(460.0), height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), ..default() },
                     BorderColor::all(Color::srgb(0.2, 1.0, 0.4)),
                     children![(BannerFill, Node { width: Val::Percent(0.0), ..default() }, BackgroundColor(Color::srgb(0.2, 1.0, 0.4)))],
                 ),

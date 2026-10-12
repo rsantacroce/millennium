@@ -114,7 +114,8 @@ fn day_night(
     event: Res<crate::event_ui::WorldEventView>,
     time: Res<Time>,
 ) {
-    let hour = shared::clock::hour(shared::clock::now_ms());
+    // New Year's Eve is a night out, whatever the game clock says: midnight sky for the event.
+    let hour = if event.night() { 23.5 } else { shared::clock::hour(shared::clock::now_ms()) };
     // The millennium bug: lamps and lit windows stutter and black out.
     let flicker = if event.glitching() { crate::event_ui::flicker(time.elapsed_secs()) } else { 1.0 };
     let day = shared::clock::daylight(hour);
