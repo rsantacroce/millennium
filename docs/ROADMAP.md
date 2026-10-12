@@ -18,6 +18,8 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 | 4 | Sound and visual polish, the Mall and Factory, the e-Bid marketplace, cars (Mechanics, Driving, races), zone servers + world hub |
 | 5 | Clothing gear, factions + Trading, the suburbs + Cooking, Hacking, day/night, rooftops, Route 9 / Pinecrest / Hollow Pines, cross-server parties |
 | 6 | Economy pass (shop categories, stock, demand, money-loop checks), houses and furniture, nine new quests, configurable day length |
+| 7 | Walk/drive animations, settings and key bindings, map and quest tracker, tooltips, a tutorial, synthesized music and a car radio |
+| 8 | CI (with Postgres), automatic backups and restore tests, a Docker image, systemd units and a deployment guide |
 
 ## Next: feel and usability
 
@@ -33,10 +35,10 @@ What a new player notices first.
 
 ## Next: running it for real players
 
-- [ ] Verify Postgres end to end (all migrations, a crash/restart test like the one done on SQLite)
-- [ ] Automatic backups (SQLite file copies, `pg_dump`) and a restore test
-- [ ] CI: build, test, clippy and `economy` on every push
-- [ ] A server package: a Docker image, a systemd unit and a deployment guide
+- [x] Verify Postgres end to end (all migrations, a crash/restart test like the one done on SQLite): in CI, every push
+- [x] Automatic backups (SQLite file copies, `pg_dump`) and a restore test
+- [x] CI: build, test, clippy and `economy` on every push
+- [x] A server package: a Docker image, a systemd unit and a deployment guide (`docs/deploy.md`)
 - [ ] Load test with many smoke-tool bots: players per zone server, bandwidth, tick time
 - [ ] Moderation tools: kick, ban, an admin panel, chat reports
 - [ ] Account recovery (password reset), and account deletion
