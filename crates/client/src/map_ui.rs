@@ -1,4 +1,4 @@
-//! The map window (M) and the quest tracker under the minimap.
+//! The map window (M) and the quest tracker (bottom right), with how-to hints for the tutorial.
 //!
 //! The map is drawn with UI boxes straight from the zone layout (the same data the server
 //! collides with), north up: streets, buildings with their names, exits, people and you.
@@ -19,6 +19,9 @@ use shared::zone::{ObstacleKind, ZoneId, ZoneRegistry};
 const MAP_SIZE: f32 = 560.0;
 /// Quests shown in the tracker.
 const TRACKED: usize = 3;
+/// The tutorial quest, and who gives it (shown to brand-new characters).
+const TUTORIAL: &str = "welcome";
+const TUTORIAL_HINT: &str = "New in town? Officer Pruitt is right next to you (the ! marker). Walk up and press {Interact} to talk.";
 
 #[derive(Resource, Default)]
 pub struct MapView {
@@ -198,26 +201,35 @@ fn move_you(me: Query<(&Position, &ZoneId), With<LocalAvatar>>, zones: Res<ZoneR
     }
 }
 
-/// Up to three active quests and their next step, under the minimap.
-fn render_tracker(mut commands: Commands, state: Res<LocalState>, content: Res<Content>, roots: Query<Entity, With<TrackerRoot>>) {
-    if !state.is_changed() && !roots.is_empty() {
+/// Up to three active quests, their next step and how-to hints (the tutorial's first),
+/// bottom right.
+fn render_tracker(mut commands: Commands, state: Res<LocalState>, content: Res<Content>, settings: Res<Settings>, roots: Query<Entity, With<TrackerRoot>>) {
+    if !state.is_changed() && !settings.is_changed() && !roots.is_empty() {
         return;
     }
     for r in &roots {
         commands.entity(r).despawn();
     }
-    let active: Vec<(String, String)> = state
-        .quests
-        .iter()
-        .filter_map(|(id, p)| match p {
-            QuestProgress::Active(stage) => {
-                let def = content.quests.get(id)?;
-                Some((def.name.clone(), def.stages.get(*stage as usize)?.log.clone()))
-            }
-            QuestProgress::Done => None,
-        })
-        .take(TRACKED)
-        .collect();
+    let mut active: Vec<(String, String, Option<String>)> = Vec::new();
+    if state.quests.is_empty() {
+        let name = content.quests.get(TUTORIAL).map_or("Getting started", |q| q.name.as_str());
+        active.push((name.to_string(), String::new(), Some(TUTORIAL_HINT.to_string())));
+    }
+    let mut quests: Vec<_> = state.quests.iter().collect();
+    quests.sort_by_key(|(id, _)| id.as_str() != TUTORIAL);
+    active.extend(
+        quests
+            .into_iter()
+            .filter_map(|(id, p)| match p {
+                QuestProgress::Active(stage) => {
+                    let def = content.quests.get(id)?;
+                    let stage = def.stages.get(*stage as usize)?;
+                    Some((def.name.clone(), stage.log.clone(), stage.hint.clone()))
+                }
+                QuestProgress::Done => None,
+            })
+            .take(TRACKED),
+    );
     if active.is_empty() {
         return;
     }
@@ -229,7 +241,7 @@ fn render_tracker(mut commands: Commands, state: Res<LocalState>, content: Res<C
                 position_type: PositionType::Absolute,
                 right: Val::Px(12.0),
                 bottom: Val::Px(12.0),
-                width: Val::Px(240.0),
+                width: Val::Px(260.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(4.0),
                 padding: UiRect::all(Val::Px(6.0)),
@@ -239,8 +251,14 @@ fn render_tracker(mut commands: Commands, state: Res<LocalState>, content: Res<C
             Pickable::IGNORE,
         ))
         .id();
-    for (name, step) in active {
+    for (name, step, hint) in active {
         commands.spawn((ChildOf(root), Text::new(name), theme::text_font(12.0).with_font_weight(FontWeight::BOLD), TextColor(Color::srgb(1.0, 0.9, 0.4)), Pickable::IGNORE));
-        commands.spawn((ChildOf(root), Text::new(step), theme::text_font(11.0), TextColor(Color::WHITE), Pickable::IGNORE));
+        if !step.is_empty() {
+            commands.spawn((ChildOf(root), Text::new(step), theme::text_font(11.0), TextColor(Color::WHITE), Pickable::IGNORE));
+        }
+        if let Some(hint) = hint {
+            let text = format!("Tip: {}", settings.keys.fill(&hint));
+            commands.spawn((ChildOf(root), Text::new(text), theme::text_font(11.0), TextColor(Color::srgb(0.6, 0.95, 1.0)), Pickable::IGNORE));
+        }
     }
 }

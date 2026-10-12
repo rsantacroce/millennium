@@ -204,6 +204,11 @@ These are the defaults; every key can be rebound in the settings (F10).
 | F10 | Settings: volume, interface size, shadows, street lights, camera speed, key bindings (saved in `saves/settings.toml`) |
 | Tab | Next field (sign-on window) / next chat tab (while typing) |
 
+**First steps:** a new character arrives next to Officer Pruitt, who has a quick first errand
+(*Welcome to the City*: walk, talk, shop, hand something over) and points you at the first real
+jobs. The quest tracker (bottom right) shows your next steps, with tips using your own key
+bindings.
+
 **Tooltips:** rest the mouse on an item (anywhere: bag, shop, e-Bid, trade, footlocker), a skill,
 a reputation line or a button, and a yellow box explains it.
 
@@ -326,7 +331,9 @@ which is saved first.
 
 Items, NPCs, dialogue, quests, shops and repair recipes are data files in `assets/data/`, compiled
 into the game. `Content::validate` checks every cross-reference as a unit test, so a typo like
-`GiveItem("modme")` fails `cargo test` instead of breaking in front of players.
+`GiveItem("modme")` fails `cargo test` instead of breaking in front of players. A quest stage can
+have a `hint` for the tracker. `{Inventory}`, `{Interact}` and the other `settings::Action` names
+in it become the player's keys (a test checks they all exist).
 
 All the rules live in `shared::game::PlayerState`, as plain functions with no ECS or networking:
 inventory stacking, shops, quests and conditions, XP curves, repairs. Changes are
@@ -604,7 +611,16 @@ the node drawn on top.
 - **Reset all data**: `docker compose down -v` (dedicated server) or delete `saves/` (hosted games,
   certificates, known servers).
 
-## Appendix: quest script
+## Appendix: quest scripts
+
+Plays the tutorial, **Welcome to the City**, as a brand-new character:
+
+```sh
+cargo run -p shared --example smoke -- --name Newbie --interval 0.7 \
+  --step "!goto -8.3 -6" --step "!talk pruitt" --step "!choose First" --step "!choose Sure" \
+  --step "!goto -14 5.6" --step "!talk kim" --step "!choose Let" --step "!buy soda 1" --step "!closeshop" \
+  --step "!goto -8.3 -6" --step "!talk pruitt" --step "!choose Here" --step "!state"
+```
 
 Plays **56k Dreams** from start to finish against a running server:
 

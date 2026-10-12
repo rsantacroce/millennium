@@ -25,7 +25,7 @@ What a new player notices first.
 
 - [x] Walk and drive animations (at least a walk cycle and a bobbing idle)
 - [x] Settings screen: volume, key bindings, camera, graphics quality, UI scale
-- [ ] First-time tutorial (a short guided quest: move, talk, buy, fight, repair)
+- [x] First-time tutorial (a short guided quest: move, talk, buy; tracker tips then guide the first repair and fight quests)
 - [x] Map window (full zone map with NPCs, shops and portals) and an on-screen quest tracker
 - [x] Tooltips on items, skills and buttons
 - [ ] Music: era-appropriate tracks, a car radio, and Radio Free Maple you can tune into

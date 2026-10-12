@@ -449,6 +449,10 @@ pub struct QuestStage {
     /// When all hold, the quest automatically moves to the next stage (e.g. "have the modem").
     #[serde(default)]
     pub advance_when: Vec<Condition>,
+    /// How-to shown under the quest tracker while at this stage. `{Inventory}`, `{Interact}`...
+    /// become the player's key for that action (see `client::settings::Action`).
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]

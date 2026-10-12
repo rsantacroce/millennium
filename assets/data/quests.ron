@@ -1,4 +1,21 @@
 [
+    // The tutorial: Officer Pruitt stands next to where new characters arrive.
+    (
+        id: "welcome",
+        name: "Welcome to the City",
+        stages: [
+            (
+                log: "Officer Pruitt wants a Fizz Cola from Mr. Kim's Corner Store, across Maple Street.",
+                advance_when: [HasItem("soda", 1)],
+                hint: Some("Mr. Kim stands outside the Corner Store, across Maple Street. Click the ground to walk there (or use {MoveForward}{MoveLeft}{MoveBack}{MoveRight}), press {Interact} to talk, choose to shop, then click Buy next to Fizz Cola. {Map} shows the map."),
+            ),
+            (
+                log: "Bring the Fizz Cola to Officer Pruitt, outside the Byte Cafe.",
+                hint: Some("Walk back to Officer Pruitt and press {Interact}. Your bag is on {Inventory}: rest the mouse on anything to see what it does."),
+            ),
+        ],
+        rewards: (cash: 10, items: [("first_aid_kit", 1)], rep: [("city", 25)]),
+    ),
     (
         id: "56k_dreams",
         name: "56k Dreams",
@@ -7,6 +24,7 @@
             (
                 log: "Fix the fried modem: use it from your inventory. You'll need a Screwdriver Set (Corner Store, across the street).",
                 advance_when: [HasItem("working_modem", 1)],
+                hint: Some("Press {Inventory}, click the modem, then Use. Stand still until the repair finishes: moving cancels it."),
             ),
             (log: "Bring the repaired modem back to Dot at the Byte Cafe."),
         ],
@@ -19,6 +37,7 @@
             (
                 log: "Foreman Rizzo wants you to knock out 5 Dock Rats around the containers at Harbor Docks.",
                 advance_when: [Kills("dock_rat", 5)],
+                hint: Some("{Target} targets the nearest Dock Rat (press again for the next one), {Attack} starts or stops fighting, {PowerSwing} swings hard. Low on health? Use a First Aid Kit."),
             ),
             (log: "Tell Foreman Rizzo, by the Metro exit, that the Dock Rats got the message."),
         ],

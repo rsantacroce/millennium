@@ -154,6 +154,18 @@ impl Keybinds {
         self.0.get(&action).copied().unwrap_or(action.default_key())
     }
 
+    /// Replaces `{Action}` placeholders (`{Inventory}`, `{Interact}`...) with the bound keys.
+    pub fn fill(&self, text: &str) -> String {
+        let mut out = text.to_string();
+        for a in Action::ALL {
+            let placeholder = format!("{{{a:?}}}");
+            if out.contains(&placeholder) {
+                out = out.replace(&placeholder, key_name(self.key(a)));
+            }
+        }
+        out
+    }
+
     /// Binds `key` to `action`; whatever had that key before gets `action`'s old key (a swap).
     fn bind(&mut self, action: Action, key: KeyCode) {
         let old = self.key(action);
@@ -389,6 +401,18 @@ fn render(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn quest_hints_name_real_actions() {
+        let keys = Keybinds::default();
+        assert_eq!(keys.fill("Press {Inventory}, then {Interact}."), "Press I, then E.");
+        let content = shared::content::Content::builtin();
+        for quest in content.quests.values() {
+            for hint in quest.stages.iter().filter_map(|s| s.hint.as_deref()) {
+                assert!(!keys.fill(hint).contains('{'), "unknown action in hint of {}: {hint}", quest.id);
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

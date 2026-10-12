@@ -114,6 +114,57 @@
         ],
     ),
     (
+        id: "pruitt",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to Maple & 5th. You look new in town.",
+                options: [
+                    (text: "First day. Any advice?", when: [QuestNotStarted("welcome")], goto: Some("advice")),
+                    (text: "Still getting that soda.", when: [QuestAt("welcome", 0)], goto: Some("reminder")),
+                    (
+                        text: "Here's your Fizz Cola.",
+                        when: [QuestAt("welcome", 1), HasItem("soda", 1)],
+                        effects: [TakeItem("soda", 1), CompleteQuest("welcome")],
+                        goto: Some("thanks"),
+                    ),
+                    (text: "About that soda... I drank it.", when: [QuestAt("welcome", 1), Not(HasItem("soda", 1))], goto: Some("drank")),
+                    (text: "How do people make money around here?", goto: Some("money")),
+                    (text: "See you around.", goto: None),
+                ],
+            ),
+            (
+                id: "advice",
+                text: "Rule one: never skip lunch. Do me a favor? Mr. Kim's Corner Store is right across Maple Street. Grab me a Fizz Cola, it's a buck. I'd go myself, but I'm on duty.",
+                options: [
+                    (text: "Sure, one Fizz Cola.", effects: [StartQuest("welcome")], goto: None),
+                    (text: "Maybe later.", goto: None),
+                ],
+            ),
+            (
+                id: "reminder",
+                text: "Corner Store, across the street. Mr. Kim's out front. Fizz Cola. Ice cold, please.",
+                options: [(text: "On my way.", goto: None)],
+            ),
+            (
+                id: "drank",
+                text: "Ha! Can't blame you. They're a buck at Mr. Kim's. Get me another one.",
+                options: [(text: "Fair enough.", goto: None)],
+            ),
+            (
+                id: "thanks",
+                text: "Lifesaver. Here, for your trouble, and a first aid kit: you'll want it. Dot at the Byte Cafe, right behind me, always needs something fixed. If you can handle yourself, Foreman Rizzo pays for muscle down at the Harbor Docks; the Metro's at the south-east corner. And watch yourself after dark: the taggers come out.",
+                options: [(text: "Thanks, officer.", goto: None)],
+            ),
+            (
+                id: "money",
+                text: "Fix things and sell them: Sal at Pawn & Pager sells broken gadgets cheap, and Dot pays for repairs. Hustle at the docks. Or put stuff up on e-Bid, if you've got a modem. Just keep it legal where I can see you.",
+                options: [(text: "Got it.", goto: Some("hello"))],
+            ),
+        ],
+    ),
+    (
         id: "rizzo",
         start: "hello",
         nodes: [
