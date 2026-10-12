@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Bevy and lightyear are big; incremental builds don't help a fresh CI machine.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: Build, clippy, tests, economy
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: millennium
+          POSTGRES_PASSWORD: millennium
+          POSTGRES_DB: millennium
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U millennium"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # The store tests create a database per test on this server.
+      TEST_DATABASE_URL: postgres://millennium:millennium@localhost:5432/millennium
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries (audio, input, windowing)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests (SQLite and Postgres stores)
+        run: cargo test --workspace
+      - name: Economy check (fails on money loops)
+        run: cargo run -p shared --example economy > economy.txt && tail -5 economy.txt
+
+  e2e:
+    name: Crash test on Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: millennium
+          POSTGRES_PASSWORD: millennium
+          POSTGRES_DB: millennium
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U millennium"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Two commands: `-p server -p shared --examples` would only build the examples.
+      - name: Build the server and the smoke tool
+        run: |
+          cargo build -p server
+          cargo build -p shared --examples
+      - name: Play the tutorial, kill -9 the server, restart, check nothing was lost
+        env:
+          DATABASE_URL: postgres://millennium:millennium@localhost:5432/millennium
+        run: scripts/e2e.sh

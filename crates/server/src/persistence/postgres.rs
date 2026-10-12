@@ -989,3 +989,50 @@ impl PgStore {
         Ok(Ok(()))
     }
 }
+
+/// These run only when `TEST_DATABASE_URL` points at a Postgres server (CI provides one). Each
+/// test creates its own database there, so migrations run from scratch like on a new server.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::content::Effect;
+    use sqlx::Connection;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A fresh, migrated database's URL, or `None` without `TEST_DATABASE_URL`.
+    async fn fresh_database() -> Option<String> {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let Some(admin) = std::env::var("TEST_DATABASE_URL").ok().filter(|u| !u.is_empty()) else {
+            eprintln!("skipped: set TEST_DATABASE_URL to run the Postgres store tests");
+            return None;
+        };
+        let name = format!("millennium_test_{}_{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed));
+        let mut conn = sqlx::PgConnection::connect(&admin).await.expect("TEST_DATABASE_URL should reach Postgres");
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}"))).execute(&mut conn).await.unwrap();
+        let (base, _) = admin.rsplit_once('/').expect("TEST_DATABASE_URL ends in /database");
+        Some(format!("{base}/{name}"))
+    }
+
+    async fn store() -> Option<PgStore> {
+        let url = fresh_database().await?;
+        Some(PgStore::connect(&url, 4).await.unwrap())
+    }
+
+    super::super::store_tests::store_tests!(PgStore);
+
+    #[tokio::test]
+    async fn everything_survives_reconnecting() {
+        let Some(url) = fresh_database().await else { return };
+        let mut s = PgStore::connect(&url, 4).await.unwrap();
+        let acc = account(&mut s, "Neo").await;
+        let id = character(&mut s, acc, "Neo").await.unwrap();
+        let mut state = PlayerState::new(25);
+        state.apply(&[Effect::GiveItem("pager".into(), 1), Effect::TakeCash(5)], &shared::content::Content::builtin()).unwrap();
+        s.handle(DbCommand::SaveState { character_id: id, state: state.clone() }, LIMITS).await;
+        s.pool.close().await;
+        drop(s);
+        // Migrations are already applied: connecting again must not redo or break them.
+        let mut s = PgStore::connect(&url, 4).await.unwrap();
+        assert_eq!(load(&mut s, acc, id).await.character.state, state);
+    }
+}

@@ -14,6 +14,8 @@
 
 mod postgres;
 mod sqlite;
+#[cfg(test)]
+mod store_tests;
 mod worker;
 
 use crate::config::ServerConfig;
