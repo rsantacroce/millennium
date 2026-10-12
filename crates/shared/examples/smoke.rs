@@ -376,7 +376,8 @@ fn receive(
                 }
             }
             SessionUpdate::CharacterError { reason } => println!("CHARS  error: {reason}"),
-            SessionUpdate::EnterWorld { name, zone, .. } => {
+            SessionUpdate::EnterWorld { name, zone, clock, .. } => {
+                shared::clock::configure(clock);
                 println!("WORLD  entered as {name} in {zone:?}");
                 script.in_world = true;
                 script.transferring = false;
@@ -662,7 +663,13 @@ fn run_script(
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
         ["!state"] => print_state(&script.state, &content),
         ["!where"] => match me.single() {
-            Ok((pos, zone, hp)) => println!("WHERE  {zone:?} at ({:.1}, {:.1}), health {:?}", pos.x, pos.y, hp.map(|h| (h.current, h.max))),
+            Ok((pos, zone, hp)) => println!(
+                "WHERE  {zone:?} at ({:.1}, {:.1}), health {:?}, {}",
+                pos.x,
+                pos.y,
+                hp.map(|h| (h.current, h.max)),
+                shared::clock::label(shared::clock::hour(shared::clock::now_ms()))
+            ),
             Err(_) => println!("WHERE  (no character)"),
         },
         _ => match parse_input(&step) {

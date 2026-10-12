@@ -198,7 +198,8 @@ pub enum SessionUpdate {
     CharacterList { account: String, characters: Vec<CharacterSummary>, max: u8 },
     /// Character creation/selection failed.
     CharacterError { reason: String },
-    EnterWorld { character_id: u64, name: String, zone: ZoneId },
+    /// `clock`: the server's day length and shift (see `shared::clock`).
+    EnterWorld { character_id: u64, name: String, zone: ZoneId, clock: crate::clock::ClockSettings },
     /// The server is closing this session (e.g. account already online).
     Kicked { reason: String },
     /// Your next zone runs on another server: reconnect to `addr` with this connect token

@@ -360,7 +360,8 @@ fn handle_db_results(
                 online.by_name.insert(c.name.to_lowercase(), player);
                 online.by_id.insert(c.character_id as u64, player);
 
-                let enter = SessionUpdate::EnterWorld { character_id: c.character_id as u64, name: c.name.clone(), zone };
+                let clock = shared::clock::settings();
+                let enter = SessionUpdate::EnterWorld { character_id: c.character_id as u64, name: c.name.clone(), zone, clock };
                 send(&mut session_tx, enter);
                 history_tx.send::<ChatNetChannel>(ChatHistory { lines: data.history.clone() });
                 // The inventory/quest state follows via `sync_progress` (a new `Progress` counts as changed).

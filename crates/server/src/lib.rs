@@ -81,6 +81,10 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
     let db = persistence::Db::open(&config)?;
     // The login service runs on its own threads; it gets a handle to the database.
     let auth = auth::AuthService::start(&config, db.clone())?;
+    shared::clock::configure(shared::clock::ClockSettings {
+        day_secs: config.world.day_minutes * 60.0,
+        shift_hours: config.world.clock_shift_hours,
+    });
     let cluster = cluster::Cluster::new(&config)?;
     if !config.cluster.zones.is_empty() {
         info!("zone server {:?}: running zones {:?}", config.cluster.name, config.cluster.zones);

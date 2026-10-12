@@ -39,6 +39,12 @@ blocked_words = ["darn", "heck", "frak"]
 # Account names (not character names) allowed to /mute and /unmute.
 admins = ["admin"]
 
+[world]
+# Real minutes per game day (clients get this from the server when they log in).
+day_minutes = 40.0
+# Moves the clock this many game hours on (12 = start the server at night).
+clock_shift_hours = 0.0
+
 [cluster]
 # Leave this section out to run every zone in this one process (the normal setup).
 # To split the world over several servers, see config/cluster/ for a worked example.

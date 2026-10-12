@@ -10,9 +10,26 @@ pub struct ServerConfig {
     pub network: NetworkConfig,
     pub database: DatabaseConfig,
     pub chat: ChatConfig,
+    pub world: WorldConfig,
     pub cluster: ClusterConfig,
     pub hub: HubConfig,
     pub log_filter: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(default)]
+pub struct WorldConfig {
+    /// Real minutes per game day (sent to clients on login). In a cluster, use the same value
+    /// on every zone server.
+    pub day_minutes: f64,
+    /// Moves the clock this many game hours on (e.g. 12 to start at night).
+    pub clock_shift_hours: f64,
+}
+
+impl Default for WorldConfig {
+    fn default() -> Self {
+        Self { day_minutes: shared::clock::DEFAULT_DAY_SECS / 60.0, clock_shift_hours: 0.0 }
+    }
 }
 
 /// Splitting the world over several processes. The defaults are "all-in-one": this process

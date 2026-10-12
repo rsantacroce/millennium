@@ -233,7 +233,8 @@ fn session_updates(
                 roster.error = Some(reason);
                 roster.version += 1;
             }
-            SessionUpdate::EnterWorld { character_id, name, zone } => {
+            SessionUpdate::EnterWorld { character_id, name, zone, clock } => {
+                shared::clock::configure(clock);
                 info!("entered the world as {name}");
                 commands.insert_resource(LocalPlayer { character_id, name, zone });
                 commands.remove_resource::<Transferring>();
