@@ -47,6 +47,7 @@ fn update_hud(
     zones: Res<ZoneRegistry>,
     hosted: Option<Res<HostedServer>>,
     state: Res<LocalState>,
+    items: Res<shared::content::Content>,
     mut text: Single<&mut Text, With<HudText>>,
 ) {
     let zone = zones.get(local.zone).map_or("?", |z| z.name);
@@ -57,6 +58,19 @@ fn update_hud(
         state.cash,
         rig.mode.label()
     );
+    // Food buffs, with time left by our own clock (the server drops them when they run out).
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    for b in &state.buffs {
+        let secs = ((b.until_ms - now) / 1000).max(0);
+        content.push_str(&format!(
+            "\n{}: +{} {} ({}:{:02})",
+            items.item_name(&b.source),
+            b.levels,
+            b.skill.name(),
+            secs / 60,
+            secs % 60
+        ));
+    }
     if let Some(hosted) = hosted {
         let ip = hosted.lan_ip.map_or("<your IP>".to_string(), |ip| ip.to_string());
         content.push_str(&format!("\nHosting: friends join at {ip}:{} (UDP)", hosted.port));

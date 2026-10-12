@@ -15,7 +15,7 @@ url = "postgres://millennium:millennium@localhost:5433/millennium"
 
 [cluster]
 name = "zone-a"
-zones = [1, 3]  # Downtown and the Galleria Mall
+zones = [1, 3, 5]  # Downtown, the Galleria Mall and Maple Heights
 hub = "127.0.0.1:5900"
 secret = "change-me"
 

@@ -99,4 +99,22 @@
         appearance: (body: 1, skin: 0, jacket: 9, pants: 1, cap: 0),
         dialogue: "pemberton",
     ),
+    (
+        id: "flo",
+        name: "Flo",
+        zone: 5,
+        position: (18.0, 8.0),
+        facing: 0.0,
+        appearance: (body: 1, skin: 3, jacket: 5, pants: 2, cap: 0),
+        dialogue: "flo",
+    ),
+    (
+        id: "doug",
+        name: "Doug",
+        zone: 5,
+        position: (-18.0, 7.5),
+        facing: 0.0,
+        appearance: (body: 2, skin: 1, jacket: 7, pants: 0, cap: 8),
+        dialogue: "doug",
+    ),
 ]

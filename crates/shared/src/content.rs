@@ -97,6 +97,16 @@ pub struct ItemDef {
     /// Can be worn.
     #[serde(default)]
     pub gear: Option<GearStats>,
+    /// Eating it gives a temporary skill boost (and uses it up).
+    #[serde(default)]
+    pub buff: Option<BuffDef>,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+pub struct BuffDef {
+    pub skill: Skill,
+    pub levels: u32,
+    pub seconds: f32,
 }
 
 /// Where a piece of gear is worn.
@@ -420,6 +430,9 @@ pub struct RecipeDef {
     /// Needed but not consumed.
     #[serde(default)]
     pub tool: Option<ItemId>,
+    /// More ingredients used up along with `input` (cooking).
+    #[serde(default)]
+    pub extra: Vec<(ItemId, u32)>,
     pub output: ItemId,
     pub xp: u64,
     pub seconds: f32,

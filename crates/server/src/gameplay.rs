@@ -62,7 +62,7 @@ pub struct GameplayPlugin;
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_npcs)
-            .add_systems(Update, (handle_actions, walk_away_closes, tick_channels).chain());
+            .add_systems(Update, (handle_actions, walk_away_closes, tick_channels, expire_buffs).chain());
     }
 }
 
@@ -340,10 +340,19 @@ fn handle_actions(
                         out.notice(link, SystemNotice::info(text));
                         out.events(link, &events, &content);
                     }
-                    Ok(UseOutcome::Heal(amount, text, _)) => {
+                    Ok(UseOutcome::Heal(amount, buff, text, _)) => {
                         let healed = crate::combat::heal(&mut health, amount);
-                        out.notice(link, SystemNotice::info(format!("{text} (+{healed} health)")));
-                        out.update(link, GameUpdate::Float { at: CombatTarget::Player(me.0), text: format!("+{healed}"), kind: FloatKind::Heal });
+                        let mut parts = vec![text];
+                        if amount > 0 {
+                            parts.push(format!("(+{healed} health)"));
+                            out.update(link, GameUpdate::Float { at: CombatTarget::Player(me.0), text: format!("+{healed}"), kind: FloatKind::Heal });
+                        }
+                        if let Some((source, buff)) = buff {
+                            progress.add_buff(source, &buff, crate::persistence::now_ms());
+                            let minutes = (buff.seconds / 60.0).round().max(1.0);
+                            parts.push(format!("+{} {} for {minutes} min.", buff.levels, buff.skill.name()));
+                        }
+                        out.notice(link, SystemNotice::info(parts.join(" ").trim().to_string()));
                     }
                     Ok(UseOutcome::Equipped(events)) => out.events(link, &events, &content),
                     Err(e) => out.error(link, e),
@@ -427,6 +436,22 @@ fn close_dialogue(out: &mut Outbox, link: Entity, player: Entity, commands: &mut
 }
 
 /// Walking away from an NPC ends the conversation and closes the shop.
+/// Food buffs wear off (checked once a second).
+fn expire_buffs(mut players: Query<&mut Progress>, time: Res<Time<Real>>, mut next: Local<f64>) {
+    let now = time.elapsed_secs_f64();
+    if now < *next {
+        return;
+    }
+    *next = now + 1.0;
+    let wall = crate::persistence::now_ms();
+    for mut progress in &mut players {
+        // Only touch (and so re-send and save) the ones that actually changed.
+        if progress.buffs.iter().any(|b| b.until_ms <= wall) {
+            progress.expire_buffs(wall);
+        }
+    }
+}
+
 fn walk_away_closes(
     players: Query<(Entity, &PlayerLink, &Position, Option<&ActiveDialogue>, Option<&ActiveShop>)>,
     mut updates: Query<&mut MessageSender<GameUpdate>>,

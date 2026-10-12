@@ -9,7 +9,7 @@
 //! if every step succeeds, so a failed purchase can never take your cash without giving you
 //! the item.
 
-use crate::content::{rep_tier, Condition, Content, Effect, FactionId, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill, REP_LIMIT};
+use crate::content::{rep_tier, BuffDef, Condition, Content, Effect, FactionId, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill, REP_LIMIT};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
@@ -49,6 +49,20 @@ pub struct PlayerState {
     /// Reputation per faction. Missing = 0 (Neutral).
     #[serde(default)]
     pub rep: BTreeMap<FactionId, i32>,
+    /// Food buffs. Not saved: they wear off at logout.
+    #[serde(default)]
+    pub buffs: Vec<ActiveBuff>,
+}
+
+/// A temporary skill boost (from food). The server drops it once it runs out.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ActiveBuff {
+    /// The food it came from (eating the same again refreshes it).
+    pub source: ItemId,
+    pub skill: Skill,
+    pub levels: u32,
+    /// Unix ms.
+    pub until_ms: i64,
 }
 
 /// Something the player should be told about.
@@ -112,8 +126,9 @@ pub enum UseOutcome {
     StartRecipe(RecipeDef),
     /// Just a message; the item may have been consumed (events say so).
     Message(String, Vec<GameEvent>),
-    /// Restore this much health. The item has been used up (events say so).
-    Heal(u32, String, Vec<GameEvent>),
+    /// Eaten or used up: restore this much health (maybe 0) and maybe start a buff
+    /// (the server adds it with [`PlayerState::add_buff`], since it knows the time).
+    Heal(u32, Option<(ItemId, BuffDef)>, String, Vec<GameEvent>),
     /// The item is now the equipped weapon.
     Equipped(Vec<GameEvent>),
 }
@@ -144,6 +159,7 @@ impl PlayerState {
             kills: BTreeMap::new(),
             gear: BTreeMap::new(),
             rep: BTreeMap::new(),
+            buffs: Vec::new(),
         }
     }
 
@@ -503,11 +519,12 @@ impl PlayerState {
         if def.gear.is_some() {
             return self.wear(slot, content).map(UseOutcome::Equipped);
         }
-        if let Some(amount) = def.heal {
+        if def.heal.is_some() || def.buff.is_some() {
             let text = def.on_use.clone().unwrap_or_default();
             let item = stack.item.clone();
             let events = self.transact(content, |s, events| s.take_item(&item, 1, content, events))?;
-            return Ok(UseOutcome::Heal(amount, text, events));
+            let buff = def.buff.clone().map(|b| (item, b));
+            return Ok(UseOutcome::Heal(def.heal.unwrap_or(0), buff, text, events));
         }
         let text = def.on_use.clone().unwrap_or_else(|| format!("You fiddle with the {}. Nothing happens.", def.name));
         let events = if def.consumable {
@@ -565,9 +582,23 @@ impl PlayerState {
         self.gear.values().filter_map(|i| content.item(i)).filter_map(|d| d.gear.as_ref())
     }
 
-    /// Bonus levels from worn gear.
+    /// Bonus levels from worn gear and food buffs.
     pub fn gear_bonus(&self, skill: Skill, content: &Content) -> u32 {
-        self.worn(content).flat_map(|g| g.skills.iter()).filter(|(s, _)| *s == skill).map(|(_, b)| b).sum()
+        let gear: u32 = self.worn(content).flat_map(|g| g.skills.iter()).filter(|(s, _)| *s == skill).map(|(_, b)| b).sum();
+        gear + self.buffs.iter().filter(|b| b.skill == skill).map(|b| b.levels).sum::<u32>()
+    }
+
+    /// Starts (or refreshes) a food buff.
+    pub fn add_buff(&mut self, source: ItemId, buff: &BuffDef, now_ms: i64) {
+        self.buffs.retain(|b| b.source != source);
+        self.buffs.push(ActiveBuff { source, skill: buff.skill, levels: buff.levels, until_ms: now_ms + (buff.seconds * 1000.0) as i64 });
+    }
+
+    /// Drops buffs that have run out. Returns whether any did.
+    pub fn expire_buffs(&mut self, now_ms: i64) -> bool {
+        let before = self.buffs.len();
+        self.buffs.retain(|b| b.until_ms > now_ms);
+        self.buffs.len() != before
     }
 
     /// The level that counts when *doing* something: real level plus gear.
@@ -749,6 +780,12 @@ impl PlayerState {
         if self.effective_level(recipe.skill, content) < recipe.level {
             return err(format!("You need {} level {} for that.", recipe.skill.name(), recipe.level));
         }
+        for (item, qty) in &recipe.extra {
+            if self.count(item) < *qty {
+                let what = if *qty > 1 { format!("{qty} x {}", content.item_name(item)) } else { content.item_name(item).to_string() };
+                return err(format!("You also need {what}."));
+            }
+        }
         Ok(())
     }
 
@@ -757,6 +794,9 @@ impl PlayerState {
         self.can_craft(recipe, content)?;
         self.transact(content, |s, events| {
             s.take_item(&recipe.input, 1, content, events)?;
+            for (item, qty) in &recipe.extra {
+                s.take_item(item, *qty, content, events)?;
+            }
             s.add_item(&recipe.output, 1, content, events)?;
             s.add_xp(recipe.skill, recipe.xp, events);
             Ok(())
@@ -984,6 +1024,44 @@ mod tests {
     }
 
     #[test]
+    fn cooking_and_food_buffs() {
+        let c = content();
+        let mut s = PlayerState::new(50);
+        let grocer = shop(&c, "value_grocer");
+        s.buy(grocer, "cheese", 2, &c).unwrap();
+        let cheese = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "cheese")).unwrap();
+        let recipe = match s.use_item(cheese, &c) {
+            Err(e) => {
+                assert!(e.0.contains("Frying Pan"), "{e}");
+                c.recipe_for("cheese").unwrap().clone()
+            }
+            Ok(_) => panic!("no pan yet"),
+        };
+        s.buy(grocer, "frying_pan", 1, &c).unwrap();
+        assert!(s.can_craft(&recipe, &c).unwrap_err().0.contains("Bread"), "needs the extra ingredient");
+        s.buy(grocer, "bread", 1, &c).unwrap();
+        s.craft(&recipe, &c).unwrap();
+        assert_eq!((s.count("grilled_cheese"), s.count("cheese"), s.count("bread")), (1, 1, 0));
+        assert!(s.xp(Skill::Cooking) > 0);
+        // Burgers need Cooking 3.
+        assert!(s.can_craft(c.recipe_for("ground_beef").unwrap(), &c).is_err());
+
+        // Eating eggs: healing plus a timed buff the server starts.
+        s.apply(&[Effect::GiveItem("scrambled_eggs".into(), 1)], &c).unwrap();
+        let eggs = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "scrambled_eggs")).unwrap();
+        let UseOutcome::Heal(heal, Some((source, buff)), ..) = s.use_item(eggs, &c).unwrap() else { panic!("eggs are food") };
+        assert_eq!(heal, 10);
+        let base = s.effective_level(Skill::Fitness, &c);
+        s.add_buff(source.clone(), &buff, 1_000);
+        s.add_buff(source, &buff, 2_000);
+        assert_eq!(s.buffs.len(), 1, "eating again refreshes, doesn't stack");
+        assert_eq!(s.effective_level(Skill::Fitness, &c), base + 1);
+        assert!(!s.expire_buffs(100_000));
+        assert!(s.expire_buffs(200_000));
+        assert_eq!(s.effective_level(Skill::Fitness, &c), base);
+    }
+
+    #[test]
     fn wearing_gear() {
         let c = content();
         let mut s = PlayerState::new(100);
@@ -1020,7 +1098,7 @@ mod tests {
         let mut s = PlayerState::new(100);
         s.buy(shop(&c, "corner_store"), "first_aid_kit", 2, &c).unwrap();
         match s.use_item(0, &c).unwrap() {
-            UseOutcome::Heal(amount, _, _) => assert_eq!(amount, 35),
+            UseOutcome::Heal(amount, _, _, _) => assert_eq!(amount, 35),
             other => panic!("{other:?}"),
         }
         assert_eq!(s.count("first_aid_kit"), 1);

@@ -385,4 +385,60 @@
             ),
         ],
     ),
+    (
+        id: "flo",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Sit anywhere, hon. Unless you can cook. Can you cook? My fry cook ran off to be in a band.",
+                options: [
+                    (text: "I can cook.", when: [QuestNotStarted("lunch_rush")], goto: Some("offer")),
+                    (text: "Still on those sandwiches.", when: [QuestAt("lunch_rush", 0)], goto: Some("reminder")),
+                    (
+                        text: "Three grilled cheese, order up!",
+                        when: [QuestAt("lunch_rush", 1), HasItem("grilled_cheese", 3)],
+                        effects: [TakeItem("grilled_cheese", 3), CompleteQuest("lunch_rush")],
+                        goto: Some("reward"),
+                    ),
+                    (text: "What's on the menu?", effects: [OpenShop("sunny_side")], goto: None),
+                    (text: "Just looking.", goto: None),
+                ],
+            ),
+            (
+                id: "offer",
+                text: "Prove it. Three grilled cheese for the lunch rush. Doug at the grocery has bread and cheese, and he'll sell you a pan. Use the cheese to start cooking.",
+                options: [
+                    (text: "Coming right up.", effects: [StartQuest("lunch_rush")], goto: None),
+                    (text: "On second thought...", goto: None),
+                ],
+            ),
+            (id: "reminder", text: "Three grilled cheese, golden brown. The truckers are getting restless.", options: [(text: "Working on it.", goto: None)]),
+            (
+                id: "reward",
+                text: "Now THAT is a sandwich. Here, take the hat, it's yours. And if you ever cook more than you can eat, I'll buy it off you.",
+                options: [(text: "Thanks, Flo.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "doug",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to Value Grocer, where the value is... somewhere. Aisle six, probably.",
+                options: [
+                    (text: "Let me see what you've got.", effects: [OpenShop("value_grocer")], goto: None),
+                    (text: "Any cooking tips?", goto: Some("tips")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "tips",
+                text: "Grilled cheese and eggs, anybody can do. Coffee you've gotta know your beans, Cooking 2. Burgers, Cooking 3. And watch out for the pranksters out back, they've been egging the houses.",
+                options: [(text: "Thanks, Doug.", goto: None)],
+            ),
+        ],
+    ),
 ]

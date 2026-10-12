@@ -62,4 +62,17 @@
         faction: Some("dockside"),
         requires: [("hard_hat", 100), ("tire_iron", 200)],
     ),
+    (
+        id: "value_grocer",
+        name: "Value Grocer",
+        sells: [("frying_pan", 8), ("bread", 1), ("cheese", 1), ("eggs", 1), ("ground_beef", 3), ("coffee_beans", 2), ("soda", 1)],
+        buy_rate: 0.0,
+    ),
+    (
+        id: "sunny_side",
+        name: "Sunny Side Diner",
+        sells: [("grilled_cheese", 6), ("cheeseburger", 14), ("diner_coffee", 7)],
+        // Flo buys home cooking for the lunch rush.
+        buy_rate: 0.7,
+    ),
 ]

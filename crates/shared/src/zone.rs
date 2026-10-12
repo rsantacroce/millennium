@@ -23,6 +23,7 @@ impl ZoneId {
     pub const DOCKS: ZoneId = ZoneId(2);
     pub const MALL: ZoneId = ZoneId(3);
     pub const FACTORY: ZoneId = ZoneId(4);
+    pub const SUBURBS: ZoneId = ZoneId(5);
 }
 
 /// Walking into `rect` takes you to `arrive` in zone `to`.
@@ -85,7 +86,7 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory()];
+        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights()];
         Self { zones: zones.into_iter().map(|z| (z.id, z)).collect() }
     }
 }
@@ -157,6 +158,7 @@ pub fn downtown_block() -> ZoneLayout {
             Portal { name: "Metro: Harbor Docks", rect: Rect::new(29.0, 34.0, 31.0, 38.0), to: ZoneId::DOCKS, arrive: Vec2::new(-21.5, 30.0), road: false },
             Portal { name: "Metro: Galleria Mall", rect: Rect::new(34.0, 41.0, 38.0, 43.0), to: ZoneId::MALL, arrive: Vec2::new(0.0, -24.0), road: false },
             Portal { name: "Metro: Abandoned Factory", rect: Rect::new(41.0, 34.0, 43.0, 38.0), to: ZoneId::FACTORY, arrive: Vec2::new(-31.5, 0.0), road: false },
+            Portal { name: "Metro: Maple Heights", rect: Rect::new(34.0, 29.0, 38.0, 31.0), to: ZoneId::SUBURBS, arrive: Vec2::new(-29.5, 0.0), road: false },
             // The east end of Maple St leads out to the factory, for drivers.
             Portal { name: "Highway: Abandoned Factory", rect: Rect::new(45.0, -4.5, 48.0, 4.5), to: ZoneId::FACTORY, arrive: Vec2::new(-2.0, 36.0), road: true },
         ],
@@ -202,6 +204,53 @@ pub fn galleria_mall() -> ZoneLayout {
         }],
         ground: [0.86, 0.84, 0.80],
         outskirts: [0.30, 0.28, 0.32],
+    }
+}
+
+/// "Maple Heights": the suburbs. Lawns, a cul-de-sac, the diner and the grocery store.
+pub fn maple_heights() -> ZoneLayout {
+    let house = |cx, cz, color| building("House", rect(cx, cz, 10.0, 9.0), 6.0, color);
+    let tree = |cx, cz| prop("Oak Tree", rect(cx, cz, 1.4, 1.4), 6.5, [0.22, 0.45, 0.20]);
+    let fence = |cx, cz, w, d| prop("Picket Fence", rect(cx, cz, w, d), 1.0, [0.92, 0.92, 0.88]);
+    ZoneLayout {
+        id: ZoneId::SUBURBS,
+        name: "Maple Heights",
+        bounds: Rect::new(-40.0, -40.0, 40.0, 40.0),
+        spawn: Vec2::new(-29.5, 0.0),
+        streets: vec![
+            rect(0.0, 0.0, 80.0, 8.0),    // Elm Street
+            rect(0.0, -20.0, 8.0, 40.0),  // Willow Court...
+            rect(0.0, -32.0, 18.0, 14.0), // ...and its turnaround
+        ],
+        obstacles: vec![
+            building("Metro Station (Maple Heights)", rect(-36.0, 0.0, 6.0, 8.0), 4.0, [0.30, 0.55, 0.30]),
+            building("Value Grocer", rect(-18.0, 14.0, 16.0, 10.0), 5.0, [0.85, 0.80, 0.70]),
+            building("Sunny Side Diner", rect(18.0, 14.0, 14.0, 9.0), 4.5, [0.80, 0.85, 0.90]),
+            house(-22.0, -13.0, [0.85, 0.75, 0.55]),
+            house(-22.0, -30.0, [0.60, 0.70, 0.80]),
+            house(16.0, -13.0, [0.90, 0.88, 0.80]),
+            house(16.0, -30.0, [0.70, 0.55, 0.50]),
+            house(2.0, 28.0, [0.75, 0.80, 0.65]),
+            fence(-22.0, -21.0, 10.0, 0.3),
+            fence(16.0, -21.0, 10.0, 0.3),
+            tree(-10.0, -10.0),
+            tree(9.0, -16.0),
+            tree(-30.0, 22.0),
+            tree(30.0, 30.0),
+            tree(-6.0, 20.0),
+            prop("Mailbox", rect(-16.0, -6.0, 0.5, 0.5), 1.2, [0.20, 0.30, 0.60]),
+            prop("Mailbox", rect(10.0, -6.0, 0.5, 0.5), 1.2, [0.20, 0.30, 0.60]),
+            prop("Swing Set", rect(-26.0, 30.0, 4.0, 1.5), 2.5, [0.70, 0.30, 0.25]),
+        ],
+        portals: vec![Portal {
+            name: "Metro: Downtown",
+            rect: Rect::new(-33.0, -2.0, -31.5, 2.0),
+            to: ZoneId::DOWNTOWN,
+            arrive: Vec2::new(36.0, 27.5),
+            road: false,
+        }],
+        ground: [0.50, 0.66, 0.38],
+        outskirts: [0.36, 0.52, 0.30],
     }
 }
 

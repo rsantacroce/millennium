@@ -5,5 +5,9 @@
     (id: "fix_pocketplay", skill: Electronics, level: 5, input: "broken_pocketplay", tool: Some("screwdriver_set"), output: "pocketplay", xp: 45, seconds: 4.0, verb: "Cleaning battery contacts"),
     (id: "fix_carburetor", skill: Mechanics, level: 1, input: "rusty_carburetor", tool: Some("wrench"), output: "carburetor", xp: 40, seconds: 4.0, verb: "Rebuilding carburetor"),
     (id: "fix_alternator", skill: Mechanics, level: 3, input: "seized_alternator", tool: Some("wrench"), output: "alternator", xp: 60, seconds: 4.0, verb: "Freeing alternator bearings"),
+    (id: "grilled_cheese", skill: Cooking, level: 1, input: "cheese", extra: [("bread", 1)], tool: Some("frying_pan"), output: "grilled_cheese", xp: 20, seconds: 3.0, verb: "Grilling a cheese sandwich"),
+    (id: "scrambled_eggs", skill: Cooking, level: 1, input: "eggs", tool: Some("frying_pan"), output: "scrambled_eggs", xp: 15, seconds: 2.5, verb: "Scrambling eggs"),
+    (id: "diner_coffee", skill: Cooking, level: 2, input: "coffee_beans", tool: Some("frying_pan"), output: "diner_coffee", xp: 25, seconds: 3.0, verb: "Roasting and brewing"),
+    (id: "cheeseburger", skill: Cooking, level: 3, input: "ground_beef", extra: [("bread", 1), ("cheese", 1)], tool: Some("frying_pan"), output: "cheeseburger", xp: 45, seconds: 4.0, verb: "Flipping a burger"),
     (id: "fix_camcorder", skill: Electronics, level: 7, input: "broken_camcorder", tool: Some("screwdriver_set"), output: "camcorder", xp: 70, seconds: 5.0, verb: "Cleaning tape heads"),
 ]

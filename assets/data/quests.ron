@@ -66,4 +66,16 @@
         ],
         rewards: (cash: 60, xp: [(Electronics, 100)], items: [], rep: [("meridian", 150)]),
     ),
+    (
+        id: "lunch_rush",
+        name: "Lunch Rush",
+        stages: [
+            (
+                log: "Flo at the Sunny Side Diner is short a cook. Make 3 Grilled Cheese: cheese and bread from Value Grocer, a frying pan, then use the cheese.",
+                advance_when: [HasItem("grilled_cheese", 3)],
+            ),
+            (log: "Bring the 3 Grilled Cheese to Flo at the Sunny Side Diner."),
+        ],
+        rewards: (cash: 25, xp: [(Cooking, 120)], items: [("chef_hat", 1)], rep: [("city", 30)]),
+    ),
 ]
