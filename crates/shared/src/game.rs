@@ -59,6 +59,7 @@ pub enum GameEvent {
     OpenShop(ShopId),
     Equipped(ItemId),
     Unequipped(ItemId),
+    OpenMarket,
 }
 
 /// A rule said no. The text is shown to the player.
@@ -343,6 +344,7 @@ impl PlayerState {
             Effect::ResetKills(mob) => {
                 self.kills.insert(mob.clone(), 0);
             }
+            Effect::OpenMarket => events.push(GameEvent::OpenMarket),
         }
         Ok(())
     }
@@ -552,6 +554,53 @@ impl PlayerState {
         *self = a;
         *other = b;
         Ok(())
+    }
+
+    /// Marketplace: takes `qty` of the stack in `slot` into escrow and pays the listing fee.
+    pub fn take_for_listing(&mut self, slot: usize, qty: u32, fee: i64, content: &Content) -> Result<ItemStack, GameError> {
+        let Some(stack) = self.inventory.get(slot).cloned().flatten() else { return err("That slot is empty.") };
+        let Some(def) = content.item(&stack.item) else { return err("Unknown item.") };
+        if def.quest_item {
+            return err(format!("You can't sell the {}.", def.name));
+        }
+        if qty == 0 || qty > stack.qty {
+            return err("Invalid quantity.");
+        }
+        let mut next = self.clone();
+        let mut events = Vec::new();
+        next.change_cash(-fee, &mut events).map_err(|_| GameError(format!("The listing fee is ${fee}.")))?;
+        let s = next.inventory[slot].as_mut().expect("checked");
+        s.qty -= qty;
+        if s.qty == 0 {
+            next.inventory[slot] = None;
+        }
+        *self = next;
+        Ok(ItemStack { item: stack.item, qty })
+    }
+
+    /// Marketplace: pays a bid or buyout into escrow.
+    pub fn pay(&mut self, amount: i64) -> Result<(), GameError> {
+        if amount <= 0 {
+            return err("Invalid amount.");
+        }
+        self.change_cash(-amount, &mut Vec::new())
+    }
+
+    /// Marketplace: adds each claim that fits (all-or-nothing per claim). Returns the claims taken.
+    pub fn receive_claims<'a>(&mut self, claims: &'a [crate::market::Claim], content: &Content) -> Vec<&'a crate::market::Claim> {
+        let mut taken = Vec::new();
+        for claim in claims {
+            let mut next = self.clone();
+            let mut events = Vec::new();
+            let ok = claim.item.as_ref().is_none_or(|s| next.add_item(&s.item, s.qty, content, &mut events).is_ok())
+                && next.change_cash(claim.cash, &mut events).is_ok();
+            if ok {
+                *self = next;
+                taken.push(claim);
+            }
+        }
+        self.refresh_quests(content);
+        taken
     }
 
     pub fn can_craft(&self, recipe: &RecipeDef, content: &Content) -> Result<(), GameError> {
@@ -846,6 +895,27 @@ mod tests {
         assert!(s.can_offer(&TradeOffer { items: vec![], cash: -5 }, &c).is_err());
         s.apply(&[Effect::GiveItem("broken_modem".into(), 1)], &c).unwrap();
         assert!(s.can_offer(&TradeOffer { items: vec![stack("broken_modem", 1)], cash: 0 }, &c).is_err());
+    }
+
+    #[test]
+    fn marketplace_escrow() {
+        use crate::market::Claim;
+        let c = content();
+        let mut s = PlayerState::new(10);
+        s.buy(shop(&c, "corner_store"), "soda", 5, &c).unwrap();
+        let listed = s.take_for_listing(0, 3, 1, &c).unwrap();
+        assert_eq!((listed.qty, s.count("soda"), s.cash), (3, 2, 4));
+        assert!(s.take_for_listing(0, 9, 1, &c).is_err(), "can't list more than you have");
+        assert!(s.pay(5).is_err());
+        s.pay(4).unwrap();
+        assert_eq!(s.cash, 0);
+        let claims = vec![
+            Claim { id: 1, item: None, cash: 7, reason: "Sold".into() },
+            Claim { id: 2, item: Some(ItemStack { item: "walkman".into(), qty: 1 }), cash: 0, reason: "Won".into() },
+        ];
+        let taken: Vec<i64> = s.receive_claims(&claims, &c).iter().map(|c| c.id).collect();
+        assert_eq!(taken, vec![1, 2]);
+        assert_eq!((s.cash, s.count("walkman")), (7, 1));
     }
 
     #[test]

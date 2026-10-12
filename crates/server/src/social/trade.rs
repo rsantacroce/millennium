@@ -9,6 +9,7 @@
 //! Walking apart (8 m), changing zone or disconnecting cancels the trade.
 
 use super::{find_online, SocialOut, SocialReceive, SocialRequest, INVITE_SECS, TRADE_RANGE};
+use crate::market::MarketPending;
 use crate::persistence::{Db, DbCommand};
 use crate::session::{CharacterIds, OnlinePlayers, PlayerLink, Progress};
 use bevy::prelude::*;
@@ -83,7 +84,7 @@ fn handle(
     mut trades: ResMut<Trades>,
     online: Res<OnlinePlayers>,
     info: Query<(&DisplayName, &PlayerLink, &Position, &ZoneId)>,
-    mut progress: Query<(&mut Progress, &CharacterIds)>,
+    mut progress: Query<(&mut Progress, &CharacterIds, Has<MarketPending>)>,
     content: Res<Content>,
     time: Res<Time<Real>>,
     db: Res<Db>,
@@ -137,7 +138,7 @@ fn handle(
             }
             SocialAction::TradeOffer(offer) => {
                 let Some(&id) = trades.by_player.get(&req.player) else { continue };
-                let Ok((p, _)) = progress.get(req.player) else { continue };
+                let Ok((p, _, _)) = progress.get(req.player) else { continue };
                 if let Err(e) = p.can_offer(offer, &content) {
                     out.warn(req.link, e.0);
                     continue;
@@ -160,11 +161,14 @@ fn handle(
                     continue;
                 }
                 let session = trades.close(id).unwrap();
-                let [(mut a, a_ids), (mut b, b_ids)] = match progress.get_many_mut(session.players) {
+                let [(mut a, a_ids, a_busy), (mut b, b_ids, b_busy)] = match progress.get_many_mut(session.players) {
                     Ok(both) => both,
                     Err(_) => continue,
                 };
-                let reason = match a.0.trade(&mut b.0, &session.offers[0], &session.offers[1], &content) {
+                let reason = if a_busy || b_busy {
+                    "Trade failed: an e-Bid transaction is in progress.".to_string()
+                } else {
+                    match a.0.trade(&mut b.0, &session.offers[0], &session.offers[1], &content) {
                     Ok(()) => {
                         // Both characters in one transaction: the trade happens entirely or not at all.
                         db.send(DbCommand::SaveStates(vec![
@@ -174,7 +178,8 @@ fn handle(
                         info!("trade completed between {:?}", session.players);
                         "Trade complete.".to_string()
                     }
-                    Err(e) => format!("Trade failed: {e}"),
+                        Err(e) => format!("Trade failed: {e}"),
+                    }
                 };
                 for l in links {
                     out.update(l, SocialUpdate::TradeClosed { reason: reason.clone() });

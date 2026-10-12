@@ -14,6 +14,7 @@ mod chat;
 mod combat;
 pub mod config;
 mod gameplay;
+mod market;
 mod movement;
 mod net;
 mod persistence;
@@ -89,6 +90,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         gameplay::GameplayPlugin,
         combat::CombatPlugin,
         social::SocialPlugin,
+        market::MarketPlugin,
     ));
     Ok(app)
 }

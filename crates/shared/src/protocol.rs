@@ -349,6 +349,8 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<SocialAction>()
             .add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<crate::market::MarketAction>()
+            .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ChatSend>()
             .add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ChatAction>()
@@ -359,6 +361,8 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<GameUpdate>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<SocialUpdate>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<crate::market::MarketUpdate>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<ChatLine>()
             .add_direction(NetworkDirection::ServerToClient);

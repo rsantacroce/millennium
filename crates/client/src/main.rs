@@ -24,6 +24,7 @@ mod host;
 mod hud;
 mod input;
 mod login_ui;
+mod market_ui;
 mod net;
 mod social_ui;
 mod sound;
@@ -141,11 +142,10 @@ fn main() {
             game_ui::GameUiPlugin,
             combat_ui::CombatUiPlugin,
             social_ui::SocialUiPlugin,
+            market_ui::MarketUiPlugin,
             sound::SoundPlugin,
             chat_ui::ChatUiPlugin,
-            bubbles::BubblePlugin,
-            hud::HudPlugin,
-            bot::BotPlugin,
-        ));
+        ))
+        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin));
     app.run();
 }

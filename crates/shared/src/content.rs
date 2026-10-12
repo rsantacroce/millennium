@@ -236,6 +236,8 @@ pub enum Effect {
     OpenShop(ShopId),
     /// Starts counting kills of a mob from zero (for "knock out 5 ..." quests).
     ResetKills(MobId),
+    /// Opens the e-Bid marketplace terminal.
+    OpenMarket,
 }
 
 #[derive(Deserialize, Clone, Debug)]

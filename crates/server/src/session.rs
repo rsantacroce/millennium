@@ -7,6 +7,7 @@
 //! netcode connect token. The player character is a *separate* entity that lightyear
 //! replicates to everyone in the zone; the link only represents the connection.
 
+use crate::market::MarketPending;
 use crate::auth::account_from_user_data;
 use crate::chat::ChatState;
 use crate::combat::Fighter;
@@ -317,7 +318,7 @@ fn spawn_offset(name: &str) -> Vec2 {
 fn on_disconnected(
     trigger: On<Add, Disconnected>,
     sessions: Query<&Session>,
-    players: Query<(&DisplayName, &PlayerId, &CharacterIds, &Position, &ZoneId, &Progress)>,
+    players: Query<(&DisplayName, &PlayerId, &CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>)>,
     mut online: ResMut<OnlinePlayers>,
     db: Res<Db>,
     mut commands: Commands,
@@ -327,10 +328,13 @@ fn on_disconnected(
         online.accounts.remove(&session.account());
     }
     let Some(player) = session.player() else { return };
-    let Ok((name, id, ids, pos, zone, progress)) = players.get(player) else { return };
+    let Ok((name, id, ids, pos, zone, progress, market_pending)) = players.get(player) else { return };
     let position = SavedPosition { character_id: ids.character_id, zone: *zone, position: pos.0 };
     db.send(DbCommand::SavePositions(vec![position]));
-    db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
+    // A pending e-Bid transaction saves the state itself (or rolls back, leaving the last save).
+    if !market_pending {
+        db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
+    }
     online.by_name.remove(&name.0.to_lowercase());
     online.by_id.remove(&id.0);
     commands.entity(player).despawn();
@@ -363,13 +367,18 @@ fn save_positions(
 /// Progress changed (bought something, finished a quest...): tell the owner and save it now.
 /// Cash and inventory are saved immediately, in one transaction, so a crash can't eat a purchase.
 fn sync_progress(
-    players: Query<(&Progress, &CharacterIds, &PlayerLink), Changed<Progress>>,
+    players: Query<(&Progress, &CharacterIds, &PlayerLink, Has<MarketPending>), Changed<Progress>>,
     mut senders: Query<&mut MessageSender<GameUpdate>>,
     db: Res<Db>,
 ) {
-    for (progress, ids, link) in &players {
+    for (progress, ids, link, market_pending) in &players {
         if let Ok(mut tx) = senders.get_mut(link.0) {
             tx.send::<GameChannel>(GameUpdate::State(progress.0.clone()));
+        }
+        // Saved once the e-Bid transaction finishes (the market marks Progress changed then);
+        // saving now would race the transaction's own write.
+        if market_pending {
+            continue;
         }
         db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
     }
@@ -379,7 +388,7 @@ fn sync_progress(
 /// and wait for the database to finish before the process goes away.
 fn save_on_shutdown(
     mut exit: MessageReader<AppExit>,
-    players: Query<(&CharacterIds, &Position, &ZoneId, &Progress)>,
+    players: Query<(&CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>)>,
     online: Res<OnlinePlayers>,
     db: Res<Db>,
 ) {
@@ -388,9 +397,11 @@ fn save_on_shutdown(
     }
     info!("shutting down: saving {} online player(s)", online.count());
     let mut positions = Vec::new();
-    for (ids, pos, zone, progress) in &players {
+    for (ids, pos, zone, progress, market_pending) in &players {
         positions.push(SavedPosition { character_id: ids.character_id, zone: *zone, position: pos.0 });
-        db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
+        if !market_pending {
+            db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
+        }
     }
     db.send(DbCommand::SavePositions(positions));
     if !db.flush(std::time::Duration::from_secs(5)) {

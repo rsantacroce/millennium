@@ -143,6 +143,39 @@ impl SqliteStore {
             DbCommand::LoadCrew { crew_id } => {
                 self.load_crew(crew_id).await.map(|roster| Some(DbResult::CrewRoster { crew_id, roster }))
             }
+            DbCommand::MarketCreate { link, character_id, state, listing } => self
+                .market_create(character_id, &state, &listing)
+                .await
+                .map(|result| Some(DbResult::MarketDone { link, result, notify: Vec::new() })),
+            DbCommand::MarketBid { link, character_id, state, listing, amount } => self
+                .market_bid(character_id, &state, listing, amount)
+                .await
+                .map(|(result, notify)| Some(DbResult::MarketDone { link, result, notify })),
+            DbCommand::MarketBuyout { link, character_id, state, listing, price } => self
+                .market_buyout(character_id, &state, listing, price)
+                .await
+                .map(|(result, notify)| Some(DbResult::MarketDone { link, result, notify })),
+            DbCommand::MarketCancel { link, character_id, listing } => self
+                .market_cancel(character_id, listing)
+                .await
+                .map(|result| Some(DbResult::MarketDone { link, result, notify: Vec::new() })),
+            DbCommand::MarketExpire { now_ms } => {
+                self.market_expire(now_ms).await.map(|notify| (!notify.is_empty()).then_some(DbResult::MarketSettled { notify }))
+            }
+            DbCommand::MarketSearch { link, query, page } => self
+                .market_search(&query, page)
+                .await
+                .map(|(listings, total)| Some(DbResult::MarketListings { link, listings, total, page })),
+            DbCommand::MarketMine { link, character_id } => {
+                self.market_mine(character_id).await.map(|listings| Some(DbResult::MarketMine { link, listings }))
+            }
+            DbCommand::MarketClaims { link, character_id } => {
+                self.market_claims(character_id).await.map(|claims| Some(DbResult::MarketClaims { link, claims }))
+            }
+            DbCommand::MarketCollect { link, character_id, claims, state } => self
+                .market_collect(character_id, &claims, &state)
+                .await
+                .map(|result| Some(DbResult::MarketDone { link, result, notify: Vec::new() })),
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -534,6 +567,284 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
     Ok(())
 }
 
+/// What market operations return: the player-facing outcome, plus messages for other players.
+type MarketOutcome = (Result<String, String>, Vec<(i64, String)>);
+
+
+/// Market operations. Every state change is a single transaction, and every listing update
+/// is conditional on the row still being what we read (status, current bid), so two servers
+/// racing on the same auction can't both win: the loser's transaction changes nothing and
+/// rolls back.
+impl SqliteStore {
+    async fn market_create(&self, character_id: i64, state: &PlayerState, l: &NewListing) -> Result<Result<String, String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let (active,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM market_listings WHERE seller_id = ? AND status = 0")
+            .bind(character_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if active as usize >= shared::market::MAX_LISTINGS_PER_PLAYER {
+            return Ok(Err(format!("You already have {active} auctions running.")));
+        }
+        sqlx::query(
+            "INSERT INTO market_listings (seller_id, item, item_name, quantity, start_price, buyout, created_at_ms, expires_at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(character_id)
+        .bind(&l.stack.item)
+        .bind(&l.item_name)
+        .bind(l.stack.qty as i64)
+        .bind(l.start_price)
+        .bind(l.buyout)
+        .bind(now_ms())
+        .bind(l.expires_at_ms)
+        .execute(&mut *tx)
+        .await?;
+        write_state(&mut tx, character_id, state).await?;
+        tx.commit().await?;
+        Ok(Ok(format!("Listed {} on e-Bid for ${}.", l.item_name, l.start_price)))
+    }
+
+    /// (seller, item name, start, buyout, bid, bidder) of an active, unexpired listing.
+    async fn open_listing(tx: &mut Transaction<'_, Sqlite>, listing: i64) -> Result<Option<OpenListing>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT seller_id, item_name, start_price, buyout, bid, bidder_id FROM market_listings
+             WHERE id = ? AND status = 0 AND expires_at_ms > ?",
+        )
+        .bind(listing)
+        .bind(now_ms())
+        .fetch_optional(&mut **tx)
+        .await
+    }
+
+    async fn market_bid(&self, character_id: i64, state: &PlayerState, listing: i64, amount: i64) -> Result<MarketOutcome, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let Some((seller, name, start, buyout, bid, bidder)) = Self::open_listing(&mut tx, listing).await? else {
+            return Ok((Err("That auction has ended.".into()), Vec::new()));
+        };
+        if seller == character_id {
+            return Ok((Err("You can't bid on your own auction.".into()), Vec::new()));
+        }
+        if bidder == Some(character_id) {
+            return Ok((Err("You're already the high bidder.".into()), Vec::new()));
+        }
+        let min = bid.map_or(start, shared::market::min_next_bid);
+        if amount < min {
+            return Ok((Err(format!("The minimum bid is now ${min}.")), Vec::new()));
+        }
+        if buyout.is_some_and(|b| amount >= b) {
+            return Ok((Err("That's at least the buyout price: use Buy now instead.".into()), Vec::new()));
+        }
+        let updated = sqlx::query(
+            "UPDATE market_listings SET bid = ?, bidder_id = ? WHERE id = ? AND status = 0 AND COALESCE(bid, -1) = ?",
+        )
+        .bind(amount)
+        .bind(character_id)
+        .bind(listing)
+        .bind(bid.unwrap_or(-1))
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Ok((Err("Someone else just bid. Try again.".into()), Vec::new()));
+        }
+        let mut notify = Vec::new();
+        if let (Some(old), Some(old_bidder)) = (bid, bidder) {
+            insert_claim(&mut tx, old_bidder, None, old, &format!("Outbid on: {name}")).await?;
+            notify.push((old_bidder, format!("You were outbid on {name}. Your ${old} is waiting in your e-Bid claims.")));
+        }
+        write_state(&mut tx, character_id, state).await?;
+        tx.commit().await?;
+        Ok((Ok(format!("You're the high bidder on {name} at ${amount}.")), notify))
+    }
+
+    async fn market_buyout(&self, character_id: i64, state: &PlayerState, listing: i64, price: i64) -> Result<MarketOutcome, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let Some((seller, name, _, buyout, bid, bidder)) = Self::open_listing(&mut tx, listing).await? else {
+            return Ok((Err("That auction has ended.".into()), Vec::new()));
+        };
+        if seller == character_id {
+            return Ok((Err("You can't buy your own auction.".into()), Vec::new()));
+        }
+        if buyout != Some(price) {
+            return Ok((Err("That auction has no Buy now price.".into()), Vec::new()));
+        }
+        let updated = sqlx::query(
+            "UPDATE market_listings SET status = 1, bid = ?, bidder_id = ? WHERE id = ? AND status = 0 AND COALESCE(bid, -1) = ?",
+        )
+        .bind(price)
+        .bind(character_id)
+        .bind(listing)
+        .bind(bid.unwrap_or(-1))
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Ok((Err("Someone else just bid. Try again.".into()), Vec::new()));
+        }
+        let mut notify = Vec::new();
+        if let (Some(old), Some(old_bidder)) = (bid, bidder) {
+            insert_claim(&mut tx, old_bidder, None, old, &format!("Outbid on: {name}")).await?;
+            notify.push((old_bidder, format!("{name} was bought outright. Your ${old} is waiting in your e-Bid claims.")));
+        }
+        let stack = listing_stack(&mut tx, listing).await?;
+        insert_claim(&mut tx, character_id, Some(&stack), 0, &format!("Bought: {name}")).await?;
+        let proceeds = shared::market::seller_proceeds(price);
+        insert_claim(&mut tx, seller, None, proceeds, &format!("Sold: {name}")).await?;
+        notify.push((seller, format!("Your {name} sold for ${price}! Collect ${proceeds} at an e-Bid terminal.")));
+        write_state(&mut tx, character_id, state).await?;
+        tx.commit().await?;
+        Ok((Ok(format!("You bought {name} for ${price}. Collect it from your claims.")), notify))
+    }
+
+    async fn market_cancel(&self, character_id: i64, listing: i64) -> Result<Result<String, String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let updated = sqlx::query(
+            "UPDATE market_listings SET status = 3 WHERE id = ? AND seller_id = ? AND status = 0 AND bid IS NULL",
+        )
+        .bind(listing)
+        .bind(character_id)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Ok(Err("You can only cancel your own auctions that have no bids.".into()));
+        }
+        let stack = listing_stack(&mut tx, listing).await?;
+        let (name,): (String,) = sqlx::query_as("SELECT item_name FROM market_listings WHERE id = ?")
+            .bind(listing)
+            .fetch_one(&mut *tx)
+            .await?;
+        insert_claim(&mut tx, character_id, Some(&stack), 0, &format!("Cancelled: {name}")).await?;
+        tx.commit().await?;
+        Ok(Ok(format!("Cancelled. Your {name} is back in your claims.")))
+    }
+
+    /// Settles every auction past its end time, one transaction each.
+    async fn market_expire(&self, now: i64) -> Result<Vec<(i64, String)>, sqlx::Error> {
+        let ended: Vec<(i64,)> = sqlx::query_as("SELECT id FROM market_listings WHERE status = 0 AND expires_at_ms <= ? ORDER BY id LIMIT 200")
+            .bind(now)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut notify = Vec::new();
+        for (listing,) in ended {
+            let mut tx = self.pool.begin().await?;
+            let row: Option<(i64, String, Option<i64>, Option<i64>)> =
+                sqlx::query_as("SELECT seller_id, item_name, bid, bidder_id FROM market_listings WHERE id = ? AND status = 0")
+                    .bind(listing)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            let Some((seller, name, bid, bidder)) = row else { continue };
+            let stack = listing_stack(&mut tx, listing).await?;
+            match (bid, bidder) {
+                (Some(price), Some(winner)) => {
+                    if sqlx::query("UPDATE market_listings SET status = 1 WHERE id = ? AND status = 0").bind(listing).execute(&mut *tx).await?.rows_affected() == 0 {
+                        continue; // settled by another server
+                    }
+                    insert_claim(&mut tx, winner, Some(&stack), 0, &format!("Won: {name}")).await?;
+                    let proceeds = shared::market::seller_proceeds(price);
+                    insert_claim(&mut tx, seller, None, proceeds, &format!("Sold: {name}")).await?;
+                    notify.push((winner, format!("You won {name} for ${price}! Collect it at an e-Bid terminal.")));
+                    notify.push((seller, format!("Your {name} sold for ${price}! Collect ${proceeds} at an e-Bid terminal.")));
+                }
+                _ => {
+                    if sqlx::query("UPDATE market_listings SET status = 2 WHERE id = ? AND status = 0").bind(listing).execute(&mut *tx).await?.rows_affected() == 0 {
+                        continue; // settled by another server
+                    }
+                    insert_claim(&mut tx, seller, Some(&stack), 0, &format!("Unsold: {name}")).await?;
+                    notify.push((seller, format!("Nobody bid on your {name}. It's waiting in your e-Bid claims.")));
+                }
+            }
+            tx.commit().await?;
+        }
+        Ok(notify)
+    }
+
+    /// One page of active listings matching `query`, soonest-ending first, and the total count.
+    async fn market_search(&self, query: &str, page: u32) -> Result<(Vec<Listing>, u32), sqlx::Error> {
+        let pattern = format!("%{}%", query.to_lowercase().replace(['%', '_', '\\'], ""));
+        let now = now_ms();
+        let (total,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM market_listings WHERE status = 0 AND expires_at_ms > ? AND LOWER(item_name) LIKE ?")
+                .bind(now)
+                .bind(&pattern)
+                .fetch_one(&self.pool)
+                .await?;
+        let rows: Vec<ListingRow> = sqlx::query_as(
+            "SELECT l.id, s.name, l.item, l.quantity, l.start_price, l.buyout, l.bid, b.name, l.expires_at_ms
+             FROM market_listings l JOIN characters s ON s.id = l.seller_id LEFT JOIN characters b ON b.id = l.bidder_id
+             WHERE l.status = 0 AND l.expires_at_ms > ? AND LOWER(l.item_name) LIKE ?
+             ORDER BY l.expires_at_ms, l.id LIMIT ? OFFSET ?",
+        )
+        .bind(now)
+        .bind(&pattern)
+        .bind(shared::market::PAGE_SIZE as i64)
+        .bind(page as i64 * shared::market::PAGE_SIZE as i64)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok((rows.into_iter().map(listing_from).collect(), total as u32))
+    }
+
+    async fn market_mine(&self, character_id: i64) -> Result<Vec<Listing>, sqlx::Error> {
+        let rows: Vec<ListingRow> = sqlx::query_as(
+            "SELECT l.id, s.name, l.item, l.quantity, l.start_price, l.buyout, l.bid, b.name, l.expires_at_ms
+             FROM market_listings l JOIN characters s ON s.id = l.seller_id LEFT JOIN characters b ON b.id = l.bidder_id
+             WHERE l.seller_id = ? AND l.status = 0 ORDER BY l.expires_at_ms, l.id",
+        )
+        .bind(character_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(listing_from).collect())
+    }
+
+    async fn market_claims(&self, character_id: i64) -> Result<Vec<Claim>, sqlx::Error> {
+        let rows: Vec<(i64, Option<String>, Option<i64>, i64, String)> =
+            sqlx::query_as("SELECT id, item, quantity, cash, reason FROM market_claims WHERE character_id = ? ORDER BY id")
+                .bind(character_id)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(claim_from).collect())
+    }
+
+    /// Removes the collected claims and saves the state that now holds them, atomically.
+    async fn market_collect(&self, character_id: i64, claims: &[i64], state: &PlayerState) -> Result<Result<String, String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        for id in claims {
+            let deleted = sqlx::query("DELETE FROM market_claims WHERE id = ? AND character_id = ?")
+                .bind(id)
+                .bind(character_id)
+                .execute(&mut *tx)
+                .await?;
+            if deleted.rows_affected() == 0 {
+                // Already collected (e.g. from another server): change nothing.
+                return Ok(Err("Your claims changed. Try again.".into()));
+            }
+        }
+        write_state(&mut tx, character_id, state).await?;
+        tx.commit().await?;
+        Ok(Ok(format!("Collected {} claim{}.", claims.len(), if claims.len() == 1 { "" } else { "s" })))
+    }
+}
+
+type OpenListing = (i64, String, i64, Option<i64>, Option<i64>, Option<i64>);
+
+async fn listing_stack(tx: &mut Transaction<'_, Sqlite>, listing: i64) -> Result<ItemStack, sqlx::Error> {
+    let (item, qty): (String, i64) = sqlx::query_as("SELECT item, quantity FROM market_listings WHERE id = ?")
+        .bind(listing)
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(ItemStack { item, qty: qty as u32 })
+}
+
+async fn insert_claim(tx: &mut Transaction<'_, Sqlite>, character_id: i64, stack: Option<&ItemStack>, cash: i64, reason: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO market_claims (character_id, item, quantity, cash, reason, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(character_id)
+        .bind(stack.map(|s| s.item.clone()))
+        .bind(stack.map(|s| s.qty as i64))
+        .bind(cash)
+        .bind(reason)
+        .bind(now_ms())
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,6 +996,88 @@ mod tests {
         s.handle(DbCommand::DisbandCrew { link: Entity::PLACEHOLDER, crew_id: crew }, LIMITS).await;
         assert!(s.load_crew(crew).await.unwrap().is_none());
         assert_eq!(load(&mut s, b, bob).await.crew, None);
+    }
+
+    #[tokio::test]
+    async fn marketplace_auctions() {
+        let mut s = store().await;
+        let mut ids = Vec::new();
+        for name in ["Alice", "Bob", "Carol"] {
+            let a = account(&mut s, name).await;
+            ids.push((a, character(&mut s, a, name).await.unwrap()));
+        }
+        let [(_, alice), (b_acc, bob), (_, carol)] = ids[..] else { unreachable!() };
+        let st = PlayerState::new(100);
+        let walkman = NewListing {
+            stack: ItemStack { item: "walkman".into(), qty: 1 },
+            item_name: "Walkman".into(),
+            start_price: 10,
+            buyout: Some(50),
+            expires_at_ms: now_ms() + 60_000,
+        };
+        assert!(s.market_create(alice, &st, &walkman).await.unwrap().is_ok());
+        let pager = NewListing { item_name: "Pager".into(), buyout: None, ..walkman.clone() };
+        assert!(s.market_create(alice, &st, &pager).await.unwrap().is_ok());
+
+        let (found, total) = s.market_search("walk", 0).await.unwrap();
+        assert_eq!((found.len(), total), (1, 1));
+        assert_eq!(found[0].seller, "Alice");
+        let w = found[0].id;
+        assert_eq!(s.market_search("", 0).await.unwrap().1, 2);
+        let p = s.market_search("PAGER", 0).await.unwrap().0[0].id;
+
+        // Bidding rules.
+        assert!(s.market_bid(alice, &st, w, 10).await.unwrap().0.is_err(), "own auction");
+        assert!(s.market_bid(bob, &st, w, 9).await.unwrap().0.is_err(), "below start");
+        assert!(s.market_bid(bob, &st, w, 50).await.unwrap().0.is_err(), "that's a buyout");
+        assert!(s.market_bid(bob, &st, w, 10).await.unwrap().0.is_ok());
+        assert!(s.market_bid(bob, &st, w, 20).await.unwrap().0.is_err(), "already high bidder");
+        assert!(s.market_bid(carol, &st, w, 10).await.unwrap().0.is_err(), "must raise");
+        let (ok, notify) = s.market_bid(carol, &st, w, 11).await.unwrap();
+        assert!(ok.is_ok());
+        assert_eq!(notify[0].0, bob);
+        let bob_claims = s.market_claims(bob).await.unwrap();
+        assert_eq!((bob_claims[0].cash, bob_claims[0].item.clone()), (10, None), "Bob's bid is refunded");
+
+        // Bob buys it outright; Carol is refunded, Alice gets paid minus the cut.
+        let (ok, notify) = s.market_buyout(bob, &st, w, 50).await.unwrap();
+        assert!(ok.is_ok(), "{ok:?}");
+        assert_eq!(notify.len(), 2);
+        assert_eq!(s.market_claims(carol).await.unwrap()[0].cash, 11);
+        assert_eq!(s.market_claims(alice).await.unwrap()[0].cash, 48);
+        let bob_claims = s.market_claims(bob).await.unwrap();
+        assert_eq!(bob_claims[1].item, Some(ItemStack { item: "walkman".into(), qty: 1 }));
+        assert!(s.market_bid(carol, &st, w, 60).await.unwrap().0.is_err(), "sold");
+        assert_eq!(s.market_mine(alice).await.unwrap().len(), 1);
+
+        // Collecting saves the state and removes the claims, exactly once.
+        let ids: Vec<i64> = bob_claims.iter().map(|c| c.id).collect();
+        let mut rich = PlayerState::new(160);
+        rich.inventory[0] = Some(ItemStack { item: "walkman".into(), qty: 1 });
+        assert!(s.market_collect(bob, &ids, &rich).await.unwrap().is_ok());
+        assert!(s.market_collect(bob, &ids, &rich).await.unwrap().is_err());
+        assert!(s.market_claims(bob).await.unwrap().is_empty());
+        assert_eq!(load(&mut s, b_acc, bob).await.character.state.cash, 160);
+
+        // The pager: cancelled with no bids; then an expiring one goes to the high bidder.
+        assert!(s.market_cancel(bob, p).await.unwrap().is_err(), "not Bob's");
+        assert!(s.market_cancel(alice, p).await.unwrap().is_ok());
+        assert_eq!(s.market_claims(alice).await.unwrap().len(), 2);
+        let soon = NewListing { expires_at_ms: now_ms() + 1_000, ..pager.clone() };
+        assert!(s.market_create(alice, &st, &soon).await.unwrap().is_ok());
+        let unsold = NewListing { expires_at_ms: now_ms() + 1_000, item_name: "Mixtape".into(), ..pager };
+        assert!(s.market_create(alice, &st, &unsold).await.unwrap().is_ok());
+        let soon_id = s.market_search("pager", 0).await.unwrap().0[0].id;
+        assert!(s.market_bid(carol, &st, soon_id, 12).await.unwrap().0.is_ok());
+        assert!(s.market_cancel(alice, soon_id).await.unwrap().is_err(), "has bids");
+        let notify = s.market_expire(now_ms() + 2_000).await.unwrap();
+        assert_eq!(notify.len(), 3, "{notify:?}");
+        assert!(s.market_expire(now_ms() + 2_000).await.unwrap().is_empty(), "settled once");
+        let carol_claims = s.market_claims(carol).await.unwrap();
+        assert_eq!(carol_claims.last().unwrap().reason, "Won: Pager");
+        let alice_claims = s.market_claims(alice).await.unwrap();
+        assert!(alice_claims.iter().any(|c| c.reason == "Unsold: Mixtape" && c.item.is_some()));
+        assert!(alice_claims.iter().any(|c| c.reason == "Sold: Pager" && c.cash == 12));
     }
 
     #[tokio::test]

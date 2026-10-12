@@ -6,6 +6,7 @@
 //! saves it (see `session::sync_progress`), so nothing here deals with persistence.
 
 use crate::combat::{Fighter, Mobs};
+use crate::market::{ActiveMarket, MarketPending};
 use crate::session::{PlayerLink, Progress, Session};
 use crate::zones::ZoneRooms;
 use bevy::ecs::system::SystemParam;
@@ -13,6 +14,7 @@ use bevy::prelude::*;
 use lightyear::prelude::*;
 use shared::content::{Content, RecipeDef};
 use shared::game::{GameError, GameEvent, UseOutcome};
+use shared::market::MarketUpdate;
 use shared::protocol::{
     ChatNetChannel, CombatTarget, DisplayName, FloatKind, GameAction, GameChannel, GameUpdate, Health, MobTag, NpcTag,
     PlayerId, Position, SystemNotice,
@@ -94,7 +96,7 @@ fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::QuestCompleted(q) => format!("Quest complete: {}!", quest_name(q, content)),
         GameEvent::Xp(skill, xp) => format!("+{xp} {} XP", skill.name()),
         GameEvent::LevelUp(skill, level) => format!("*** {} level {level}! ***", skill.name()),
-        GameEvent::OpenShop(_) => return None,
+        GameEvent::OpenShop(_) | GameEvent::OpenMarket => return None,
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) => format!("You put away the {}.", content.item_name(item)),
     })
@@ -109,11 +111,18 @@ fn quest_name<'a>(id: &'a str, content: &'a Content) -> &'a str {
 struct Outbox<'w, 's> {
     updates: Query<'w, 's, &'static mut MessageSender<GameUpdate>>,
     notices: Query<'w, 's, &'static mut MessageSender<SystemNotice>>,
+    market: Query<'w, 's, &'static mut MessageSender<MarketUpdate>>,
 }
 
 impl Outbox<'_, '_> {
     fn update(&mut self, link: Entity, update: GameUpdate) {
         if let Ok(mut tx) = self.updates.get_mut(link) {
+            tx.send::<GameChannel>(update);
+        }
+    }
+
+    fn market(&mut self, link: Entity, update: MarketUpdate) {
+        if let Ok(mut tx) = self.market.get_mut(link) {
             tx.send::<GameChannel>(update);
         }
     }
@@ -149,6 +158,7 @@ fn handle_actions(
         &mut Fighter,
         &mut Health,
         &PlayerId,
+        Has<MarketPending>,
     )>,
     mobs: Res<Mobs>,
     mob_info: Query<(&Position, &ZoneId, &Health), (With<MobTag>, Without<Fighter>)>,
@@ -166,7 +176,25 @@ fn handle_actions(
     }
 
     for (link, player, action) in incoming {
-        let Ok((name, pos, zone, mut progress, dialogue, shop, channeling, mut fighter, mut health, me)) = players.get_mut(player) else { continue };
+        let Ok((name, pos, zone, mut progress, dialogue, shop, channeling, mut fighter, mut health, me, market_busy)) =
+            players.get_mut(player)
+        else {
+            continue;
+        };
+        // While an e-Bid transaction is in flight, nothing else may touch the inventory.
+        let touches_inventory = !matches!(
+            action,
+            GameAction::Interact { .. }
+                | GameAction::CloseDialogue
+                | GameAction::CloseShop
+                | GameAction::Attack { .. }
+                | GameAction::StopAttack
+                | GameAction::PowerSwing
+        );
+        if market_busy && touches_inventory {
+            out.notice(link, SystemNotice::info("One moment..."));
+            continue;
+        }
         let near = |npc_id: &str| {
             content.npc(npc_id).filter(|n| n.zone_id() == *zone && n.pos().distance(pos.0) <= INTERACT_RANGE)
         };
@@ -221,6 +249,10 @@ fn handle_actions(
                         send_node(&mut out, link, player, &mut commands, &progress, &content, npc, dlg, next, &name.0);
                     }
                     None => close_dialogue(&mut out, link, player, &mut commands),
+                }
+                if events.contains(&GameEvent::OpenMarket) {
+                    commands.entity(player).insert(ActiveMarket::new(active.npc.clone()));
+                    out.market(link, MarketUpdate::Opened);
                 }
                 if let Some(shop) = opened_shop {
                     commands.entity(player).insert(ActiveShop { npc: active.npc.clone(), shop: shop.clone() });

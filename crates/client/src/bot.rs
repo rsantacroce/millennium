@@ -3,7 +3,8 @@
 //! - `--bot`: wanders around the block and chats (to test with a second, human-driven client).
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
 //!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
-//!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`, `!wait SECS`,
+//!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`,
+//!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!wait SECS`,
 //!   or any chat input (`/g hello`).
 //!
 //! Both write into the same `ActionState`/messages the keyboard and mouse use, so the server
@@ -105,6 +106,7 @@ fn run_script(
     mut panels: ResMut<Panels>,
     mut path: ResMut<ClickPath>,
     mut social_window: ResMut<crate::social_ui::SocialWindow>,
+    mut market: ResMut<crate::market_ui::MarketView>,
     me: Query<(&Position, &shared::zone::ZoneId), With<LocalAvatar>>,
     npcs: Query<(&shared::protocol::NpcTag, &Position)>,
     mobs: Query<(Entity, &shared::protocol::MobTag, &Position)>,
@@ -186,6 +188,7 @@ fn run_script(
                 tx.send::<GameChannel>(action);
             }
         }
+        ["!market", tab] => market.show(tab),
         ["!select", slot] => panels.selected = slot.parse().ok(),
         ["!wait", secs] => script.wait = secs.parse().ok().map(|s| Timer::from_seconds(s, TimerMode::Once)),
         _ => match parse_input(&step) {

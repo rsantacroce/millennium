@@ -22,6 +22,7 @@ use shared::appearance::Appearance;
 use shared::chat::{ChatChannel, ChatLine};
 use shared::content::Skill;
 use shared::game::{ItemStack, PlayerState, QuestProgress};
+use shared::market::{Claim, Listing};
 use shared::protocol::{CharacterSummary, CrewRank};
 use shared::zone::ZoneId;
 use std::sync::mpsc::Sender;
@@ -135,6 +136,20 @@ pub enum DbCommand {
     LeaveCrew { link: Entity, character_id: i64, crew_id: i64 },
     DisbandCrew { link: Entity, crew_id: i64 },
     LoadCrew { crew_id: i64 },
+
+    // Marketplace. Each one is a single transaction that also saves the acting character's
+    // `state` (with the item/cash already taken), so escrow can never duplicate or lose things.
+    MarketCreate { link: Entity, character_id: i64, state: PlayerState, listing: NewListing },
+    MarketBid { link: Entity, character_id: i64, state: PlayerState, listing: i64, amount: i64 },
+    MarketBuyout { link: Entity, character_id: i64, state: PlayerState, listing: i64, price: i64 },
+    MarketCancel { link: Entity, character_id: i64, listing: i64 },
+    /// Settles every auction that has ended.
+    MarketExpire { now_ms: i64 },
+    /// Active listings whose item name contains `query` (empty = everything).
+    MarketSearch { link: Entity, query: String, page: u32 },
+    MarketMine { link: Entity, character_id: i64 },
+    MarketClaims { link: Entity, character_id: i64 },
+    MarketCollect { link: Entity, character_id: i64, claims: Vec<i64>, state: PlayerState },
     /// Replies once every earlier command has been processed (used at shutdown).
     Flush(Sender<()>),
 }
@@ -155,6 +170,45 @@ pub enum DbResult {
     CrewChanged { link: Entity, result: Result<i64, String> },
     /// `None` = the crew no longer exists.
     CrewRoster { crew_id: i64, roster: Option<CrewRoster> },
+    /// A market operation finished. `notify`: (character id, message) for other players.
+    MarketDone { link: Entity, result: Result<String, String>, notify: Vec<(i64, String)> },
+    MarketListings { link: Entity, listings: Vec<Listing>, total: u32, page: u32 },
+    MarketMine { link: Entity, listings: Vec<Listing> },
+    MarketClaims { link: Entity, claims: Vec<Claim> },
+    /// Auctions that ended: (character id, message) to tell online players.
+    MarketSettled { notify: Vec<(i64, String)> },
+}
+
+#[derive(Debug, Clone)]
+pub struct NewListing {
+    pub stack: shared::game::ItemStack,
+    pub item_name: String,
+    pub start_price: i64,
+    pub buyout: Option<i64>,
+    pub expires_at_ms: i64,
+}
+
+// Listing status: 0 = active, 1 = sold, 2 = expired (returned), 3 = cancelled. The SQL uses
+// the numbers directly.
+
+/// A listing row as both stores read it.
+type ListingRow = (i64, String, String, i64, i64, Option<i64>, Option<i64>, Option<String>, i64);
+
+fn listing_from(row: ListingRow) -> Listing {
+    let (id, seller, item, qty, start_price, buyout, bid, bidder, expires_at_ms) = row;
+    Listing {
+        id,
+        seller,
+        stack: shared::game::ItemStack { item, qty: qty as u32 },
+        start_price,
+        buyout,
+        bid: bid.zip(bidder),
+        expires_at_ms,
+    }
+}
+
+fn claim_from((id, item, qty, cash, reason): (i64, Option<String>, Option<i64>, i64, String)) -> Claim {
+    Claim { id, item: item.zip(qty).map(|(item, qty)| shared::game::ItemStack { item, qty: qty as u32 }), cash, reason }
 }
 
 fn crew_rank(rank: i64) -> CrewRank {

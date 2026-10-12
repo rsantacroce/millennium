@@ -321,7 +321,7 @@ fn clicks(
 // --- window helpers -----------------------------------------------------------------------
 
 /// A titled window with an [x] button, absolutely positioned.
-fn spawn_window(commands: &mut Commands, root: impl Bundle, node: Node, title: &str, close: Click) -> Entity {
+pub(crate) fn spawn_window(commands: &mut Commands, root: impl Bundle, node: Node, title: &str, close: impl Bundle) -> Entity {
     let win = commands
         .spawn((root, DespawnOnExit(AppState::InGame), window_frame(Node { position_type: PositionType::Absolute, ..node })))
         .id();
@@ -361,7 +361,7 @@ fn spawn_window(commands: &mut Commands, root: impl Bundle, node: Node, title: &
         .id()
 }
 
-fn label(text: impl Into<String>, size: f32, color: Color) -> impl Bundle {
+pub(crate) fn label(text: impl Into<String>, size: f32, color: Color) -> impl Bundle {
     (Text::new(text), theme::text_font(size), TextColor(color))
 }
 

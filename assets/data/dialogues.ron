@@ -19,6 +19,7 @@
                         goto: Some("reward"),
                     ),
                     (text: "How's business?", when: [QuestDone("56k_dreams")], goto: Some("business")),
+                    (text: "Can I use the e-Bid terminal?", when: [QuestDone("56k_dreams")], effects: [OpenMarket], goto: None),
                     (text: "Bye.", goto: None),
                 ],
             ),
@@ -47,7 +48,7 @@
             ),
             (
                 id: "business",
-                text: "Booming! Everybody wants to check their email and argue on forums.",
+                text: "Booming! Everybody wants to check their email and argue on forums. Oh, and we've got e-Bid now. Ask and you can use the terminal.",
                 options: [(text: "Glad to hear it.", goto: None)],
             ),
         ],
@@ -202,6 +203,7 @@
                 text: "Gadget Shack, how can I help you? We pay better than the pawn shop for working gear. Don't tell Sal.",
                 options: [
                     (text: "Show me what you've got.", effects: [OpenShop("gadget_shack")], goto: None),
+                    (text: "Can I use your e-Bid terminal?", effects: [OpenMarket], goto: None),
                     (text: "What sells best?", goto: Some("tips")),
                     (text: "Bye.", goto: None),
                 ],

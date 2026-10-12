@@ -16,6 +16,9 @@
 //! - `!fight MOB` (attack the nearest one, chase it, wait until it's down), `!power`
 //! - social: `/trade NAME`, `/invite NAME`, `/friend add NAME`, `/crew ...` (as in the game), plus
 //!   `!accept trade|party|crew`, `!decline ...`, `!offer ITEM QTY CASH` (`-` for no item), `!tradeaccept`
+//! - e-Bid (at a terminal, opened through dialogue): `!search TEXT`, `!list ITEM QTY START BUYOUT|- HOURS`,
+//!   `!bid N AMOUNT|min` and `!buyout N` (N indexes the last results), `!mine`, `!cancel N`, `!claims`,
+//!   `!collect`, `!closemarket`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
@@ -39,6 +42,7 @@ use shared::auth::{AuthMode, AuthRequest, AUTH_VERSION};
 use shared::chat::{parse_input, ChatAction, ChatInput, ChatLine, ChatTarget};
 use shared::content::Content;
 use shared::game::{PlayerState, QuestProgress};
+use shared::market::{Listing, MarketAction, MarketUpdate};
 use shared::protocol::*;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -60,6 +64,9 @@ struct Script {
     fight: Option<u32>,
     options: Vec<String>,
     state: PlayerState,
+    /// Last e-Bid search results and own listings (`!bid N`, `!cancel N` index these).
+    results: Vec<Listing>,
+    mine: Vec<Listing>,
     idle_after: f32,
 }
 
@@ -123,6 +130,8 @@ fn main() {
         fight: None,
         options: Vec::new(),
         state: PlayerState::default(),
+        results: Vec::new(),
+        mine: Vec::new(),
         idle_after: 3.0,
     });
     app.add_systems(Startup, move |mut commands: Commands| {
@@ -222,6 +231,7 @@ fn receive(
             Option<&mut MessageReceiver<SystemNotice>>,
             Option<&mut MessageReceiver<ChatHistory>>,
             Option<&mut MessageReceiver<SocialUpdate>>,
+            Option<&mut MessageReceiver<MarketUpdate>>,
         ),
         With<Client>,
     >,
@@ -236,7 +246,32 @@ fn receive(
         exit.write(AppExit::from_code(3));
     }
     *was_connected |= is_connected;
-    let Ok((mut session_tx, session, game, lines, notices, history, social)) = client.single_mut() else { return };
+    let Ok((mut session_tx, session, game, lines, notices, history, social, market)) = client.single_mut() else { return };
+    let show = |l: &Listing| {
+        let bid = l.bid.as_ref().map(|(b, who)| format!(" bid ${b} by {who}")).unwrap_or_default();
+        let buyout = l.buyout.map(|b| format!(" buyout ${b}")).unwrap_or_default();
+        format!("#{} {} x{} from {} start ${}{bid}{buyout}", l.id, l.stack.item, l.stack.qty, l.seller, l.start_price)
+    };
+    for update in drain(market) {
+        match update {
+            MarketUpdate::Results { listings, total, page } => {
+                println!("MARKET results page {page}, {total} total");
+                for l in &listings {
+                    println!("       {}", show(l));
+                }
+                script.results = listings;
+            }
+            MarketUpdate::Mine { listings } => {
+                println!("MARKET mine: {:?}", listings.iter().map(show).collect::<Vec<_>>());
+                script.mine = listings;
+            }
+            MarketUpdate::Claims { claims } => {
+                let list: Vec<String> = claims.iter().map(|c| format!("{} (${}{})", c.reason, c.cash, c.item.as_ref().map(|i| format!(", {} x{}", i.item, i.qty)).unwrap_or_default())).collect();
+                println!("MARKET claims: {list:?}");
+            }
+            other => println!("MARKET {other:?}"),
+        }
+    }
     for update in drain(social) {
         match update {
             SocialUpdate::TradeState { mine, theirs, i_accepted, they_accepted } => {
@@ -334,7 +369,13 @@ fn run_script(
     time: Res<Time>,
     mut script: ResMut<Script>,
     mut client: Query<
-        (&mut MessageSender<GameAction>, &mut MessageSender<ChatSend>, &mut MessageSender<ChatAction>, &mut MessageSender<SocialAction>),
+        (
+            &mut MessageSender<GameAction>,
+            &mut MessageSender<ChatSend>,
+            &mut MessageSender<ChatAction>,
+            &mut MessageSender<SocialAction>,
+            &mut MessageSender<MarketAction>,
+        ),
         With<Client>,
     >,
     content: Res<Content>,
@@ -354,7 +395,7 @@ fn run_script(
     if !script.pause.tick(time.delta()).just_finished() {
         return;
     }
-    let Ok((mut game, mut chat, mut chat_action, mut social)) = client.single_mut() else { return };
+    let Ok((mut game, mut chat, mut chat_action, mut social, mut market)) = client.single_mut() else { return };
     let Some(step) = script.steps.pop_front() else {
         script.idle_after -= script.pause.duration().as_secs_f32();
         if script.idle_after <= 0.0 {
@@ -421,6 +462,39 @@ fn run_script(
             let items = if *item == "-" { vec![] } else { vec![shared::game::ItemStack { item: item.to_string(), qty: qty.parse().unwrap() }] };
             social.send::<GameChannel>(SocialAction::TradeOffer(shared::game::TradeOffer { items, cash: cash.parse().unwrap() }));
         }
+        ["!search", ..] => {
+            let query = step["!search".len()..].trim().to_string();
+            market.send::<GameChannel>(MarketAction::Search { query, page: 0 });
+        }
+        ["!list", item, qty, start, buyout, hours] => match slot_of(&script.state, item) {
+            Some(slot) => market.send::<GameChannel>(MarketAction::List {
+                slot,
+                qty: qty.parse().unwrap(),
+                start_price: start.parse().unwrap(),
+                buyout: buyout.parse().ok(),
+                hours: hours.parse().unwrap(),
+            }),
+            None => println!("       (no {item} in inventory)"),
+        },
+        ["!bid", n, amount] => match script.results.get(n.parse::<usize>().unwrap()) {
+            Some(l) => {
+                let amount = if *amount == "min" { l.min_bid() } else { amount.parse().unwrap() };
+                market.send::<GameChannel>(MarketAction::Bid { listing: l.id, amount });
+            }
+            None => println!("       (no result {n})"),
+        },
+        ["!buyout", n] => match script.results.get(n.parse::<usize>().unwrap()) {
+            Some(l) => market.send::<GameChannel>(MarketAction::Buyout { listing: l.id, price: l.buyout.unwrap_or(0) }),
+            None => println!("       (no result {n})"),
+        },
+        ["!cancel", n] => match script.mine.get(n.parse::<usize>().unwrap()) {
+            Some(l) => market.send::<GameChannel>(MarketAction::Cancel { listing: l.id }),
+            None => println!("       (no listing {n})"),
+        },
+        ["!mine"] => market.send::<GameChannel>(MarketAction::MyListings),
+        ["!claims"] => market.send::<GameChannel>(MarketAction::Claims),
+        ["!collect"] => market.send::<GameChannel>(MarketAction::CollectClaims),
+        ["!closemarket"] => market.send::<GameChannel>(MarketAction::Close),
         ["!tradeaccept"] => social.send::<GameChannel>(SocialAction::TradeAccept),
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
         ["!state"] => print_state(&script.state, &content),
