@@ -182,6 +182,8 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 
 ## Controls
 
+These are the defaults; every key can be rebound in the settings (F10).
+
 | Key | Action |
 |---|---|
 | Left-click | Walk there (around obstacles). On an NPC: walk up and talk. On a rival: attack |
@@ -198,6 +200,7 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 | Mouse wheel | Zoom (scroll the chat history when hovering over it) |
 | M | Toggle the minimap |
 | Enter | Open chat; Enter again sends, Esc cancels |
+| F10 | Settings: volume, interface size, shadows, street lights, camera speed, key bindings (saved in `saves/settings.toml`) |
 | Tab | Next field (sign-on window) / next chat tab (while typing) |
 
 **Inventory:** click an item to select it (the details and **Use** button appear below). Click

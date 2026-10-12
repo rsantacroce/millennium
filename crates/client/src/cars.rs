@@ -11,6 +11,7 @@ use crate::net::LocalPlayer;
 use crate::sound::{PlaySfx, Sfx};
 use crate::theme;
 use crate::AppState;
+use crate::settings::Action;
 use bevy::prelude::*;
 use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
@@ -213,6 +214,7 @@ fn enterable<'a>(
 }
 
 fn car_key(
+    settings: Res<crate::settings::Settings>,
     keys: Res<ButtonInput<KeyCode>>,
     mut scripted: MessageReader<DriveKey>,
     chat: Res<ChatFocus>,
@@ -222,7 +224,7 @@ fn car_key(
     mut client: Query<&mut MessageSender<GameAction>, With<Client>>,
 ) {
     let scripted = scripted.read().count() > 0;
-    if !scripted && (chat.0 || !keys.just_pressed(KeyCode::KeyG)) {
+    if !scripted && (chat.0 || !keys.just_pressed(settings.keys.key(Action::Car))) {
         return;
     }
     let (Some(local), Ok((pos, driving))) = (local, me.single()) else { return };

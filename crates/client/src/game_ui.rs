@@ -14,6 +14,7 @@ use crate::sound::{PlaySfx, Sfx};
 use crate::chat_ui::ChatFocus;
 use crate::theme::{self, button, window_frame};
 use crate::AppState;
+use crate::settings::Action;
 use bevy::prelude::*;
 use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
@@ -227,6 +228,7 @@ fn find_nearby(
 
 #[allow(clippy::too_many_arguments)]
 fn hotkeys(
+    settings: Res<crate::settings::Settings>,
     keys: Res<ButtonInput<KeyCode>>,
     chat: Res<ChatFocus>,
     nearby: Res<Nearby>,
@@ -238,7 +240,7 @@ fn hotkeys(
     if chat.0 {
         return;
     }
-    if keys.just_pressed(KeyCode::KeyE)
+    if keys.just_pressed(settings.keys.key(Action::Interact))
         && dialogue.0.is_none()
         && let Some((_, npc, _)) = &nearby.0
     {
@@ -269,13 +271,13 @@ fn hotkeys(
             act(&mut client, GameAction::CloseShop);
         }
     }
-    if keys.just_pressed(KeyCode::KeyI) {
+    if keys.just_pressed(settings.keys.key(Action::Inventory)) {
         panels.inventory = !panels.inventory;
     }
-    if keys.just_pressed(KeyCode::KeyL) {
+    if keys.just_pressed(settings.keys.key(Action::Quests)) {
         panels.quests = !panels.quests;
     }
-    if keys.just_pressed(KeyCode::KeyK) {
+    if keys.just_pressed(settings.keys.key(Action::Skills)) {
         panels.skills = !panels.skills;
     }
 }

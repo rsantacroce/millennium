@@ -17,6 +17,7 @@ use crate::chat_ui::ChatFocus;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ScalingMode, Viewport};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use crate::settings::Action;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::f32::consts::{FRAC_PI_4, PI};
@@ -163,6 +164,7 @@ fn spawn_cameras(mut commands: Commands) {
 }
 
 fn camera_controls(
+    settings: Res<crate::settings::Settings>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -172,7 +174,7 @@ fn camera_controls(
     mut rig: ResMut<CameraRig>,
 ) {
     if !chat.0 {
-        if keys.just_pressed(KeyCode::KeyV) {
+        if keys.just_pressed(settings.keys.key(Action::CameraMode)) {
             rig.mode = rig.mode.next();
         }
         if keys.just_pressed(KeyCode::F1) {
@@ -184,22 +186,22 @@ fn camera_controls(
         if keys.just_pressed(KeyCode::F3) {
             rig.mode = CameraMode::TopDown;
         }
-        if keys.just_pressed(KeyCode::KeyM) {
+        if keys.just_pressed(settings.keys.key(Action::Minimap)) {
             rig.minimap = !rig.minimap;
         }
-        if keys.just_pressed(KeyCode::KeyZ) {
+        if keys.just_pressed(settings.keys.key(Action::RotateLeft)) {
             rig.target_yaw -= FRAC_PI_4;
         }
-        if keys.just_pressed(KeyCode::KeyC) {
+        if keys.just_pressed(settings.keys.key(Action::RotateRight)) {
             rig.target_yaw += FRAC_PI_4;
         }
     }
 
     // Right-drag orbits.
     if mouse.pressed(MouseButton::Right) && motion.delta != Vec2::ZERO {
-        rig.target_yaw -= motion.delta.x * 0.006;
+        rig.target_yaw -= motion.delta.x * 0.006 * settings.camera_speed;
         if rig.mode == CameraMode::ThirdPerson {
-            rig.pitch = (rig.pitch + motion.delta.y * 0.004).clamp(0.08, 1.35);
+            rig.pitch = (rig.pitch + motion.delta.y * 0.004 * settings.camera_speed).clamp(0.08, 1.35);
         }
     } else if rig.mode != CameraMode::ThirdPerson && mouse.just_released(MouseButton::Right) {
         // Ortho views snap back to the nearest 45° so the city stays tidy.

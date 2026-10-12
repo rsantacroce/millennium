@@ -104,6 +104,7 @@ fn rgb([r, g, b]: [f32; 3]) -> Color {
 
 /// Sun, sky and lights follow the world clock (`shared::clock`).
 fn day_night(
+    settings: Res<crate::settings::Settings>,
     mut sun: Query<(&mut DirectionalLight, &mut Transform), With<Sun>>,
     mut lamps: Query<&mut PointLight, With<StreetLight>>,
     mut ambient: ResMut<GlobalAmbientLight>,
@@ -115,6 +116,9 @@ fn day_night(
     let day = shared::clock::daylight(hour);
     let night = 1.0 - day;
     if let Ok((mut light, mut transform)) = sun.single_mut() {
+        if light.shadow_maps_enabled != settings.shadows {
+            light.shadow_maps_enabled = settings.shadows;
+        }
         light.illuminance = 400.0 + 8_600.0 * day;
         // The sun swings across the sky over the day; the "moon" sits high at night.
         let angle = ((hour - 6.0) / 12.0).clamp(0.0, 1.0) * std::f32::consts::PI;
@@ -132,8 +136,9 @@ fn day_night(
     if clear.0 != wanted {
         clear.0 = wanted;
     }
+    let lamp_power = if settings.street_lights { 60_000.0 * night } else { 0.0 };
     for mut lamp in &mut lamps {
-        lamp.intensity = 60_000.0 * night;
+        lamp.intensity = lamp_power;
     }
     if (glow.applied - night).abs() > 0.02 {
         glow.applied = night;

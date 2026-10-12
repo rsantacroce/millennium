@@ -13,6 +13,7 @@ use crate::game_ui::DialogueView;
 use crate::sound::{PlaySfx, Sfx};
 use crate::theme::{self, window_frame};
 use crate::AppState;
+use crate::settings::Action;
 use bevy::prelude::*;
 use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
@@ -215,6 +216,7 @@ fn handle_updates(
 
 #[allow(clippy::too_many_arguments)]
 fn hotkeys(
+    settings: Res<crate::settings::Settings>,
     keys: Res<ButtonInput<KeyCode>>,
     chat: Res<ChatFocus>,
     dialogue: Res<DialogueView>,
@@ -227,7 +229,7 @@ fn hotkeys(
         return;
     }
     let Ok(me) = me.single() else { return };
-    if keys.just_pressed(KeyCode::Tab) {
+    if keys.just_pressed(settings.keys.key(Action::Target)) {
         // Nearest first; pressing again moves to the next one.
         let mut near: Vec<(Entity, u32, f32)> = mobs
             .iter()
@@ -249,7 +251,7 @@ fn hotkeys(
             state.target = Some((id, entity));
         }
     }
-    if keys.just_pressed(KeyCode::KeyR) && let Some((id, entity)) = state.target {
+    if keys.just_pressed(settings.keys.key(Action::Attack)) && let Some((id, entity)) = state.target {
         if state.attacking {
             act(&mut client, GameAction::StopAttack);
             state.attacking = false;
@@ -257,7 +259,7 @@ fn hotkeys(
             engage(&mut state, &mut client, id, entity);
         }
     }
-    if keys.just_pressed(KeyCode::KeyF) && state.target.is_some() {
+    if keys.just_pressed(settings.keys.key(Action::PowerSwing)) && state.target.is_some() {
         if !state.attacking && let Some((id, entity)) = state.target {
             engage(&mut state, &mut client, id, entity);
         }

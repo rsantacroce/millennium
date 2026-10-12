@@ -47,17 +47,37 @@ fn update_hud(
     zones: Res<ZoneRegistry>,
     hosted: Option<Res<HostedServer>>,
     state: Res<LocalState>,
+    settings: Res<crate::settings::Settings>,
     items: Res<shared::content::Content>,
     mut text: Single<&mut Text, With<HudText>>,
 ) {
     let zone = zones.get(local.zone).map_or("?", |z| z.name);
     let clock = shared::clock::label(shared::clock::hour(shared::clock::now_ms()));
+    use crate::settings::{key_name, Action};
+    let k = |a: Action| key_name(settings.keys.key(a));
     let mut content = format!(
-        "{} - {}    ${}    {clock}\nClick/WASD move | E talk | G car | Enter chat\nI inventory | L quests | K skills\nTab target | R attack | F power swing\nZ/C rotate | V camera: {} | M map",
+        "{} - {}    ${}    {clock}\nClick/{}{}{}{} move | {} talk | {} car | Enter chat\n{} inventory | {} quests | {} skills | {} settings\n{} target | {} attack | {} power swing\n{}/{} rotate | {} camera: {} | {} map",
         local.name,
         zone,
         state.cash,
-        rig.mode.label()
+        k(Action::MoveForward),
+        k(Action::MoveLeft),
+        k(Action::MoveBack),
+        k(Action::MoveRight),
+        k(Action::Interact),
+        k(Action::Car),
+        k(Action::Inventory),
+        k(Action::Quests),
+        k(Action::Skills),
+        k(Action::Settings),
+        k(Action::Target),
+        k(Action::Attack),
+        k(Action::PowerSwing),
+        k(Action::RotateLeft),
+        k(Action::RotateRight),
+        k(Action::CameraMode),
+        rig.mode.label(),
+        k(Action::Minimap),
     );
     // Food buffs, with time left by our own clock (the server drops them when they run out).
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);

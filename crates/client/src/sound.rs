@@ -4,7 +4,6 @@
 //! 16-bit mono WAV in memory and handed to Bevy as an `AudioSource`. Gameplay code just writes
 //! a [`PlaySfx`] message.
 
-use crate::config::ClientConfig;
 use bevy::audio::Volume;
 use bevy::prelude::*;
 use std::collections::HashMap;
@@ -192,8 +191,8 @@ fn button_clicks(buttons: Query<&Interaction, (Changed<Interaction>, With<Button
     }
 }
 
-fn play(mut commands: Commands, mut requests: MessageReader<PlaySfx>, bank: Res<SfxBank>, config: Res<ClientConfig>) {
-    if config.volume <= 0.0 {
+fn play(mut commands: Commands, mut requests: MessageReader<PlaySfx>, bank: Res<SfxBank>, settings: Res<crate::settings::Settings>) {
+    if settings.volume <= 0.0 {
         requests.clear();
         return;
     }
@@ -207,7 +206,7 @@ fn play(mut commands: Commands, mut requests: MessageReader<PlaySfx>, bank: Res<
         if let Some(handle) = bank.0.get(sfx) {
             commands.spawn((
                 AudioPlayer(handle.clone()),
-                PlaybackSettings::DESPAWN.with_volume(Volume::Linear(config.volume)),
+                PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.volume)),
             ));
         }
     }

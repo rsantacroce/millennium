@@ -7,6 +7,7 @@ use crate::chat_ui::ChatFocus;
 use crate::game_ui::LocalState;
 use crate::theme::{self, button, window_frame};
 use crate::AppState;
+use crate::settings::Action;
 use bevy::prelude::*;
 use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
@@ -148,8 +149,9 @@ fn receive(mut client: Query<Option<&mut MessageReceiver<SocialUpdate>>, With<Cl
     }
 }
 
-fn hotkeys(keys: Res<ButtonInput<KeyCode>>, chat: Res<ChatFocus>, mut window: ResMut<SocialWindow>) {
-    if !chat.0 && keys.just_pressed(KeyCode::KeyO) {
+fn hotkeys(
+    settings: Res<crate::settings::Settings>,keys: Res<ButtonInput<KeyCode>>, chat: Res<ChatFocus>, mut window: ResMut<SocialWindow>) {
+    if !chat.0 && keys.just_pressed(settings.keys.key(Action::Social)) {
         window.open = !window.open;
     }
 }

@@ -8,6 +8,7 @@ use crate::chat_ui::ChatFocus;
 use crate::game_ui::{label, spawn_window, LocalState, Panels};
 use crate::theme::{self, button};
 use crate::AppState;
+use crate::settings::Action;
 use bevy::prelude::*;
 use lightyear::prelude::client::Client;
 use lightyear::prelude::*;
@@ -166,6 +167,7 @@ fn find_furniture(
 
 /// E uses the furniture you're next to; P picks it up. Esc closes the windows.
 fn keys(
+    settings: Res<crate::settings::Settings>,
     keyboard: Res<ButtonInput<KeyCode>>,
     chat: Res<ChatFocus>,
     mut view: ResMut<HouseView>,
@@ -175,10 +177,10 @@ fn keys(
         return;
     }
     if let Some((spot, _)) = &view.near {
-        if keyboard.just_pressed(KeyCode::KeyE) {
+        if keyboard.just_pressed(settings.keys.key(Action::Interact)) {
             act(&mut client, GameAction::Furniture { spot: *spot, choice: FurnitureChoice::Use });
         }
-        if keyboard.just_pressed(KeyCode::KeyP) {
+        if keyboard.just_pressed(settings.keys.key(Action::PickUp)) {
             act(&mut client, GameAction::Furniture { spot: *spot, choice: FurnitureChoice::PickUp });
         }
     }

@@ -108,7 +108,7 @@ fn run_script(
     mut panels: ResMut<Panels>,
     mut path: ResMut<ClickPath>,
     mut social_window: ResMut<crate::social_ui::SocialWindow>,
-    mut market: ResMut<crate::market_ui::MarketView>,
+    (mut market, mut settings_view): (ResMut<crate::market_ui::MarketView>, ResMut<crate::settings::SettingsView>),
     mut drive_key: MessageWriter<crate::cars::DriveKey>,
     mut commands: Commands,
     me: Query<(&Position, &shared::zone::ZoneId), With<LocalAvatar>>,
@@ -178,6 +178,7 @@ fn run_script(
         ["!open", "quests"] => panels.quests = true,
         ["!open", "skills"] => panels.skills = true,
         ["!open", "social"] => social_window.open = true,
+        ["!open", "settings"] => settings_view.open = true,
         ["!open", "crew"] => {
             social_window.open = true;
             social_window.crew_tab = true;

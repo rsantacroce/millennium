@@ -15,6 +15,7 @@ use crate::chat_ui::ChatFocus;
 use crate::combat_ui::{engage, CombatState};
 use crate::theme::pointer_over_ui;
 use crate::AppState;
+use crate::settings::Action;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use shared::nav::NavGrids;
@@ -185,6 +186,7 @@ fn fade_markers(
 }
 
 fn buffer_input(
+    settings: Res<crate::settings::Settings>,
     keys: Res<ButtonInput<KeyCode>>,
     chat: Res<ChatFocus>,
     rig: Res<CameraRig>,
@@ -199,16 +201,16 @@ fn buffer_input(
     // While typing in the chat box, keys belong to the text field.
     if !chat.0 {
         let pressed = |a: KeyCode, b: KeyCode| keys.pressed(a) || keys.pressed(b);
-        if pressed(KeyCode::KeyW, KeyCode::ArrowUp) {
+        if pressed(settings.keys.key(Action::MoveForward), KeyCode::ArrowUp) {
             axis.y += 1.0;
         }
-        if pressed(KeyCode::KeyS, KeyCode::ArrowDown) {
+        if pressed(settings.keys.key(Action::MoveBack), KeyCode::ArrowDown) {
             axis.y -= 1.0;
         }
-        if pressed(KeyCode::KeyD, KeyCode::ArrowRight) {
+        if pressed(settings.keys.key(Action::MoveRight), KeyCode::ArrowRight) {
             axis.x += 1.0;
         }
-        if pressed(KeyCode::KeyA, KeyCode::ArrowLeft) {
+        if pressed(settings.keys.key(Action::MoveLeft), KeyCode::ArrowLeft) {
             axis.x -= 1.0;
         }
     }

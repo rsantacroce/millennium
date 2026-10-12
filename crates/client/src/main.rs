@@ -30,6 +30,7 @@ mod login_ui;
 mod market_ui;
 mod net;
 mod social_ui;
+mod settings;
 mod sound;
 mod theme;
 mod world;
@@ -132,6 +133,7 @@ fn main() {
     app.add_plugins(shared::SharedPlugin);
 
     app.init_state::<AppState>()
+        .insert_resource(settings::Settings::load(config.volume))
         .insert_resource(config)
         .insert_resource(cli)
         .add_plugins((
@@ -149,6 +151,6 @@ fn main() {
             sound::SoundPlugin,
             chat_ui::ChatUiPlugin,
         ))
-        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin, hack_ui::HackUiPlugin, house_ui::HouseUiPlugin));
+        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin, hack_ui::HackUiPlugin, house_ui::HouseUiPlugin, settings::SettingsPlugin));
     app.run();
 }
