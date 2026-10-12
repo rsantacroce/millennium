@@ -187,7 +187,7 @@ fn keys(
         view.storage_open = false;
     }
     // Walking away from the footlocker closes it.
-    if view.storage_open && !view.near.as_ref().is_some_and(|(_, i)| i == "footlocker") {
+    if view.storage_open && view.near.as_ref().is_none_or(|(_, i)| i != "footlocker") {
         view.storage_open = false;
     }
 }
