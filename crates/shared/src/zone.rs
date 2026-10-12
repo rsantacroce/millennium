@@ -180,6 +180,7 @@ pub fn galleria_mall() -> ZoneLayout {
             store("Pixel Palace", -30.0, -15.0, 12.0, 12.0, [0.20, 0.25, 0.70]),
             store("Tape Deck Records", -30.0, 15.0, 12.0, 12.0, [0.70, 0.30, 0.60]),
             store("Gadget Shack", 30.0, -15.0, 12.0, 12.0, [0.85, 0.55, 0.15]),
+            store("Threads Outlet", 30.0, -1.0, 12.0, 10.0, [0.90, 0.40, 0.60]),
             building("Mall Cinema", rect(30.0, 15.0, 12.0, 16.0), 11.0, [0.25, 0.20, 0.30]),
             store("Food Court", 0.0, 29.0, 26.0, 8.0, [0.85, 0.75, 0.55]),
             prop("Fountain", rect(0.0, 0.0, 4.0, 4.0), 1.0, [0.55, 0.75, 0.85]),

@@ -322,4 +322,24 @@
             ),
         ],
     ),
+    (
+        id: "crystal",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to Threads! Everything's 30% off, which means it was overpriced by 30%. Looking for something?",
+                options: [
+                    (text: "Show me the clothes.", effects: [OpenShop("threads")], goto: None),
+                    (text: "Do clothes actually help?", goto: Some("tips")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "tips",
+                text: "Duh. A good jacket takes a punch, the right shoes and you're faster on your feet, shades and a cap and you drive like you mean it. Open your inventory and use something to put it on.",
+                options: [(text: "Good to know.", goto: None)],
+            ),
+        ],
+    ),
 ]

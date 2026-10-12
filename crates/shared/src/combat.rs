@@ -15,8 +15,13 @@ pub const REGEN_PER_SEC: f32 = 2.0;
 /// How fast mobs move (a bit slower than players, so you can get away).
 pub const MOB_SPEED_FACTOR: f32 = 0.8;
 
-pub fn max_hp(state: &PlayerState) -> u32 {
-    40 + 6 * state.level(Skill::Fitness)
+pub fn max_hp(state: &PlayerState, content: &Content) -> u32 {
+    40 + 6 * state.level(Skill::Fitness) + state.gear_hp(content)
+}
+
+/// Damage a hit of `raw` does to a player, after their armor (at least 1 gets through).
+pub fn after_armor(raw: u32, state: &PlayerState, content: &Content) -> u32 {
+    raw.saturating_sub(state.armor(content)).max(1)
 }
 
 pub fn weapon(state: &PlayerState, content: &Content) -> WeaponStats {
@@ -26,7 +31,7 @@ pub fn weapon(state: &PlayerState, content: &Content) -> WeaponStats {
 /// Damage range for a swing: the weapon's, plus a bonus every 3 Fitness levels.
 pub fn damage_range(state: &PlayerState, content: &Content) -> (u32, u32) {
     let w = weapon(state, content);
-    let bonus = state.level(Skill::Fitness) / 3;
+    let bonus = state.effective_level(Skill::Fitness, content) / 3;
     (w.min_damage + bonus, w.max_damage + bonus)
 }
 
@@ -39,11 +44,11 @@ mod tests {
     fn fitness_makes_you_tougher() {
         let content = Content::builtin();
         let mut s = PlayerState::new(0);
-        assert_eq!(max_hp(&s), 46);
+        assert_eq!(max_hp(&s, &content), 46);
         assert_eq!(damage_range(&s, &content), (2, 4));
         s.skills.insert(Skill::Fitness, xp_for_level(6));
         s.weapon = Some("baseball_bat".into());
-        assert_eq!(max_hp(&s), 76);
+        assert_eq!(max_hp(&s, &content), 76);
         assert_eq!(damage_range(&s, &content), (5, 8));
     }
 }

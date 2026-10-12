@@ -39,9 +39,10 @@
     (
         id: "walkman",
         name: "Walkman",
-        description: "Auto-reverse and everything.",
+        description: "Auto-reverse and everything. Wear it: a good beat keeps you going (+1 Fitness).",
         value: 30,
         on_use: Some("You press play. Side B of a mixtape someone left inside."),
+        gear: Some((slot: Accessory, skills: [(Fitness, 1)])),
     ),
     (
         id: "broken_pocketplay",
@@ -59,8 +60,9 @@
     (
         id: "pager",
         name: "Pager",
-        description: "Clips to your belt. Very professional.",
+        description: "Clips to your belt. Very professional. Buyers take you seriously (+1 Trading).",
         value: 25,
+        gear: Some((slot: Accessory, skills: [(Trading, 1)])),
         on_use: Some("The display reads 07734. Upside down, it says hello."),
     ),
     (
@@ -179,5 +181,62 @@
         name: "Alternator",
         description: "Spins freely again. Garages pay well for these.",
         value: 22,
+    ),
+    // --- Gear (Milestone 5). Colors index the CLOTHES palette in shared/src/appearance.rs.
+    (
+        id: "trucker_cap",
+        name: "Trucker Cap",
+        description: "Mesh back, foam front, \"KEEP ON TRUCKIN'\". +1 Driving.",
+        value: 12,
+        gear: Some((slot: Head, color: Some(5), skills: [(Driving, 1)])),
+    ),
+    (
+        id: "bucket_hat",
+        name: "Bucket Hat",
+        description: "Every rave has one. Surprisingly good padding. +4 health.",
+        value: 9,
+        gear: Some((slot: Head, color: Some(9), max_hp: 4)),
+    ),
+    (
+        id: "flannel_shirt",
+        name: "Flannel Shirt",
+        description: "Grunge never dies. Thick enough to take the edge off a hit. 1 armor.",
+        value: 14,
+        gear: Some((slot: Body, color: Some(4), armor: 1)),
+    ),
+    (
+        id: "windbreaker",
+        name: "Windbreaker",
+        description: "Swishes when you walk. Swishes faster when you run. +1 Fitness.",
+        value: 22,
+        gear: Some((slot: Body, color: Some(3), skills: [(Fitness, 1)])),
+    ),
+    (
+        id: "bomber_jacket",
+        name: "Bomber Jacket",
+        description: "Black nylon, orange lining. 2 armor, +8 health.",
+        value: 45,
+        gear: Some((slot: Body, color: Some(1), armor: 2, max_hp: 8)),
+    ),
+    (
+        id: "skate_shoes",
+        name: "Skate Shoes",
+        description: "Puffy tongues, fat laces. +1 Fitness.",
+        value: 18,
+        gear: Some((slot: Feet, color: Some(2), skills: [(Fitness, 1)])),
+    ),
+    (
+        id: "work_boots",
+        name: "Work Boots",
+        description: "Steel toes. Earl swears by them. 1 armor, +1 Mechanics.",
+        value: 20,
+        gear: Some((slot: Feet, color: Some(7), armor: 1, skills: [(Mechanics, 1)])),
+    ),
+    (
+        id: "wraparound_shades",
+        name: "Wraparound Shades",
+        description: "Mirrored. You can see out; nobody can see in. +1 Driving.",
+        value: 15,
+        gear: Some((slot: Accessory, shades: true, skills: [(Driving, 1)])),
     ),
 ]

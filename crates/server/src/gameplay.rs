@@ -86,6 +86,7 @@ fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRoom
 
 /// Turns rule events into chat-window notices.
 fn describe(event: &GameEvent, content: &Content) -> Option<String> {
+    let is_gear = |item: &str| content.item(item).is_some_and(|d| d.gear.is_some());
     Some(match event {
         GameEvent::Gained(item, 1) => format!("You got: {}.", content.item_name(item)),
         GameEvent::Gained(item, n) => format!("You got: {} x{n}.", content.item_name(item)),
@@ -102,6 +103,8 @@ fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::Xp(skill, xp) => format!("+{xp} {} XP", skill.name()),
         GameEvent::LevelUp(skill, level) => format!("*** {} level {level}! ***", skill.name()),
         GameEvent::OpenShop(_) | GameEvent::OpenMarket | GameEvent::CarGranted(_) | GameEvent::RaceStarted(_) => return None,
+        GameEvent::Equipped(item) if is_gear(item) => format!("You put on the {}.", content.item_name(item)),
+        GameEvent::Unequipped(item) if is_gear(item) => format!("You take off the {}.", content.item_name(item)),
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) => format!("You put away the {}.", content.item_name(item)),
     })
@@ -344,6 +347,10 @@ fn handle_actions(
                 }
             }
             GameAction::Unequip => match progress.unequip(&content) {
+                Ok(events) => out.events(link, &events, &content),
+                Err(e) => out.error(link, e),
+            },
+            GameAction::TakeOff { slot } => match progress.take_off(slot, &content) {
                 Ok(events) => out.events(link, &events, &content),
                 Err(e) => out.error(link, e),
             },

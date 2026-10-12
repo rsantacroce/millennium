@@ -13,7 +13,7 @@ use crate::theme;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use lightyear::prelude::input::native::InputMarker;
-use shared::appearance::Appearance;
+use shared::appearance::{Appearance, Outfit};
 use shared::content::Content;
 use shared::protocol::{CrewTag, DisplayName, MobTag, MoveIntent, NpcTag, PlayerId, Position};
 
@@ -86,11 +86,33 @@ pub fn spawn_body(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) {
+    spawn_dressed_body(commands, parent, appearance, &Outfit::default(), meshes, materials);
+}
+
+/// Like [`spawn_body`], wearing `outfit` (gear overrides the cap and jacket, adds shoes and shades).
+pub fn spawn_dressed_body(
+    commands: &mut Commands,
+    parent: Entity,
+    appearance: &Appearance,
+    outfit: &Outfit,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let appearance = &Appearance {
+        jacket: outfit.jacket.unwrap_or(appearance.jacket),
+        cap: outfit.cap.map_or(appearance.cap, |c| c + 1),
+        ..*appearance
+    };
+    let mirror = materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.8, 0.9), metallic: 0.9, perceptual_roughness: 0.15, ..default() });
     let mut mat = |c: Color| materials.add(StandardMaterial { base_color: c, perceptual_roughness: 0.8, ..default() });
     let skin = mat(appearance.skin_color());
     let jacket = mat(appearance.jacket_color());
     let pants = mat(appearance.pants_color());
-    let shades = mat(Color::srgb(0.05, 0.05, 0.07));
+    let dark = mat(Color::srgb(0.05, 0.05, 0.07));
+    let shoes = mat(outfit.shoes.map_or(Color::srgb(0.12, 0.10, 0.09), |c| {
+        let [r, g, b] = shared::appearance::CLOTHES[c as usize % shared::appearance::CLOTHES.len()];
+        Color::srgb(r, g, b)
+    }));
     let w = appearance.build();
 
     let body = commands.spawn((AvatarBody, Transform::default(), Visibility::default(), ChildOf(parent))).id();
@@ -103,8 +125,17 @@ pub fn spawn_body(
         part(Cuboid::new(0.12, 0.55, 0.14).into(), jacket.clone(), Vec3::new(side * (0.25 * w + 0.07), 1.12, 0.0));
     }
     part(Sphere::new(0.16).into(), skin, Vec3::new(0.0, 1.62, 0.0));
-    // Sunglasses on the front (-Z): very 1999, and they show which way someone is facing.
-    part(Cuboid::new(0.2, 0.05, 0.04).into(), shades, Vec3::new(0.0, 1.65, -0.14));
+    // Eyes on the front (-Z) show which way someone is facing; worn shades replace them.
+    if outfit.shades {
+        part(Cuboid::new(0.26, 0.07, 0.05).into(), mirror, Vec3::new(0.0, 1.65, -0.14));
+    } else {
+        for side in [-0.06, 0.06] {
+            part(Cuboid::new(0.04, 0.04, 0.03).into(), dark.clone(), Vec3::new(side, 1.66, -0.15));
+        }
+    }
+    for side in [-1.0, 1.0] {
+        part(Cuboid::new(0.16, 0.1, 0.3).into(), shoes.clone(), Vec3::new(side * 0.1 * w, 0.05, -0.03));
+    }
     if let Some(cap) = appearance.cap_color() {
         let cap = mat(cap);
         part(Cylinder::new(0.17, 0.09).into(), cap.clone(), Vec3::new(0.0, 1.74, 0.0));
@@ -140,15 +171,16 @@ pub fn name_tag(commands: &mut Commands, target: Entity, name: &str, color: Colo
 #[allow(clippy::type_complexity)]
 fn spawn_player_visuals(
     mut commands: Commands,
-    new_players: Query<(Entity, &PlayerId, &DisplayName, &Position, Option<&Appearance>), Without<Avatar>>,
+    new_players: Query<(Entity, &PlayerId, &DisplayName, &Position, Option<&Appearance>, Option<&Outfit>), Without<Avatar>>,
     local: Res<LocalPlayer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, id, name, pos, appearance) in &new_players {
+    for (entity, id, name, pos, appearance, outfit) in &new_players {
         let is_local = id.0 == local.character_id;
         commands.entity(entity).insert((Avatar, Transform::from_xyz(pos.x, 0.0, pos.y), Visibility::default()));
-        spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials);
+        let (look, outfit) = (appearance.copied().unwrap_or_default(), outfit.copied().unwrap_or_default());
+        spawn_dressed_body(&mut commands, entity, &look, &outfit, &mut meshes, &mut materials);
         let dot = if is_local { Color::srgb(1.0, 0.95, 0.2) } else { player_color(id.0) };
         minimap_dot(&mut commands, entity, dot, &mut meshes, &mut materials);
         if is_local {
@@ -226,15 +258,15 @@ fn show_crew_tags(
     }
 }
 
-/// Appearance changed (or arrived after the entity): rebuild the body.
+/// Appearance or worn gear changed (or arrived after the entity): rebuild the body.
 fn rebuild_changed_looks(
     mut commands: Commands,
-    changed: Query<(Entity, &Appearance, &Children), (With<Avatar>, Changed<Appearance>)>,
+    changed: Query<(Entity, &Appearance, Option<&Outfit>, &Children), (With<Avatar>, Or<(Changed<Appearance>, Changed<Outfit>)>)>,
     bodies: Query<(), With<AvatarBody>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, appearance, children) in &changed {
+    for (entity, appearance, outfit, children) in &changed {
         let old: Vec<Entity> = children.iter().filter(|c| bodies.contains(*c)).collect();
         if old.is_empty() {
             continue; // body is being built this frame
@@ -242,7 +274,7 @@ fn rebuild_changed_looks(
         for c in old {
             commands.entity(c).despawn();
         }
-        spawn_body(&mut commands, entity, appearance, &mut meshes, &mut materials);
+        spawn_dressed_body(&mut commands, entity, appearance, &outfit.copied().unwrap_or_default(), &mut meshes, &mut materials);
     }
 }
 

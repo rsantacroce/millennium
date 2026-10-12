@@ -12,7 +12,7 @@
 //! - chat input, exactly as typed in the game (`hello`, `/w Bob hi`, `/ignore Bob`)
 //! - `!goto X Z`: walk there around obstacles, like click-to-move (waits until arrived)
 //! - `!talk NPC`, `!choose TEXT` (first option starting with TEXT), `!bye`
-//! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!equip ITEM`, `!closeshop`
+//! - `!buy ITEM QTY`, `!sell ITEM`, `!use ITEM`, `!equip ITEM` (weapons and gear), `!takeoff SLOT`, `!closeshop`
 //! - `!fight MOB` (attack the nearest one, chase it, wait until it's down), `!power`
 //! - social: `/trade NAME`, `/invite NAME`, `/friend add NAME`, `/crew ...` (as in the game), plus
 //!   `!accept trade|party|crew`, `!decline ...`, `!offer ITEM QTY CASH` (`-` for no item), `!tradeaccept`
@@ -448,7 +448,8 @@ fn print_state(state: &PlayerState, content: &Content) {
         })
         .collect();
     let skills: Vec<String> = state.skills.keys().map(|s| format!("{} {} ({} xp)", s.name(), state.level(*s), state.xp(*s))).collect();
-    println!("STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?}", state.cash);
+    let gear: Vec<String> = state.gear.iter().map(|(slot, item)| format!("{}: {}", slot.name(), content.item_name(item))).collect();
+    println!("STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?} | wearing: {gear:?}", state.cash);
 }
 
 fn run_script(
@@ -521,6 +522,10 @@ fn run_script(
             None => println!("       (no {item} in inventory)"),
         },
         ["!closeshop"] => send(GameAction::CloseShop),
+        ["!takeoff", slot] => match shared::content::GearSlot::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(slot)) {
+            Some(slot) => send(GameAction::TakeOff { slot }),
+            None => println!("       (slots: head, body, feet, accessory)"),
+        },
         ["!equip", item] => match slot_of(&script.state, item) {
             Some(slot) => send(GameAction::UseItem { slot }),
             None => println!("       (no {item} in inventory)"),

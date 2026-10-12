@@ -323,12 +323,17 @@ impl SqliteStore {
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
+        let gear: Vec<(String, String)> = sqlx::query_as("SELECT slot, item FROM equipment WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
         let kills: Vec<(String, i64)> = sqlx::query_as("SELECT mob, kills FROM kill_counters WHERE character_id = ?")
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
         let mut state = assemble_state(cash, items, quests, skills);
         state.weapon = weapon;
+        state.gear = gear.into_iter().filter_map(|(slot, item)| Some((shared::content::GearSlot::from_name(&slot)?, item))).collect();
         state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
 
         let ignores: Vec<(i64, String)> = sqlx::query_as(
@@ -546,6 +551,7 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
         "DELETE FROM quest_progress WHERE character_id = ?",
         "DELETE FROM skills WHERE character_id = ?",
         "DELETE FROM kill_counters WHERE character_id = ?",
+        "DELETE FROM equipment WHERE character_id = ?",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -580,6 +586,14 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
             .bind(character_id)
             .bind(mob)
             .bind(*kills as i64)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (slot, item) in &state.gear {
+        sqlx::query("INSERT INTO equipment (character_id, slot, item) VALUES (?, ?, ?)")
+            .bind(character_id)
+            .bind(slot.name())
+            .bind(item)
             .execute(&mut **tx)
             .await?;
     }

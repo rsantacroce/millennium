@@ -3,7 +3,7 @@
 //! - `--bot`: wanders around the block and chats (to test with a second, human-driven client).
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
 //!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
-//!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`,
+//!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`, `!use SLOT`,
 //!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!car` (get in/out of your car, like G),
 //!   `!shot FILE.png` (screenshot rendered by Bevy, works with the screen locked), `!wait SECS`,
 //!   or any chat input (`/g hello`).
@@ -200,6 +200,11 @@ fn run_script(
         }
         ["!car"] => {
             drive_key.write(crate::cars::DriveKey);
+        }
+        ["!use", slot] => {
+            if let Ok(slot) = slot.parse() {
+                act(GameAction::UseItem { slot });
+            }
         }
         ["!select", slot] => panels.selected = slot.parse().ok(),
         ["!wait", secs] => script.wait = secs.parse().ok().map(|s| Timer::from_seconds(s, TimerMode::Once)),

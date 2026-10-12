@@ -94,6 +94,55 @@ pub struct ItemDef {
     /// Using it restores this much health (and uses it up).
     #[serde(default)]
     pub heal: Option<u32>,
+    /// Can be worn.
+    #[serde(default)]
+    pub gear: Option<GearStats>,
+}
+
+/// Where a piece of gear is worn.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GearSlot {
+    Head,
+    Body,
+    Feet,
+    /// Shades, a pager, a walkman...
+    Accessory,
+}
+
+impl GearSlot {
+    pub const ALL: [GearSlot; 4] = [GearSlot::Head, GearSlot::Body, GearSlot::Feet, GearSlot::Accessory];
+
+    pub fn from_name(name: &str) -> Option<GearSlot> {
+        GearSlot::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            GearSlot::Head => "Head",
+            GearSlot::Body => "Body",
+            GearSlot::Feet => "Feet",
+            GearSlot::Accessory => "Accessory",
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+pub struct GearStats {
+    pub slot: GearSlot,
+    /// Taken off every hit you take (at least 1 damage always gets through).
+    #[serde(default)]
+    pub armor: u32,
+    #[serde(default)]
+    pub max_hp: u32,
+    /// Bonus levels for doing things (repairs, combat, hacking...), not for quest requirements.
+    #[serde(default)]
+    pub skills: Vec<(Skill, u32)>,
+    /// How it looks: a `CLOTHES` palette index for caps, jackets and shoes.
+    #[serde(default)]
+    pub color: Option<u8>,
+    /// Sunglasses on the avatar.
+    #[serde(default)]
+    pub shades: bool,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -391,6 +440,17 @@ impl Content {
     /// Returns every broken reference. Empty = good.
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
+        for def in self.items.values() {
+            if let Some(g) = &def.gear {
+                let ctx = format!("item `{}`", def.id);
+                if g.color.is_some_and(|c| c as usize >= crate::appearance::CLOTHES.len()) {
+                    errors.push(format!("{ctx}: gear color out of range"));
+                }
+                if def.max_stack != 1 || def.weapon.is_some() || def.consumable {
+                    errors.push(format!("{ctx}: gear must not stack, be a weapon or be consumable"));
+                }
+            }
+        }
         let item = |errors: &mut Vec<String>, ctx: &str, id: &str| {
             if !self.items.contains_key(id) {
                 errors.push(format!("{ctx}: unknown item `{id}`"));

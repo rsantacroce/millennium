@@ -16,6 +16,16 @@ pub struct Appearance {
     pub cap: u8,
 }
 
+/// What a player's worn gear looks like (replicated; overrides parts of their `Appearance`).
+/// Colors are `CLOTHES` indices.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Outfit {
+    pub cap: Option<u8>,
+    pub jacket: Option<u8>,
+    pub shoes: Option<u8>,
+    pub shades: bool,
+}
+
 impl Default for Appearance {
     fn default() -> Self {
         Self { body: 1, skin: 2, jacket: 3, pants: 0, cap: 5 }

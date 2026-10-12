@@ -9,7 +9,7 @@
 //! if every step succeeds, so a failed purchase can never take your cash without giving you
 //! the item.
 
-use crate::content::{Condition, Content, Effect, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill};
+use crate::content::{Condition, Content, Effect, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
@@ -43,6 +43,9 @@ pub struct PlayerState {
     /// Kills per mob since its counter was last reset (for "knock out 5 ..." quests).
     #[serde(default)]
     pub kills: BTreeMap<MobId, u32>,
+    /// Worn gear (not in the inventory while worn).
+    #[serde(default)]
+    pub gear: BTreeMap<GearSlot, ItemId>,
 }
 
 /// Something the player should be told about.
@@ -134,6 +137,7 @@ impl PlayerState {
             skills: BTreeMap::new(),
             weapon: None,
             kills: BTreeMap::new(),
+            gear: BTreeMap::new(),
         }
     }
 
@@ -455,6 +459,9 @@ impl PlayerState {
         if def.weapon.is_some() {
             return self.equip(slot, content).map(UseOutcome::Equipped);
         }
+        if def.gear.is_some() {
+            return self.wear(slot, content).map(UseOutcome::Equipped);
+        }
         if let Some(amount) = def.heal {
             let text = def.on_use.clone().unwrap_or_default();
             let item = stack.item.clone();
@@ -484,6 +491,66 @@ impl PlayerState {
             events.push(GameEvent::Unequipped(prev));
         }
         Ok(events)
+    }
+
+    /// Wears the gear in `slot`; whatever was worn there goes into that slot.
+    pub fn wear(&mut self, slot: usize, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(stack) = self.inventory.get(slot).cloned().flatten() else { return err("That slot is empty.") };
+        let Some(gear) = content.item(&stack.item).and_then(|d| d.gear.as_ref()) else { return err("You can't wear that.") };
+        if stack.qty != 1 {
+            // Gear doesn't stack, but be safe: never swap a stack away.
+            return err("Take one off the stack first.");
+        }
+        let mut events = vec![GameEvent::Equipped(stack.item.clone())];
+        let previous = self.gear.insert(gear.slot, stack.item.clone());
+        self.inventory[slot] = previous.clone().map(|item| ItemStack { item, qty: 1 });
+        if let Some(prev) = previous {
+            events.push(GameEvent::Unequipped(prev));
+        }
+        Ok(events)
+    }
+
+    /// Takes off what's worn in a gear slot.
+    pub fn take_off(&mut self, slot: GearSlot, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+        let Some(item) = self.gear.get(&slot).cloned() else { return err("You're not wearing anything there.") };
+        let mut events = self.transact(content, |s, events| s.add_item(&item, 1, content, events))?;
+        self.gear.remove(&slot);
+        events.retain(|e| !matches!(e, GameEvent::Gained(..)));
+        events.push(GameEvent::Unequipped(item));
+        Ok(events)
+    }
+
+    fn worn<'a>(&'a self, content: &'a Content) -> impl Iterator<Item = &'a GearStats> {
+        self.gear.values().filter_map(|i| content.item(i)).filter_map(|d| d.gear.as_ref())
+    }
+
+    /// Bonus levels from worn gear.
+    pub fn gear_bonus(&self, skill: Skill, content: &Content) -> u32 {
+        self.worn(content).flat_map(|g| g.skills.iter()).filter(|(s, _)| *s == skill).map(|(_, b)| b).sum()
+    }
+
+    /// The level that counts when *doing* something: real level plus gear.
+    pub fn effective_level(&self, skill: Skill, content: &Content) -> u32 {
+        self.level(skill) + self.gear_bonus(skill, content)
+    }
+
+    pub fn armor(&self, content: &Content) -> u32 {
+        self.worn(content).map(|g| g.armor).sum()
+    }
+
+    pub fn gear_hp(&self, content: &Content) -> u32 {
+        self.worn(content).map(|g| g.max_hp).sum()
+    }
+
+    /// What the worn gear looks like on the avatar.
+    pub fn outfit(&self, content: &Content) -> crate::appearance::Outfit {
+        let color = |slot| self.gear.get(&slot).and_then(|i| content.item(i)).and_then(|d| d.gear.as_ref()).and_then(|g| g.color);
+        crate::appearance::Outfit {
+            cap: color(GearSlot::Head),
+            jacket: color(GearSlot::Body),
+            shoes: color(GearSlot::Feet),
+            shades: self.worn(content).any(|g| g.shades),
+        }
     }
 
     /// Puts the equipped weapon back into the inventory.
@@ -631,7 +698,7 @@ impl PlayerState {
         {
             return err(format!("You need a {} for that.", content.item_name(tool)));
         }
-        if self.level(recipe.skill) < recipe.level {
+        if self.effective_level(recipe.skill, content) < recipe.level {
             return err(format!("You need {} level {} for that.", recipe.skill.name(), recipe.level));
         }
         Ok(())
@@ -828,6 +895,37 @@ mod tests {
         s.buy(shop(&c, "corner_store"), "soda", 1, &c).unwrap();
         let soda = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "soda")).unwrap();
         assert!(s.equip(soda, &c).is_err());
+    }
+
+    #[test]
+    fn wearing_gear() {
+        let c = content();
+        let mut s = PlayerState::new(100);
+        s.apply(&[Effect::GiveItem("windbreaker".into(), 1), Effect::GiveItem("bomber_jacket".into(), 1)], &c).unwrap();
+        s.apply(&[Effect::GiveItem("wraparound_shades".into(), 1)], &c).unwrap();
+        let base_fitness = s.level(Skill::Fitness);
+        s.use_item(0, &c).unwrap();
+        assert_eq!(s.gear.get(&GearSlot::Body).map(String::as_str), Some("windbreaker"));
+        assert_eq!(s.effective_level(Skill::Fitness, &c), base_fitness + 1);
+        assert_eq!(s.level(Skill::Fitness), base_fitness, "quests see the real level");
+        // The bomber jacket replaces the windbreaker, which goes back into its slot.
+        s.use_item(1, &c).unwrap();
+        assert_eq!(s.inventory[1].as_ref().unwrap().item, "windbreaker");
+        assert_eq!((s.armor(&c), s.gear_hp(&c)), (2, 8));
+        assert_eq!(crate::combat::after_armor(5, &s, &c), 3);
+        assert_eq!(crate::combat::after_armor(1, &s, &c), 1, "something always gets through");
+        s.use_item(2, &c).unwrap();
+        let look = s.outfit(&c);
+        assert_eq!((look.jacket, look.shades, look.cap), (Some(1), true, None));
+        // Taking it off needs room, and puts it back in the inventory.
+        s.take_off(GearSlot::Body, &c).unwrap();
+        assert!(s.gear.get(&GearSlot::Body).is_none());
+        assert_eq!(s.count("bomber_jacket"), 1);
+        assert!(s.take_off(GearSlot::Feet, &c).is_err());
+        // A soda can't be worn.
+        s.apply(&[Effect::GiveItem("soda".into(), 1)], &c).unwrap();
+        let soda = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "soda")).unwrap();
+        assert!(s.wear(soda, &c).is_err());
     }
 
     #[test]

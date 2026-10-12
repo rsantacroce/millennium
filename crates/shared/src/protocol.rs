@@ -66,6 +66,8 @@ pub enum GameAction {
     EnterCar { car: i64 },
     /// Get out (the car must be nearly stopped).
     ExitCar,
+    /// Take off what's worn in a gear slot (wearing is `UseItem`).
+    TakeOff { slot: crate::content::GearSlot },
 }
 
 /// Trading, parties, friends and crews.
@@ -391,6 +393,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<MobTag>().replicate();
         app.component::<Health>().replicate();
         app.component::<CrewTag>().replicate();
+        app.component::<crate::appearance::Outfit>().replicate();
         app.component::<crate::vehicle::ParkedCar>().replicate();
         // Like Position: predicted for the driver, interpolated for everyone else.
         app.component::<crate::vehicle::Driving>()

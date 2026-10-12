@@ -29,7 +29,21 @@
     (
         id: "earl_salvage",
         name: "Earl's Salvage",
-        sells: [("wrench", 12), ("first_aid_kit", 6), ("rusty_carburetor", 8), ("spark_plug", 9)],
+        sells: [("wrench", 12), ("first_aid_kit", 6), ("rusty_carburetor", 8), ("spark_plug", 9), ("work_boots", 24)],
         buy_rate: 0.6,
+    ),
+    (
+        id: "threads",
+        name: "Threads Outlet",
+        sells: [
+            ("trucker_cap", 14),
+            ("bucket_hat", 10),
+            ("flannel_shirt", 16),
+            ("windbreaker", 26),
+            ("bomber_jacket", 55),
+            ("skate_shoes", 22),
+            ("wraparound_shades", 18),
+        ],
+        buy_rate: 0.4,
     ),
 ]

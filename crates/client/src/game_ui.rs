@@ -80,6 +80,7 @@ enum Click {
     Use,
     Sell,
     Unequip,
+    TakeOff(shared::content::GearSlot),
     Offer,
     Close(Window),
 }
@@ -305,6 +306,7 @@ fn clicks(
                 }
             }
             Click::Unequip => act(&mut client, GameAction::Unequip),
+            Click::TakeOff(slot) => act(&mut client, GameAction::TakeOff { slot }),
             Click::Offer => {
                 if let Some(stack) = panels.selected.and_then(|i| state.inventory.get(i).cloned().flatten()) {
                     offer_stack(&mut social, &mut social_client, stack);
@@ -480,8 +482,11 @@ fn render_inventory(
         Some(def) => {
             commands.spawn((ChildOf(body), label(def.name.clone(), theme::FONT_SMALL, theme::TEXT)));
             commands.spawn((ChildOf(body), label(def.description.clone(), 12.0, theme::MUTED_TEXT)));
+            if let Some(g) = &def.gear {
+                commands.spawn((ChildOf(body), label(format!("Worn on: {}", g.slot.name()), 12.0, theme::TEXT)));
+            }
             let row = commands.spawn((ChildOf(body), Node { column_gap: Val::Px(4.0), ..default() })).id();
-            commands.spawn((ChildOf(row), Click::Use, button("Use")));
+            commands.spawn((ChildOf(row), Click::Use, button(if def.gear.is_some() { "Wear" } else { "Use" })));
             if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.buy_price(&def)) {
                 commands.spawn((ChildOf(row), Click::Sell, button(format!("Sell ${price}"))));
             }
@@ -492,6 +497,17 @@ fn render_inventory(
         None => {
             commands.spawn((ChildOf(body), label("Click an item to select it; click another slot to move it.", 12.0, theme::MUTED_TEXT)));
         }
+    }
+    // What you're wearing.
+    for slot in shared::content::GearSlot::ALL {
+        let Some(item) = state.gear.get(&slot) else { continue };
+        let row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() })).id();
+        commands.spawn((
+            ChildOf(row),
+            label(format!("{}: {}", slot.name(), content.item_name(item)), theme::FONT_SMALL, theme::TEXT),
+            Node { flex_grow: 1.0, ..default() },
+        ));
+        commands.spawn((ChildOf(row), Click::TakeOff(slot), button("Off")));
     }
     let weapon_row = commands.spawn((ChildOf(body), Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() })).id();
     let weapon = state.weapon.as_deref().map_or("Fists", |w| content.item_name(w)).to_string();
@@ -532,7 +548,13 @@ fn render_quests(
     }
 }
 
-fn render_skills(mut commands: Commands, panels: Res<Panels>, state: Res<LocalState>, roots: Query<Entity, With<SkillsRoot>>) {
+fn render_skills(
+    mut commands: Commands,
+    panels: Res<Panels>,
+    state: Res<LocalState>,
+    content: Res<Content>,
+    roots: Query<Entity, With<SkillsRoot>>,
+) {
     if !panels.is_changed() && !state.is_changed() {
         return;
     }
@@ -547,9 +569,10 @@ fn render_skills(mut commands: Commands, panels: Res<Panels>, state: Res<LocalSt
         let level = level_for_xp(xp);
         let (from, to) = (xp_for_level(level), xp_for_level((level + 1).min(MAX_LEVEL)));
         let frac = if to > from { (xp - from) as f32 / (to - from) as f32 } else { 1.0 };
-        let trainable = matches!(skill, Skill::Electronics | Skill::Fitness);
-        let color = if trainable { theme::TEXT } else { theme::MUTED_TEXT };
-        commands.spawn((ChildOf(body), label(format!("{:<12} Lv {level:<2}  {xp} xp", skill.name()), theme::FONT_SMALL, color)));
+        let color = if xp > 0 { theme::TEXT } else { theme::MUTED_TEXT };
+        let bonus = state.gear_bonus(skill, &content);
+        let bonus = if bonus > 0 { format!(" (+{bonus})") } else { String::new() };
+        commands.spawn((ChildOf(body), label(format!("{:<12} Lv {level:<2}{bonus}  {xp} xp", skill.name()), theme::FONT_SMALL, color)));
         commands.spawn((
             ChildOf(body),
             Node { height: Val::Px(8.0), border: UiRect::all(Val::Px(1.0)), margin: UiRect::bottom(Val::Px(3.0)), ..default() },
@@ -558,7 +581,7 @@ fn render_skills(mut commands: Commands, panels: Res<Panels>, state: Res<LocalSt
             children![(Node { width: Val::Percent(frac * 100.0), ..default() }, BackgroundColor(theme::TITLE_LEFT))],
         ));
     }
-    commands.spawn((ChildOf(body), label("Electronics: repair things. Fitness: win fights.", 12.0, theme::MUTED_TEXT)));
+    commands.spawn((ChildOf(body), label("(+N) = bonus from what you're wearing.", 12.0, theme::MUTED_TEXT)));
 }
 
 fn render_progress(

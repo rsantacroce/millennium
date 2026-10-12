@@ -15,6 +15,7 @@ use crate::social::party::Parties;
 use crate::zones::ZoneRooms;
 use bevy::prelude::*;
 use lightyear::prelude::*;
+use shared::appearance::Outfit;
 use shared::combat::{self, MELEE_RANGE, MOB_SPEED_FACTOR, POWER_SWING_COOLDOWN, POWER_SWING_MULTIPLIER, REGEN_DELAY, REGEN_PER_SEC};
 use shared::content::{Content, MobDef};
 use shared::game::GameEvent;
@@ -310,6 +311,7 @@ fn mob_ai(
     >,
     mut updates: Query<&mut MessageSender<GameUpdate>>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
+    armor_of: Query<&Progress>,
     mut knockouts: Local<Vec<Entity>>,
 ) {
     let dt = time.timestep().as_secs_f32();
@@ -367,7 +369,8 @@ fn mob_ai(
                 if pos.0.distance(target_pos.0) <= MOB_REACH {
                     if now >= brain.next_attack {
                         brain.next_attack = now + def.attack_speed as f64;
-                        let damage = roll(def.min_damage, def.max_damage);
+                        let raw = roll(def.min_damage, def.max_damage);
+                        let damage = armor_of.get(player).map_or(raw, |p| combat::after_armor(raw, p, &content));
                         target_health.current = target_health.current.saturating_sub(damage);
                         fighter.last_hurt = now;
                         float(&mut updates, link.0, CombatTarget::Mob(tag.id), format!("-{damage}"), FloatKind::Hurt);
@@ -446,10 +449,14 @@ fn regenerate(time: Res<Time<Real>>, mut players: Query<(&mut Health, &mut Fight
     }
 }
 
-/// Fitness level-ups raise max health.
-fn sync_max_health(mut players: Query<(&Progress, &mut Health), Changed<Progress>>) {
-    for (progress, mut health) in &mut players {
-        let max = combat::max_hp(progress);
+/// Fitness level-ups (and gear) change max health; gear also changes how you look.
+fn sync_max_health(mut players: Query<(&Progress, &mut Health, &mut Outfit), Changed<Progress>>, content: Res<Content>) {
+    for (progress, mut health, mut outfit) in &mut players {
+        let look = progress.outfit(&content);
+        if *outfit != look {
+            *outfit = look;
+        }
+        let max = combat::max_hp(progress, &content);
         if health.max != max {
             let gained = max.saturating_sub(health.max);
             health.max = max;
