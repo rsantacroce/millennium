@@ -81,6 +81,11 @@ fn rgb([r, g, b]: [f32; 3]) -> Color {
     Color::srgb(r, g, b)
 }
 
+/// A tight shadow: the default one is offset so far it reads as a second label at map size.
+fn shadow() -> TextShadow {
+    TextShadow { offset: Vec2::splat(1.0), color: Color::BLACK.with_alpha(0.8) }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_map(
     mut commands: Commands,
@@ -136,23 +141,34 @@ fn render_map(
     }
     for o in &zone.obstacles {
         let building = o.kind == ObstacleKind::Building;
-        let color = if building { rgb(o.color).darker(0.1) } else { rgb(o.color).with_alpha(0.7) };
+        let color = if building { rgb(o.color.map(|c| c * 0.85)) } else { rgb(o.color).with_alpha(0.7) };
         let e = rect(&mut commands, o.rect, color);
         // Names on buildings big enough to hold them.
         if building && o.rect.size().x * scale > 40.0 && o.name != "House" {
-            commands.spawn((ChildOf(e), Text::new(o.name), theme::text_font(10.0), TextColor(Color::WHITE), TextShadow::default(), Pickable::IGNORE));
+            commands.spawn((ChildOf(e), Text::new(o.name), theme::text_font(10.0), TextColor(Color::WHITE), shadow(), Pickable::IGNORE));
         }
     }
     for p in &zone.portals {
         let e = rect(&mut commands, p.rect.inflate(0.8), Color::srgb(0.2, 1.0, 0.6));
         let name = p.name.split(':').next_back().unwrap_or(p.name).trim().to_string();
+        // Labels go above the exit, or below it at the top edge; right-aligned at the right edge.
+        let at = proj.px(p.rect.center());
+        let mut label = Node { position_type: PositionType::Absolute, ..default() };
+        if at.y < 16.0 {
+            label.bottom = Val::Px(-14.0);
+        } else {
+            label.top = Val::Px(-14.0);
+        }
+        if at.x > w - 60.0 {
+            label.right = Val::Px(0.0);
+        }
         commands.spawn((
             ChildOf(e),
-            Node { position_type: PositionType::Absolute, top: Val::Px(-14.0), ..default() },
+            label,
             Text::new(name),
             theme::text_font(10.0),
             TextColor(Color::srgb(0.6, 1.0, 0.7)),
-            TextShadow::default(),
+            shadow(),
             Pickable::IGNORE,
         ));
     }
@@ -173,7 +189,7 @@ fn render_map(
                 Text::new(def.name.clone()),
                 theme::text_font(10.0),
                 TextColor(Color::srgb(1.0, 0.85, 0.5)),
-                TextShadow::default(),
+                shadow(),
             )],
         ));
     }
@@ -203,15 +219,25 @@ fn move_you(me: Query<(&Position, &ZoneId), With<LocalAvatar>>, zones: Res<ZoneR
 
 /// Up to three active quests, their next step and how-to hints (the tutorial's first),
 /// bottom right.
-fn render_tracker(mut commands: Commands, state: Res<LocalState>, content: Res<Content>, settings: Res<Settings>, roots: Query<Entity, With<TrackerRoot>>) {
-    if !state.is_changed() && !settings.is_changed() && !roots.is_empty() {
+fn render_tracker(
+    mut commands: Commands,
+    state: Res<LocalState>,
+    content: Res<Content>,
+    settings: Res<Settings>,
+    me: Query<Ref<ZoneId>, With<LocalAvatar>>,
+    roots: Query<Entity, With<TrackerRoot>>,
+) {
+    let zone = me.single().ok();
+    let zone_changed = zone.as_ref().is_some_and(|z| z.is_changed());
+    if !state.is_changed() && !settings.is_changed() && !zone_changed && !roots.is_empty() {
         return;
     }
     for r in &roots {
         commands.entity(r).despawn();
     }
     let mut active: Vec<(String, String, Option<String>)> = Vec::new();
-    if state.quests.is_empty() {
+    // Pruitt only stands Downtown, where new characters arrive.
+    if state.quests.is_empty() && zone.is_some_and(|z| *z == ZoneId::DOWNTOWN) {
         let name = content.quests.get(TUTORIAL).map_or("Getting started", |q| q.name.as_str());
         active.push((name.to_string(), String::new(), Some(TUTORIAL_HINT.to_string())));
     }

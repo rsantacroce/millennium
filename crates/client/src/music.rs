@@ -31,7 +31,7 @@ const MIX: f32 = 0.6;
 const ANTENNA: Vec2 = Vec2::new(4.0, -16.6);
 const ANTENNA_RANGE: f32 = 18.0;
 /// How long the station name stays on screen.
-const STATION_LABEL_SECS: f32 = 3.0;
+const STATION_LABEL_SECS: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Track {
@@ -179,7 +179,7 @@ fn radio_keys(
         DespawnOnExit(AppState::InGame),
         Node { position_type: PositionType::Absolute, top: Val::Px(72.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
         Pickable::IGNORE,
-        children![(Text::new(text), theme::text_font(14.0), TextColor(Color::srgb(0.6, 1.0, 0.7)), TextShadow::default())],
+        children![(Text::new(text), theme::text_font(14.0), TextColor(Color::srgb(0.6, 1.0, 0.7)), TextShadow { offset: Vec2::splat(1.0), color: Color::BLACK.with_alpha(0.8) })],
     ));
 }
 
@@ -190,10 +190,16 @@ fn choose(
     radio: Res<CarRadio>,
     me: Query<(&Position, &ZoneId, Has<Driving>), With<LocalAvatar>>,
     mut voices: Query<&mut Voice>,
+    mut last: Local<Option<Option<Track>>>,
 ) {
     let Ok((pos, zone, driving)) = me.single() else { return };
     let hour = shared::clock::hour(shared::clock::now_ms());
-    let want = wanted(*zone, pos.0, hour, driving.then_some(radio.station)).filter(|_| settings.music_volume > 0.0);
+    let want = wanted(*zone, pos.0, hour, driving.then_some(radio.station));
+    if *last != Some(want) {
+        info!("music: {want:?}");
+        *last = Some(want);
+    }
+    let want = want.filter(|_| settings.music_volume > 0.0);
     let mut playing = false;
     for mut v in &mut voices {
         let keep = Some(v.track) == want;

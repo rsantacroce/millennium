@@ -316,6 +316,12 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
         );
         commands.entity(body).insert(Name::new(obstacle.name));
         if obstacle.kind != ObstacleKind::Building {
+            // Tall props (trees, the hoop, phone booths) fade too, so you never lose yourself
+            // behind a pine.
+            if h >= 3.0 {
+                let (min, max) = (obstacle.rect.min, obstacle.rect.max);
+                commands.entity(body).insert(Occluder { min: Vec3::new(min.x, 0.0, min.y), max: Vec3::new(max.x, h, max.y), materials: vec![body_mat], alpha: 1.0 });
+            }
             continue;
         }
         // Each building gets its own materials so it can fade on its own.
@@ -392,7 +398,7 @@ fn facing_side(rect: Rect, streets: &[Rect]) -> (Vec2, Vec2) {
     (best, best)
 }
 
-/// A building that fades out when it hides the player.
+/// A building (or tall prop) that fades out when it hides the player.
 #[derive(Component)]
 struct Occluder {
     min: Vec3,
@@ -428,7 +434,7 @@ fn segment_hits_box(a: Vec3, b: Vec3, min: Vec3, max: Vec3) -> bool {
     true
 }
 
-/// Buildings between the camera and the player turn see-through.
+/// Buildings and trees between the camera and the player turn see-through.
 fn fade_occluders(
     time: Res<Time>,
     camera: Single<&Transform, With<MainCamera>>,

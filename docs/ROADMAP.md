@@ -29,7 +29,7 @@ What a new player notices first.
 - [x] Map window (full zone map with NPCs, shops and portals) and an on-screen quest tracker
 - [x] Tooltips on items, skills and buttons
 - [x] Music: era-appropriate tracks, a car radio, and Radio Free Maple you can tune into
-- [ ] A visual check of Maple Heights, Route 9, Pinecrest and Hollow Pines
+- [x] A visual check of Maple Heights, Route 9, Pinecrest and Hollow Pines (plus the new map, tracker, tutorial, settings and radio UI)
 
 ## Next: running it for real players
 

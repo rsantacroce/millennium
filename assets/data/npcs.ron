@@ -5,7 +5,7 @@
         id: "pruitt",
         name: "Officer Pruitt",
         zone: 1,
-        position: (-9.5, -6.0),
+        position: (-8.5, -6.0),
         facing: 90.0,
         appearance: (body: 2, skin: 2, jacket: 1, pants: 1, cap: 1),
         dialogue: "pruitt",

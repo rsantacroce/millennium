@@ -16,7 +16,7 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   *Pinecrest* and *Hollow Pines State Park*. Buses run back for anyone on foot.
 - **Day and night:** a 40-minute day. Streetlamps and lit windows at night; some people (and
   some trouble) only come out after dark.
-- Click to walk anywhere, or use WASD. Shops fade out when they'd hide you, and the game
+- Click to walk anywhere, or use WASD. Shops and trees fade out when they'd hide you, and the game
   synthesizes its own sound effects (including a dial-up modem on login) and its own music: a
   loop for each part of town, a night mix, a car radio, and the pirate station on the roofs.
 - **NPCs and quests:** dialogue trees, a quest log, and quests from **56k Dreams** to the
@@ -648,9 +648,9 @@ Plays the tutorial, **Welcome to the City**, as a brand-new character:
 
 ```sh
 cargo run -p shared --example smoke -- --name Newbie --interval 0.7 \
-  --step "!goto -8.3 -6" --step "!talk pruitt" --step "!choose First" --step "!choose Sure" \
+  --step "!goto -7.5 -6" --step "!talk pruitt" --step "!choose First" --step "!choose Sure" \
   --step "!goto -14 5.6" --step "!talk kim" --step "!choose Let" --step "!buy soda 1" --step "!closeshop" \
-  --step "!goto -8.3 -6" --step "!talk pruitt" --step "!choose Here" --step "!state"
+  --step "!goto -7.5 -6" --step "!talk pruitt" --step "!choose Here" --step "!state"
 ```
 
 Plays **56k Dreams** from start to finish against a running server:
