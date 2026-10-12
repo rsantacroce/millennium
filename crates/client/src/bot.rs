@@ -72,9 +72,47 @@ impl Plugin for BotPlugin {
                 pause: Timer::from_seconds(1.0, TimerMode::Repeating),
                 wait: None,
             })
-            .add_systems(Update, run_script.run_if(in_state(AppState::InGame)));
+            .add_systems(Update, run_script.run_if(in_state(AppState::InGame)))
+            .add_systems(Update, run_login_script.run_if(in_state(AppState::Login)));
         }
     }
+}
+
+/// Steps on the sign-on screen (before signing in, so without `--password`): `!account
+/// forgot|change|delete` opens that window, plus `!wait SECS` and `!shot FILE`. Other steps wait
+/// for the game.
+fn run_login_script(time: Res<Time>, mut script: ResMut<Script>, mut view: ResMut<crate::account_ui::AccountView>, mut commands: Commands) {
+    if let Some(wait) = script.wait.as_mut() {
+        if !wait.tick(time.delta()).just_finished() {
+            return;
+        }
+        script.wait = None;
+    }
+    if !script.pause.tick(time.delta()).just_finished() {
+        return;
+    }
+    let Some(step) = script.steps.front().cloned() else { return };
+    let step: &str = &step;
+    let words: Vec<&str> = step.split_whitespace().collect();
+    match words.as_slice() {
+        ["!account", which] => {
+            use crate::account_ui::AccountView;
+            *view = match *which {
+                "forgot" => AccountView::Forgot,
+                "change" => AccountView::ChangePassword,
+                "delete" => AccountView::Delete,
+                _ => AccountView::Closed,
+            };
+        }
+        ["!wait", secs] => script.wait = secs.parse().ok().map(|s| Timer::from_seconds(s, TimerMode::Once)),
+        ["!shot", path] => {
+            let path = std::path::PathBuf::from(path);
+            commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
+        }
+        _ => return,
+    }
+    info!("login script step: {step}");
+    script.steps.pop_front();
 }
 
 /// Walk a slow figure-eight around the spawn crossroads.
@@ -218,6 +256,7 @@ fn run_script(
                 act(GameAction::UseItem { slot });
             }
         }
+        ["!dismiss"] => commands.remove_resource::<crate::account_ui::NewRecoveryCode>(),
         ["!select", slot] => panels.selected = slot.parse().ok(),
         ["!wait", secs] => script.wait = secs.parse().ok().map(|s| Timer::from_seconds(s, TimerMode::Once)),
         _ => match parse_input(&step) {

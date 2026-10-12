@@ -91,7 +91,7 @@ fn small(commands: &mut Commands, parent: Entity, text: &str, click: Click, tip:
     commands.spawn((ChildOf(parent), click, button(text), Tooltip::new(tip)));
 }
 
-fn render(mut commands: Commands, view: Res<AdminView>, roots: Query<Entity, With<AdminRoot>>) {
+fn render(mut commands: Commands, view: Res<AdminView>, me: Option<Res<crate::net::LocalPlayer>>, roots: Query<Entity, With<AdminRoot>>) {
     if !view.is_changed() {
         return;
     }
@@ -106,7 +106,12 @@ fn render(mut commands: Commands, view: Res<AdminView>, roots: Query<Entity, Wit
     for (name, zone, muted) in &panel.players {
         let r = row(&mut commands, body);
         let who = if *muted { format!("{name} (muted)") } else { name.clone() };
-        commands.spawn((ChildOf(r), label(format!("{who} - {zone}"), 12.0, theme::TEXT), Node { flex_grow: 1.0, ..default() }));
+        let mine = me.as_ref().is_some_and(|m| m.name.eq_ignore_ascii_case(name));
+        let who = if mine { format!("{who} (you)") } else { who };
+        commands.spawn((ChildOf(r), label(format!("{who} - {zone}"), 12.0, theme::TEXT), Node { flex_grow: 1.0, min_height: Val::Px(26.0), ..default() }));
+        if mine {
+            continue;
+        }
         small(&mut commands, r, "Kick", Click::Send(ChatAction::Kick { name: name.clone(), reason: String::new() }), "Disconnect them (they can log back in).");
         if *muted {
             small(&mut commands, r, "Unmute", Click::Send(ChatAction::Unmute { name: name.clone() }), "Let them chat again.");

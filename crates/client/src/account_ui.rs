@@ -76,13 +76,13 @@ impl Plugin for AccountUiPlugin {
 
 /// The small links under the sign-on window's buttons (spawned by `login_ui`).
 pub fn spawn_links(body: &mut ChildSpawnerCommands) {
-    body.spawn(Node { column_gap: Val::Px(6.0), justify_content: JustifyContent::FlexEnd, ..default() }).with_children(|row| {
+    body.spawn(Node { justify_content: JustifyContent::SpaceBetween, ..default() }).with_children(|row| {
         for (text, view) in [("Forgot password?", AccountView::Forgot), ("Change password", AccountView::ChangePassword), ("Delete account", AccountView::Delete)] {
             row.spawn((
                 Click::Open(view),
                 Button,
                 Node { padding: UiRect::axes(Val::Px(2.0), Val::Px(0.0)), ..default() },
-                children![(Text::new(text), theme::text_font(12.0), TextColor(Color::srgb(0.0, 0.0, 0.8)))],
+                children![(Text::new(text), theme::text_font(11.0), TextColor(Color::srgb(0.0, 0.0, 0.8)), TextLayout::no_wrap())],
             ));
         }
     });
@@ -251,6 +251,8 @@ fn spawn_window(commands: &mut Commands, view: AccountView, title: &'static str,
                 align_items: AlignItems::Center,
                 ..default()
             },
+            // Dim the sign-on window behind, so the two don't run together.
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.1, 0.5)),
             GlobalZIndex(10),
         ))
         .with_children(|root| {
@@ -353,7 +355,13 @@ fn notice(
         }
         return;
     }
-    let Some(code) = code else { return };
+    let Some(code) = code else {
+        // Dismissed some other way (the bot's `!dismiss`).
+        for r in &roots {
+            commands.entity(r).despawn();
+        }
+        return;
+    };
     if !roots.is_empty() {
         return;
     }

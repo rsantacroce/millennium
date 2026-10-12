@@ -13,7 +13,7 @@ use crate::persistence::Db;
 use crate::session::Progress;
 use bevy::prelude::*;
 use lightyear::metrics::metrics::Key;
-use lightyear::metrics::prelude::{MetricsPlugin as TransportMetrics, MetricsRegistry, GLOBAL_RECORDER};
+use lightyear::metrics::prelude::{MetricsRegistry, GLOBAL_RECORDER};
 use lightyear::prelude::server::ClientOf;
 use lightyear::prelude::Connected;
 use serde::Deserialize;
@@ -128,7 +128,10 @@ impl Plugin for MetricsPlugin {
             }
         }
         let now = Instant::now();
-        app.add_plugins(TransportMetrics::with_registry(GLOBAL_RECORDER.clone()))
+        // lightyear's process-wide registry: it becomes the `metrics` recorder exactly once per
+        // process, even when Host Game starts a second server (lightyear's own plugin would try
+        // again and log an error).
+        app.insert_resource(GLOBAL_RECORDER.clone())
             .insert_resource(published)
             .init_resource::<Joins>()
             .insert_resource(Window {
@@ -145,8 +148,13 @@ impl Plugin for MetricsPlugin {
                 timer: Timer::from_seconds(WINDOW_SECS, TimerMode::Repeating),
             })
             .add_systems(First, frame_started)
-            .add_systems(Last, (frame_finished, snapshot).chain());
+            .add_systems(Last, (frame_finished, snapshot, clear_histograms).chain());
     }
+}
+
+/// lightyear records some histograms every frame; they'd grow forever if nobody emptied them.
+fn clear_histograms(registry: Res<MetricsRegistry>) {
+    registry.clear_atomic_buckets();
 }
 
 fn frame_started(mut window: ResMut<Window>) {
@@ -176,7 +184,7 @@ fn snapshot(
     joins: Res<Joins>,
     config: Res<ServerConfig>,
     zones: Res<ZoneRegistry>,
-    registry: Option<Res<MetricsRegistry>>,
+    registry: Res<MetricsRegistry>,
     players: Query<&ZoneId, With<Progress>>,
     links: Query<(), (With<ClientOf>, With<Connected>)>,
     entities: Query<Entity>,
@@ -189,7 +197,7 @@ fn snapshot(
     let commands = stats.commands.load(Ordering::Relaxed);
     let busy = stats.busy_micros.load(Ordering::Relaxed);
     let new_commands = commands - window.db_commands;
-    let net = registry.as_deref().map(network_totals).unwrap_or_default();
+    let net = network_totals(&registry);
     let mut by_zone: BTreeMap<u16, usize> = BTreeMap::new();
     for zone in &players {
         *by_zone.entry(zone.0).or_default() += 1;
