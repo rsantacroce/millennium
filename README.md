@@ -4,7 +4,9 @@ An online RPG set around the year 2000: a persistent city of CRT monitors, pager
 cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 [lightyear](https://github.com/cBournhonesque/lightyear).
 
-**What's playable (Milestones 1–5):**
+**Website, player manual and full asset list:** <https://rsantacroce.github.io/millennium-site/>
+
+**What's playable (Milestones 1–7):**
 
 - **Accounts:** passwords hashed with argon2id, sent through a TLS login service. Up to 3
   characters per account, created with a body type, skin tone and outfit (jacket, pants, cap).
@@ -87,9 +89,10 @@ cargo run --release -p client -- --name Alice --password secret123
 With `--name` and `--password`, the client signs in straight away. It creates the account if it
 doesn't exist, and creates or picks a character with the same name.
 
-**Your first quest:** click **Dot** outside the Byte Cafe (the one with the **!**) to walk over and
-talk. She'll point you to Sal at Pawn & Pager and Mr. Kim's Corner Store. Use the fried modem
-from your inventory to repair it.
+**Your first quest:** a new character arrives next to **Officer Pruitt** (the **!** over his head).
+Walk up and press **E**: his errand, *Welcome to the City*, teaches walking, talking and shopping.
+Next, **Dot** outside the Byte Cafe has *56k Dreams*: she'll point you to Sal at Pawn & Pager and
+Mr. Kim's Corner Store. Use the fried modem from your inventory to repair it.
 
 **Then the docks:** the green glowing doorway of the Metro station (south-east corner) takes you to
 the Harbor Docks. Foreman Rizzo, by the Metro exit there, has trouble with the Dock Rats. Sal
@@ -136,6 +139,8 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 
 ## Testing tools
 
+- `cargo run -p shared --example catalog` prints every zone, character, item, quest, shop,
+  recipe, rival, hack, faction, car and race as HTML tables (the website's asset list).
 - `cargo test --workspace` runs the unit tests:
   - movement and collision
   - chat parsing, filter and sanitizer, rate limiter
