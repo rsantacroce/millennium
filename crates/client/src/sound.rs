@@ -24,6 +24,8 @@ pub enum Sfx {
     DialUp,
     Subway,
     KnockedOut,
+    /// A firework bursting: a crackle over a thump.
+    Firework,
 }
 
 /// Ask for a sound to be played.
@@ -168,6 +170,11 @@ fn design(sfx: Sfx) -> Vec<Seg> {
             s
         }
         Sfx::Subway => vec![seg(Noise, 600.0, 2500.0, 0.5, 0.25, 0.0), seg(Noise, 2500.0, 500.0, 0.6, 0.25, 0.45), seg(Sine, 110.0, 90.0, 1.0, 0.25, 0.0)],
+        Sfx::Firework => vec![
+            seg(Sine, 90.0, 40.0, 0.35, 0.5, 0.0),
+            seg(Noise, 4000.0, 1500.0, 0.25, 0.35, 0.0),
+            seg(Noise, 6000.0, 3000.0, 0.5, 0.12, 0.2),
+        ],
         Sfx::KnockedOut => vec![
             seg(Square, 440.0, 400.0, 0.25, 0.25, 0.0),
             seg(Square, 380.0, 340.0, 0.25, 0.25, 0.27),
@@ -178,7 +185,7 @@ fn design(sfx: Sfx) -> Vec<Seg> {
 
 fn synthesize_all(mut bank: ResMut<SfxBank>, mut sources: ResMut<Assets<AudioSource>>) {
     use Sfx::*;
-    for sfx in [Click, Chat, Whisper, Hit, Hurt, Coin, LevelUp, Quest, DialUp, Subway, KnockedOut] {
+    for sfx in [Click, Chat, Whisper, Hit, Hurt, Coin, LevelUp, Quest, DialUp, Subway, KnockedOut, Firework] {
         let bytes = wav(&render(&design(sfx)));
         bank.0.insert(sfx, sources.add(AudioSource { bytes: bytes.into() }));
     }
@@ -219,7 +226,7 @@ mod tests {
     #[test]
     fn every_sound_renders_a_valid_wav() {
         use Sfx::*;
-        for sfx in [Click, Chat, Whisper, Hit, Hurt, Coin, LevelUp, Quest, DialUp, Subway, KnockedOut] {
+        for sfx in [Click, Chat, Whisper, Hit, Hurt, Coin, LevelUp, Quest, DialUp, Subway, KnockedOut, Firework] {
             let samples = render(&design(sfx));
             assert!(!samples.is_empty(), "{sfx:?} is silent");
             assert!(samples.iter().all(|s| s.is_finite()));

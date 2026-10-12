@@ -33,6 +33,7 @@ mod tooltip;
 mod music;
 mod admin_ui;
 mod account_ui;
+mod event_ui;
 mod net;
 mod social_ui;
 mod settings;
@@ -161,6 +162,6 @@ fn main() {
             sound::SoundPlugin,
             chat_ui::ChatUiPlugin,
         ))
-        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin, hack_ui::HackUiPlugin, house_ui::HouseUiPlugin, settings::SettingsPlugin, map_ui::MapUiPlugin, tooltip::TooltipPlugin, music::MusicPlugin, admin_ui::AdminUiPlugin, account_ui::AccountUiPlugin));
+        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin, hack_ui::HackUiPlugin, house_ui::HouseUiPlugin, settings::SettingsPlugin, map_ui::MapUiPlugin, tooltip::TooltipPlugin, music::MusicPlugin, admin_ui::AdminUiPlugin, account_ui::AccountUiPlugin, event_ui::EventUiPlugin));
     app.run();
 }

@@ -14,6 +14,7 @@ mod chat;
 pub mod cluster;
 mod combat;
 pub mod config;
+mod events;
 mod gameplay;
 mod hacking;
 mod housing;
@@ -115,7 +116,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         housing::HousingPlugin,
     ));
     // Tuples top out at 15 plugins.
-    app.add_plugins((moderation::ModerationPlugin, metrics::MetricsPlugin));
+    app.add_plugins((moderation::ModerationPlugin, metrics::MetricsPlugin, events::EventsPlugin));
     if !app.world().resource::<ServerConfig>().multi_threaded {
         single_threaded(&mut app);
     }

@@ -349,8 +349,14 @@ fn receive(
     connected: Query<Has<Connected>, With<Client>>,
     mut was_connected: Local<bool>,
     content: Res<Content>,
+    mut world_events: Query<Option<&mut MessageReceiver<WorldEvent>>, With<Client>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    if let Ok(Some(mut rx)) = world_events.single_mut() {
+        for e in rx.receive() {
+            println!("EVENT  {} {:?} {}/{} ({}s left)", e.name, e.phase, e.progress, e.goal, (e.ends_at_ms - shared::clock::now_ms()) / 1000);
+        }
+    }
     let is_connected = connected.single().unwrap_or(false);
     if script.transferring {
         *was_connected = is_connected;

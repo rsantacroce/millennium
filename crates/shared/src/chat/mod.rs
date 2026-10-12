@@ -133,4 +133,9 @@ pub enum ChatAction {
     AdminPanel,
     /// Admin only: a new recovery code for someone who lost theirs (shown to the admin).
     IssueRecovery { name: String },
+    /// Admin only: start a world event, with a countdown of this many minutes (0 = right away)
+    /// and optionally a goal (default: from how many are online).
+    StartEvent { name: String, countdown_minutes: u32, goal: Option<u32> },
+    /// Admin only: call off the running world event.
+    StopEvent,
 }

@@ -203,6 +203,29 @@ fn spawn_prop(commands: &mut Commands, parent: Entity, prop: &str, meshes: &mut 
 }
 
 /// A big flat dot only the minimap camera can see (render layer 1).
+/// A Y2K Bug: a glossy black beetle with glowing red eyes, six legs and a green "circuit" stripe.
+/// (Not an `AvatarBody`, so outfit changes never turn it back into a person.)
+fn spawn_bug(commands: &mut Commands, parent: Entity, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+    let shell = materials.add(StandardMaterial { base_color: Color::srgb(0.05, 0.06, 0.05), perceptual_roughness: 0.25, metallic: 0.3, ..default() });
+    let stripe = materials.add(StandardMaterial { base_color: Color::srgb(0.1, 0.9, 0.3), emissive: LinearRgba::rgb(0.2, 2.5, 0.6), ..default() });
+    let eye = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.1, 0.05), emissive: LinearRgba::rgb(6.0, 0.3, 0.1), ..default() });
+    let body = commands.spawn((Transform::default(), Visibility::default(), ChildOf(parent))).id();
+    let mut part = |mesh: Mesh, material: &Handle<StandardMaterial>, at: Vec3| {
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), Transform::from_translation(at), ChildOf(body)));
+    };
+    part(Cuboid::new(0.8, 0.32, 1.0).into(), &shell, Vec3::new(0.0, 0.32, 0.0));
+    part(Cuboid::new(0.5, 0.26, 0.36).into(), &shell, Vec3::new(0.0, 0.3, -0.62));
+    part(Cuboid::new(0.1, 0.34, 1.02).into(), &stripe, Vec3::new(0.0, 0.33, 0.0));
+    for x in [-0.14, 0.14] {
+        part(Cuboid::new(0.1, 0.1, 0.06).into(), &eye, Vec3::new(x, 0.36, -0.81));
+    }
+    for z in [-0.3, 0.05, 0.4] {
+        for x in [-0.5, 0.5] {
+            part(Cuboid::new(0.32, 0.06, 0.06).into(), &shell, Vec3::new(x, 0.14, z));
+        }
+    }
+}
+
 pub fn minimap_dot(commands: &mut Commands, parent: Entity, color: Color, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
     commands.spawn((
         Mesh3d(meshes.add(Cylinder::new(1.4, 0.1))),
@@ -293,7 +316,10 @@ fn spawn_mob_visuals(
 ) {
     for (entity, tag, name, pos, appearance) in &new_mobs {
         commands.entity(entity).insert((Avatar, Transform::from_xyz(pos.x, 0.0, pos.y), Visibility::default()));
-        spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials);
+        match content.mobs.get(&tag.kind).and_then(|d| d.model.as_deref()) {
+            Some("bug") => spawn_bug(&mut commands, entity, &mut meshes, &mut materials),
+            _ => spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials),
+        }
         minimap_dot(&mut commands, entity, Color::srgb(0.9, 0.1, 0.1), &mut meshes, &mut materials);
         let level = content.mobs.get(&tag.kind).map_or(1, |d| d.level);
         name_tag(&mut commands, entity, &format!("{} ({level})", name.0), Color::srgb(1.0, 0.4, 0.35));

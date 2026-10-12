@@ -13,7 +13,8 @@
 //! /report Bob spamming       -> tell the admins (with Bob's recent chat)
 //! /mute Bob 10, /unmute Bob   (admins)
 //! /mod kick Bob [reason], /mod ban Bob [hours|perm] [reason], /mod unban Bob,
-//! /mod reports, /mod resolve 3, /mod resetcode Bob, /admin (the admin window)   (admins)
+//! /mod reports, /mod resolve 3, /mod resetcode Bob, /admin (the admin window),
+//! /mod event y2k [countdown minutes] [goal], /mod event stop   (admins)
 //! /give walkman 2, /givecar hatchback, /givecash 500, /givexp hacking 400   (admins, for testing)
 //! /help, /clear
 //! ```
@@ -158,6 +159,27 @@ pub fn parse_input(input: &str) -> Result<ChatInput, ParseError> {
                 }
                 "unban" => Ok(ChatInput::Action(ChatAction::Unban { name: one_name(rest, "/mod unban <name>")? })),
                 "reports" => Ok(ChatInput::Action(ChatAction::ListReports)),
+                "event" => {
+                    const EVENT: &str = "/mod event y2k [countdown minutes] [goal], /mod event stop";
+                    let (name, rest) = split_word(rest);
+                    let name = name.to_lowercase();
+                    if name == "stop" {
+                        return Ok(ChatInput::Action(ChatAction::StopEvent));
+                    }
+                    if !crate::content::EVENTS.contains(&name.as_str()) {
+                        return Err(ParseError::Usage(EVENT));
+                    }
+                    let (minutes, goal) = split_word(rest);
+                    let countdown_minutes = match minutes.trim() {
+                        "" => 10,
+                        m => m.parse().map_err(|_| ParseError::Usage(EVENT))?,
+                    };
+                    let goal = match goal.trim() {
+                        "" => None,
+                        g => Some(g.parse().map_err(|_| ParseError::Usage(EVENT))?),
+                    };
+                    Ok(ChatInput::Action(ChatAction::StartEvent { name, countdown_minutes, goal }))
+                }
                 "resetcode" => Ok(ChatInput::Action(ChatAction::IssueRecovery { name: one_name(rest, "/mod resetcode <name>")? })),
                 "resolve" => {
                     let id = rest.trim().trim_start_matches('#').parse().map_err(|_| ParseError::Usage("/mod resolve <report id>"))?;
@@ -246,6 +268,10 @@ mod tests {
         assert_eq!(parse_input("/mod resolve #7"), action(ChatAction::Resolve { id: 7 }));
         assert_eq!(parse_input("/mod reports"), action(ChatAction::ListReports));
         assert_eq!(parse_input("/mod resetcode Bob"), action(ChatAction::IssueRecovery { name: "Bob".into() }));
+        assert_eq!(parse_input("/mod event y2k"), action(ChatAction::StartEvent { name: "y2k".into(), countdown_minutes: 10, goal: None }));
+        assert_eq!(parse_input("/mod event Y2K 1 20"), action(ChatAction::StartEvent { name: "y2k".into(), countdown_minutes: 1, goal: Some(20) }));
+        assert_eq!(parse_input("/mod event stop"), action(ChatAction::StopEvent));
+        assert!(parse_input("/mod event halloween").is_err());
         assert_eq!(parse_input("/admin"), action(ChatAction::AdminPanel));
         assert!(parse_input("/mod dance").is_err());
     }

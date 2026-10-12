@@ -53,6 +53,12 @@ day_minutes = 40.0
 # Moves the clock this many game hours on (12 = start the server at night).
 clock_shift_hours = 0.0
 
+# The Y2K New Year's Eve event: midnight as an RFC 3339 time (the countdown starts before it).
+# Admins can also start it any time: /mod event y2k [countdown minutes] [goal].
+# y2k_event_at = "1999-12-31T23:00:00Z"
+# y2k_countdown_minutes = 10
+# y2k_minutes = 30.0            # how long the city has to fix the bug
+
 [cluster]
 # Leave this section out to run every zone in this one process (the normal setup).
 # To split the world over several servers, see config/cluster/ for a worked example.

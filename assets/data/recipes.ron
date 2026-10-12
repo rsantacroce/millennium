@@ -10,4 +10,5 @@
     (id: "diner_coffee", skill: Cooking, level: 2, input: "coffee_beans", tool: Some("frying_pan"), output: "diner_coffee", xp: 25, seconds: 3.0, verb: "Roasting and brewing"),
     (id: "cheeseburger", skill: Cooking, level: 3, input: "ground_beef", extra: [("bread", 1), ("cheese", 1)], tool: Some("frying_pan"), output: "cheeseburger", xp: 45, seconds: 4.0, verb: "Flipping a burger"),
     (id: "fix_camcorder", skill: Electronics, level: 7, input: "broken_camcorder", tool: Some("screwdriver_set"), output: "camcorder", xp: 70, seconds: 5.0, verb: "Cleaning tape heads"),
+    (id: "hot_cocoa", skill: Cooking, level: 1, input: "cocoa_mix", tool: Some("frying_pan"), output: "hot_cocoa", xp: 15, seconds: 2.0, verb: "Heating cocoa"),
 ]

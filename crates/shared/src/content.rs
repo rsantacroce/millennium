@@ -231,7 +231,13 @@ pub struct MobDef {
     #[serde(default)]
     pub rep: Vec<(FactionId, i32)>,
     pub appearance: Appearance,
+    /// Drawn as something other than a person (see the client's `avatars`): `bug`.
+    #[serde(default)]
+    pub model: Option<String>,
 }
+
+/// Rival models other than a person.
+pub const MOB_MODELS: [&str; 1] = ["bug"];
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct MobSpawn {
@@ -244,6 +250,9 @@ pub struct MobSpawn {
     /// Only out between these hours (see `clock::within`); `None` = always.
     #[serde(default)]
     pub hours: Option<(f32, f32)>,
+    /// Only spawned while this world event runs (see `server::events`).
+    #[serde(default)]
+    pub event: Option<String>,
 }
 
 impl MobSpawn {
@@ -284,6 +293,9 @@ pub struct NpcDef {
     /// Only around between these hours (see `clock::within`); `None` = always.
     #[serde(default)]
     pub hours: Option<(f32, f32)>,
+    /// Only around while this world event runs (see `server::events`).
+    #[serde(default)]
+    pub event: Option<String>,
 }
 
 /// Props an "NPC" can be drawn as.
@@ -405,7 +417,14 @@ pub enum Effect {
     Hack(HackId),
     /// A house's front door (see `zone::HOUSES`): buy, go in, or ring the bell.
     House(u8),
+    /// A job for the running world event (`EVENT_TASKS`); the server scores it.
+    EventTask(String),
 }
+
+/// World events (see `server::events`).
+pub const EVENTS: [&str; 1] = ["y2k"];
+/// Jobs players do for a world event, with a dialogue `EventTask(...)`.
+pub const EVENT_TASKS: [&str; 3] = ["terminal", "generator", "cocoa"];
 
 pub type FactionId = String;
 
@@ -671,6 +690,19 @@ impl Content {
             if npc.prop.as_ref().is_some_and(|p| !PROPS.contains(&p.as_str())) {
                 errors.push(format!("npc `{}`: unknown prop", npc.id));
             }
+            if npc.event.as_ref().is_some_and(|e| !EVENTS.contains(&e.as_str())) {
+                errors.push(format!("npc `{}`: unknown event", npc.id));
+            }
+        }
+        for spawn in &self.spawns {
+            if spawn.event.as_ref().is_some_and(|e| !EVENTS.contains(&e.as_str())) {
+                errors.push(format!("spawn of `{}`: unknown event", spawn.mob));
+            }
+        }
+        for mob in self.mobs.values() {
+            if mob.model.as_ref().is_some_and(|m| !MOB_MODELS.contains(&m.as_str())) {
+                errors.push(format!("mob `{}`: unknown model", mob.id));
+            }
         }
         for h in self.hacks.values() {
             for (i, chance) in &h.loot {
@@ -796,6 +828,7 @@ impl Content {
                                 errors.push(format!("{ctx}: unknown mob `{m}`"))
                             }
                             Effect::Hack(h) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
+                            Effect::EventTask(t) if !EVENT_TASKS.contains(&t.as_str()) => errors.push(format!("{ctx}: unknown event task `{t}`")),
                             Effect::House(p) if crate::zone::house(*p).is_none() => errors.push(format!("{ctx}: no house {p}")),
                             Effect::Rep(f, _) if !self.factions.contains_key(f) => {
                                 errors.push(format!("{ctx}: unknown faction `{f}`"))

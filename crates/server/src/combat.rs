@@ -152,29 +152,39 @@ fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms:
 fn spawn_all_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<Cluster>) {
     // In a cluster, each server runs the mobs of its own zones.
     // Night-only spawns are handled by `mob_hours`.
-    let ours: Vec<usize> =
-        (0..content.spawns.len()).filter(|i| cluster.owns(content.spawns[*i].zone_id()) && content.spawns[*i].hours.is_none()).collect();
+    // Event spawns too: they come with their event.
+    let ours: Vec<usize> = (0..content.spawns.len())
+        .filter(|i| cluster.owns(content.spawns[*i].zone_id()) && content.spawns[*i].hours.is_none() && content.spawns[*i].event.is_none())
+        .collect();
     for i in &ours {
         spawn_mob(&mut commands, &mut mobs, &content, &rooms, *i);
     }
     info!("spawned {} mobs", ours.len());
 }
 
-fn respawn_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>, time: Res<Time<Real>>) {
+fn respawn_mobs(
+    mut commands: Commands,
+    mut mobs: ResMut<Mobs>,
+    content: Res<Content>,
+    rooms: Res<ZoneRooms>,
+    time: Res<Time<Real>>,
+    events: Res<crate::events::ActiveEvents>,
+) {
     let now = time.elapsed_secs_f64();
     let due: Vec<usize> = mobs.respawns.iter().filter(|(_, at)| *at <= now).map(|(s, _)| *s).collect();
     mobs.respawns.retain(|(_, at)| *at > now);
     let hour = shared::clock::hour(crate::persistence::now_ms());
     for spawn in due {
         // Out of hours: `mob_hours` brings it back when it's time.
-        if content.spawns[spawn].hours.is_some_and(|h| !shared::clock::within(h, hour)) {
+        if content.spawns[spawn].hours.is_some_and(|h| !shared::clock::within(h, hour)) || !events.spawn_active(&content.spawns[spawn]) {
             continue;
         }
         spawn_mob(&mut commands, &mut mobs, &content, &rooms, spawn);
     }
 }
 
-/// Every few seconds: night-only mobs come out or go home.
+/// Every few seconds: night-only mobs come out or go home, and event mobs come and go with their
+/// event (`events::ActiveEvents`).
 fn mob_hours(
     mut commands: Commands,
     mut mobs: ResMut<Mobs>,
@@ -183,22 +193,23 @@ fn mob_hours(
     cluster: Res<Cluster>,
     brains: Query<(Entity, &MobTag, &MobBrain)>,
     time: Res<Time<Real>>,
+    events: Res<crate::events::ActiveEvents>,
     mut next: Local<f64>,
 ) {
     let now = time.elapsed_secs_f64();
-    if now < *next {
+    if now < *next && !events.is_changed() {
         return;
     }
     *next = now + 3.0;
     let hour = shared::clock::hour(crate::persistence::now_ms());
     for (i, spawn) in content.spawns.iter().enumerate() {
-        let Some(hours) = spawn.hours else { continue };
-        if !cluster.owns(spawn.zone_id()) {
+        if (spawn.hours.is_none() && spawn.event.is_none()) || !cluster.owns(spawn.zone_id()) {
             continue;
         }
+        let wanted = spawn.hours.is_none_or(|h| shared::clock::within(h, hour)) && events.spawn_active(spawn);
         let alive = brains.iter().find(|(_, _, b)| b.spawn == i);
         let pending = mobs.respawns.iter().any(|(s, _)| *s == i);
-        match (shared::clock::within(hours, hour), alive) {
+        match (wanted, alive) {
             (true, None) if !pending => spawn_mob(&mut commands, &mut mobs, &content, &rooms, i),
             (false, Some((e, tag, _))) => {
                 mobs.by_id.remove(&tag.id);

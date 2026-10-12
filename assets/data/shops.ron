@@ -2,7 +2,7 @@
     (
         id: "corner_store",
         name: "Corner Store 24/7",
-        sells: [("soda", 1), ("screwdriver_set", 6), ("burned_cd", 4), ("first_aid_kit", 5)],
+        sells: [("soda", 1), ("screwdriver_set", 6), ("burned_cd", 4), ("first_aid_kit", 5), ("cocoa_mix", 1)],
         // Doesn't buy from players.
         buy_rate: 0.0,
     ),
@@ -72,7 +72,7 @@
     (
         id: "value_grocer",
         name: "Value Grocer",
-        sells: [("frying_pan", 8), ("bread", 1), ("cheese", 1), ("eggs", 1), ("ground_beef", 3), ("coffee_beans", 2), ("soda", 1)],
+        sells: [("frying_pan", 8), ("bread", 1), ("cheese", 1), ("eggs", 1), ("ground_beef", 3), ("coffee_beans", 2), ("soda", 1), ("cocoa_mix", 1)],
         buy_rate: 0.0,
     ),
     (

@@ -180,31 +180,34 @@ fn spawn_npc(commands: &mut Commands, rooms: &ZoneRooms, npc: &shared::content::
 }
 
 fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<crate::cluster::Cluster>) {
-    // NPCs with opening hours are handled by `shift_change`.
-    let ours: Vec<_> = content.npcs.iter().filter(|n| cluster.owns(n.zone_id()) && n.hours.is_none()).collect();
+    // NPCs with opening hours, or that only come out for an event, are handled by `shift_change`.
+    let ours: Vec<_> = content.npcs.iter().filter(|n| cluster.owns(n.zone_id()) && n.hours.is_none() && n.event.is_none()).collect();
     for npc in &ours {
         spawn_npc(&mut commands, &rooms, npc);
     }
     info!("spawned {} NPCs", ours.len());
 }
 
-/// Every few seconds: NPCs with opening hours turn up or go home.
+/// Every few seconds: NPCs with opening hours turn up or go home, and event NPCs come and go
+/// with their event (`events::ActiveEvents`).
 fn shift_change(
     mut workers: ResMut<ShiftWorkers>,
     content: Res<Content>,
     rooms: Res<ZoneRooms>,
     cluster: Res<crate::cluster::Cluster>,
     time: Res<Time<Real>>,
+    events: Res<crate::events::ActiveEvents>,
     mut next: Local<f64>,
     mut commands: Commands,
 ) {
-    if time.elapsed_secs_f64() < *next {
+    // Right away when an event starts or a job is done; otherwise every couple of seconds.
+    if time.elapsed_secs_f64() < *next && !events.is_changed() {
         return;
     }
     *next = time.elapsed_secs_f64() + 2.0;
     let hour = shared::clock::hour(crate::persistence::now_ms());
-    for npc in content.npcs.iter().filter(|n| n.hours.is_some() && cluster.owns(n.zone_id())) {
-        match (npc.present(hour), workers.0.get(&npc.id)) {
+    for npc in content.npcs.iter().filter(|n| (n.hours.is_some() || n.event.is_some()) && cluster.owns(n.zone_id())) {
+        match (npc.present(hour) && events.npc_present(npc), workers.0.get(&npc.id)) {
             (true, None) => {
                 let e = spawn_npc(&mut commands, &rooms, npc);
                 workers.0.insert(npc.id.clone(), e);
@@ -243,7 +246,8 @@ pub fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         | GameEvent::CarGranted(_)
         | GameEvent::RaceStarted(_)
         | GameEvent::HackStarted(_)
-        | GameEvent::HouseDoor(_) => return None,
+        | GameEvent::HouseDoor(_)
+        | GameEvent::EventTask(_) => return None,
         GameEvent::Equipped(item) if is_gear(item) => format!("You put on the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) if is_gear(item) => format!("You take off the {}.", content.item_name(item)),
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
@@ -318,6 +322,7 @@ fn handle_actions(
     mut cars: MessageWriter<CarRequest>,
     mut hacks: MessageWriter<HackRequest>,
     mut houses: MessageWriter<HouseRequest>,
+    mut event_tasks: MessageWriter<crate::events::EventTaskDone>,
     mut market: ResMut<ShopMarket>,
     mut commands: Commands,
 ) {
@@ -422,6 +427,9 @@ fn handle_actions(
                         }
                         GameEvent::HouseDoor(plot) => {
                             houses.write(HouseRequest { player, link, action: HouseAction::Door(*plot) });
+                        }
+                        GameEvent::EventTask(task) => {
+                            event_tasks.write(crate::events::EventTaskDone { player, link, npc: active.npc.clone(), task: task.clone() });
                         }
                         _ => {}
                     }

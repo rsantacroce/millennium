@@ -427,4 +427,35 @@
         description: "Hear what the county hears. +1 Driving, +1 Hacking, +1 Trading.",
         gear: Some((slot: Accessory, skills: [(Driving, 1), (Hacking, 1), (Trading, 1)])),
     ),
+    // --- The Y2K New Year's Eve event (server/src/events.rs).
+    (
+        id: "y2k_tshirt", tags: ["clothes"],
+        name: "\"I Survived Y2K\" T-Shirt",
+        description: "Black, with a squashed bug on the front. For everyone who kept the city running. +10 health.",
+        value: 20,
+        gear: Some((slot: Body, color: Some(1), armor: 1, max_hp: 10)),
+    ),
+    (
+        id: "y2k_floppy", tags: ["junk"],
+        name: "Y2K Floppy Disk",
+        description: "3.5 inches of history: Y2K.TXT, 1.44 MB, all of it zeros. Looks good framed on a wall.",
+        value: 5,
+        furniture: Some((look: "poster")),
+    ),
+    (
+        id: "cocoa_mix", tags: ["food"],
+        name: "Cocoa Mix",
+        description: "Just add hot water. Cook it with a frying pan (it works, don't ask).",
+        value: 1,
+        max_stack: 10,
+    ),
+    (
+        id: "hot_cocoa", tags: ["food"],
+        name: "Hot Cocoa",
+        description: "Steaming. Heals 10, or warms a stranded commuter's night.",
+        value: 2,
+        max_stack: 10,
+        heal: Some(10),
+        on_use: Some("Marshmallows would have been nice."),
+    ),
 ]

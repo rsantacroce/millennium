@@ -1088,4 +1088,64 @@
             (id: "found", text: "A ring of keys on a plastic diamond: PINE MOTEL.", options: [(text: "Found them.", goto: None)]),
         ],
     ),
+    // --- The Y2K event.
+    (
+        id: "y2k_terminal",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "The screen flickers: 01/01/1900 00:00. ERROR: CENTURY NOT FOUND. Somewhere, a modem is screaming.",
+                options: [
+                    (text: "Reboot it and patch the date. (Screwdriver Set)", when: [HasItem("screwdriver_set", 1)], effects: [EventTask("terminal")], goto: Some("fixed")),
+                    (text: "I'd need a Screwdriver Set for this.", when: [Not(HasItem("screwdriver_set", 1))], goto: None),
+                    (text: "Leave it.", goto: None),
+                ],
+            ),
+            (
+                id: "fixed",
+                text: "The screen goes black, beeps twice, and reads 01/01/2000. One terminal at a time.",
+                options: [(text: "Next!", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "y2k_generator",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "The Metro's backup generator coughs and dies. A sticker on the side says Y2K COMPLIANT (PROBABLY).",
+                options: [
+                    (text: "Get it running again. (Wrench)", when: [HasItem("wrench", 1)], effects: [EventTask("generator")], goto: Some("fixed")),
+                    (text: "I'd need a Wrench for this.", when: [Not(HasItem("wrench", 1))], goto: None),
+                    (text: "Leave it.", goto: None),
+                ],
+            ),
+            (
+                id: "fixed",
+                text: "It roars back to life. Down the tunnel, a train sighs with relief.",
+                options: [(text: "Who's next?", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "y2k_commuter",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "The trains stopped at midnight. My pager says it's 1900. I just want to go home.",
+                options: [
+                    (text: "Here, have some hot cocoa.", when: [HasItem("hot_cocoa", 1)], effects: [TakeItem("hot_cocoa", 1), EventTask("cocoa")], goto: Some("thanks")),
+                    (text: "Hang in there. The Metro will be back soon.", goto: None),
+                ],
+            ),
+            (
+                id: "thanks",
+                text: "Oh, you're a lifesaver. Happy New Year!",
+                options: [(text: "Happy 2000!", goto: None)],
+            ),
+        ],
+    ),
 ]

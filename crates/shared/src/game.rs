@@ -103,6 +103,8 @@ pub enum GameEvent {
     HackStarted(HackId),
     /// The server shows the house's door menu.
     HouseDoor(u8),
+    /// A world event job (`Effect::EventTask`), for the server to score.
+    EventTask(String),
     /// The server creates the car (it lives in its own table, not in `PlayerState`).
     CarGranted(String),
     RaceStarted(String),
@@ -471,6 +473,7 @@ impl PlayerState {
             Effect::Rep(faction, delta) => self.change_rep(faction, *delta, events),
             Effect::Hack(hack) => events.push(GameEvent::HackStarted(hack.clone())),
             Effect::House(plot) => events.push(GameEvent::HouseDoor(*plot)),
+            Effect::EventTask(task) => events.push(GameEvent::EventTask(task.clone())),
             Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
             Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
         }

@@ -387,6 +387,8 @@ fn handle_chat_actions(
             | ChatAction::Resolve { .. }
             | ChatAction::AdminPanel
             | ChatAction::IssueRecovery { .. }
+            | ChatAction::StartEvent { .. }
+            | ChatAction::StopEvent
                 if !is_admin =>
             {
                 notify(&mut notice_tx, link, SystemNotice::warn("Only admins can do that."));
@@ -433,7 +435,9 @@ fn handle_chat_actions(
             | ChatAction::ListReports
             | ChatAction::Resolve { .. }
             | ChatAction::AdminPanel
-            | ChatAction::IssueRecovery { .. }) => {
+            | ChatAction::IssueRecovery { .. }
+            | ChatAction::StartEvent { .. }
+            | ChatAction::StopEvent) => {
                 moderation.write(crate::moderation::ModerationRequest { link, name: my_name, character_id: my_id, action });
             }
             ChatAction::GiveCar { model } => match shared::vehicle::model(&model) {

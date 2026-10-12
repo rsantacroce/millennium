@@ -287,6 +287,33 @@ pub struct SystemNotice {
     pub text: String,
 }
 
+/// A world event's state, for everyone's HUD (see `server::events`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct WorldEvent {
+    /// `y2k`; empty when nothing is on.
+    pub name: String,
+    pub phase: EventPhase,
+    /// When this phase ends (Unix ms): midnight during the countdown, the deadline during the bug.
+    pub ends_at_ms: i64,
+    /// The city's fix-it count, and how much it needs.
+    pub progress: u32,
+    pub goal: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum EventPhase {
+    #[default]
+    None,
+    /// Counting down to midnight.
+    Countdown,
+    /// The bug has hit: everyone pitches in.
+    Bug,
+    /// Fixed in time: fireworks.
+    Party,
+    /// Time ran out.
+    Failed,
+}
+
 /// The admin window's contents (sent to admins who ask with `ChatAction::AdminPanel`).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct AdminPanel {
@@ -473,6 +500,8 @@ impl Plugin for ProtocolPlugin {
         app.register_message::<SystemNotice>()
             .add_direction(NetworkDirection::ServerToClient);
         app.register_message::<AdminPanel>()
+            .add_direction(NetworkDirection::ServerToClient);
+        app.register_message::<WorldEvent>()
             .add_direction(NetworkDirection::ServerToClient);
 
         app.add_plugins(input::native::InputPlugin::<MoveIntent>::default());

@@ -188,13 +188,15 @@ fn choose(
     settings: Res<Settings>,
     bank: Res<MusicBank>,
     radio: Res<CarRadio>,
+    event: Res<crate::event_ui::WorldEventView>,
     me: Query<(&Position, &ZoneId, Has<Driving>), With<LocalAvatar>>,
     mut voices: Query<&mut Voice>,
     mut last: Local<Option<Option<Track>>>,
 ) {
     let Ok((pos, zone, driving)) = me.single() else { return };
     let hour = shared::clock::hour(shared::clock::now_ms());
-    let want = wanted(*zone, pos.0, hour, driving.then_some(radio.station));
+    // New Year's Eve: the whole city is a party (the car radio still wins).
+    let want = if event.partying() && !driving { Some(Track::Eurodance) } else { wanted(*zone, pos.0, hour, driving.then_some(radio.station)) };
     if *last != Some(want) {
         info!("music: {want:?}");
         *last = Some(want);

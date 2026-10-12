@@ -184,4 +184,36 @@
     (id: "dolores", name: "Dolores", zone: 8, position: (-28.0, 7.7), facing: 0.0, appearance: (body: 1, skin: 3, jacket: 6, pants: 1, cap: 0), dialogue: "dolores"),
     (id: "bell_tower", name: "Church Bell Tower", zone: 8, position: (22.0, 7.6), facing: 0.0, dialogue: "bell_tower", prop: Some("none"), hours: Some((20.0, 4.0))),
     (id: "glinting_keys", name: "Something Glinting", zone: 9, position: (12.0, -29.0), facing: 0.0, dialogue: "glinting_keys", prop: Some("none")),
+    // --- The Y2K event (only while it runs: see server/src/events.rs).
+    (id: "y2k_terminal_1", name: "Glitched Terminal", zone: 1, position: (-24.0, -6.6), facing: 180.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_terminal_2", name: "Glitched Terminal", zone: 1, position: (24.0, 6.8), facing: 0.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_terminal_3", name: "Glitched Terminal", zone: 1, position: (6.6, 22.0), facing: 90.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_terminal_4", name: "Glitched Terminal", zone: 1, position: (-6.6, -24.0), facing: 270.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_terminal_5", name: "Glitched Terminal", zone: 3, position: (6.0, -21.0), facing: 180.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_terminal_6", name: "Glitched Terminal", zone: 2, position: (24.0, -23.2), facing: 180.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_terminal_7", name: "Glitched Terminal", zone: 5, position: (6.0, 7.7), facing: 0.0, dialogue: "y2k_terminal", prop: Some("terminal"), event: Some("y2k")),
+    (id: "y2k_generator_1", name: "Metro Generator", zone: 1, position: (26.0, 32.0), facing: 90.0, dialogue: "y2k_generator", prop: Some("panel"), event: Some("y2k")),
+    (id: "y2k_generator_2", name: "Metro Generator", zone: 2, position: (-14.0, 26.0), facing: 180.0, dialogue: "y2k_generator", prop: Some("panel"), event: Some("y2k")),
+    (id: "y2k_generator_3", name: "Metro Generator", zone: 4, position: (-26.0, 5.5), facing: 180.0, dialogue: "y2k_generator", prop: Some("panel"), event: Some("y2k")),
+    (id: "y2k_generator_4", name: "Metro Generator", zone: 3, position: (-3.5, -21.0), facing: 180.0, dialogue: "y2k_generator", prop: Some("panel"), event: Some("y2k")),
+    (
+        id: "y2k_commuter_1", name: "Stranded Commuter", zone: 1, position: (24.0, 27.0), facing: 200.0,
+        appearance: (body: 1, skin: 1, jacket: 9, pants: 1, cap: 0), dialogue: "y2k_commuter", event: Some("y2k"),
+    ),
+    (
+        id: "y2k_commuter_2", name: "Stranded Commuter", zone: 1, position: (28.5, 26.0), facing: 160.0,
+        appearance: (body: 0, skin: 3, jacket: 2, pants: 0, cap: 4), dialogue: "y2k_commuter", event: Some("y2k"),
+    ),
+    (
+        id: "y2k_commuter_3", name: "Stranded Commuter", zone: 2, position: (-21.0, 28.0), facing: 90.0,
+        appearance: (body: 2, skin: 2, jacket: 5, pants: 1, cap: 0), dialogue: "y2k_commuter", event: Some("y2k"),
+    ),
+    (
+        id: "y2k_commuter_4", name: "Stranded Commuter", zone: 3, position: (0.0, -23.0), facing: 180.0,
+        appearance: (body: 0, skin: 1, jacket: 7, pants: 0, cap: 0), dialogue: "y2k_commuter", event: Some("y2k"),
+    ),
+    (
+        id: "y2k_commuter_5", name: "Stranded Commuter", zone: 5, position: (-30.0, 6.0), facing: 0.0,
+        appearance: (body: 1, skin: 4, jacket: 3, pants: 1, cap: 2), dialogue: "y2k_commuter", event: Some("y2k"),
+    ),
 ]

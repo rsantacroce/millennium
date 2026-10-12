@@ -49,7 +49,7 @@ What a new player notices first.
 
 ## Next: content
 
-- [ ] A Y2K New Year's Eve world event (countdown, the "bug" causes chaos, everyone pitches in)
+- [x] A Y2K New Year's Eve world event (countdown, the "bug" causes chaos, everyone pitches in): `/mod event y2k`, see the README
 - [ ] Another town or two along Route 9 (a lake town, a truck stop), a longer road trip chain
 - [ ] Group challenges: a raid-style job for a full party (the Meridian vault, the harbor smugglers)
 - [ ] Animals and non-human creatures (dogs, raccoons, deer; mobs are all people today)

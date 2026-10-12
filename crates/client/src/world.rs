@@ -111,8 +111,12 @@ fn day_night(
     mut clear: ResMut<ClearColor>,
     mut glow: ResMut<NightGlow>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    event: Res<crate::event_ui::WorldEventView>,
+    time: Res<Time>,
 ) {
     let hour = shared::clock::hour(shared::clock::now_ms());
+    // The millennium bug: lamps and lit windows stutter and black out.
+    let flicker = if event.glitching() { crate::event_ui::flicker(time.elapsed_secs()) } else { 1.0 };
     let day = shared::clock::daylight(hour);
     let night = 1.0 - day;
     if let Ok((mut light, mut transform)) = sun.single_mut() {
@@ -136,15 +140,16 @@ fn day_night(
     if clear.0 != wanted {
         clear.0 = wanted;
     }
-    let lamp_power = if settings.street_lights { 60_000.0 * night } else { 0.0 };
+    let lamp_power = if settings.street_lights { 60_000.0 * night * flicker } else { 0.0 };
     for mut lamp in &mut lamps {
         lamp.intensity = lamp_power;
     }
-    if (glow.applied - night).abs() > 0.02 {
-        glow.applied = night;
+    let lit = night * flicker;
+    if (glow.applied - lit).abs() > 0.02 {
+        glow.applied = lit;
         for (handle, emissive) in &glow.materials {
             if let Some(mut m) = materials.get_mut(handle) {
-                m.emissive = *emissive * night;
+                m.emissive = *emissive * lit;
             }
         }
     }

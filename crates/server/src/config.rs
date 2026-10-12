@@ -29,11 +29,23 @@ pub struct WorldConfig {
     pub day_minutes: f64,
     /// Moves the clock this many game hours on (e.g. 12 to start at night).
     pub clock_shift_hours: f64,
+    /// The Y2K event's midnight, as an RFC 3339 time (`1999-12-31T23:00:00Z`); the countdown
+    /// starts `y2k_countdown_minutes` before. Admins can also start it: `/mod event y2k`.
+    pub y2k_event_at: Option<String>,
+    pub y2k_countdown_minutes: u32,
+    /// How long the city has to fix the bug.
+    pub y2k_minutes: f64,
 }
 
 impl Default for WorldConfig {
     fn default() -> Self {
-        Self { day_minutes: shared::clock::DEFAULT_DAY_SECS / 60.0, clock_shift_hours: 0.0 }
+        Self {
+            day_minutes: shared::clock::DEFAULT_DAY_SECS / 60.0,
+            clock_shift_hours: 0.0,
+            y2k_event_at: None,
+            y2k_countdown_minutes: 10,
+            y2k_minutes: 30.0,
+        }
     }
 }
 

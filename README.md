@@ -567,6 +567,33 @@ building, with the street far below.
   results back as Bevy messages. The login service waits on a reply channel instead. Commands are
   handled in order, so a logout save always lands before the next login load.
 
+### World events: Y2K
+
+New Year's Eve, 1999 (`server/src/events.rs`).
+- **Start:** an admin types `/mod event y2k [countdown minutes] [goal]` (default 10 minutes and a
+  goal from the number of players online), or `[world] y2k_event_at` schedules it.
+- **Countdown:** a banner on everyone's screen, announcements, and party music (Eurodance).
+- **Midnight:** fireworks, then the millennium bug:
+  - streetlamps and windows flicker and black out;
+  - **Y2K Bugs** swarm the city (the first non-human rivals, drawn as glowing beetles);
+  - glitched terminals, dead Metro generators and stranded commuters appear.
+- **Everyone pitches in** towards one city-wide goal on the banner:
+  - fix a terminal (Screwdriver Set, +5, Electronics XP);
+  - restart a generator (Wrench, +8, Mechanics XP);
+  - bring hot cocoa to a commuter (+3, Cooking XP; cocoa mix is sold at the Corner Store and
+    Value Grocer);
+  - stomp a bug (+1).
+- **The end:** if the city makes it within `y2k_minutes` (30), there's a party with more fireworks.
+  Everyone who helped gets an "I Survived Y2K" T-shirt (+10 health), a floppy disk to frame at
+  home and City Services reputation. If not, helpers still keep the floppy.
+- **Admin:** `/mod event stop` calls it off.
+- **In the content files:** event-only NPCs and rival spawns are tagged `event: Some("y2k")`, and
+  dialogue gives jobs with `EventTask("terminal" | "generator" | "cocoa")`, all checked by the
+  content tests. Adding another event means a new name in `content::EVENTS` and a state machine
+  like Y2K's.
+- **Limits:** the event runs per server (in a cluster, start it on each zone server), and
+  rewards go to helpers who are online when it ends.
+
 ### Accounts and recovery
 
 Accounts have no email address, so a forgotten password is reset with a **recovery code**:
