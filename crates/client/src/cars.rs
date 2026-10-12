@@ -33,6 +33,42 @@ struct RaceView {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct DriveKey;
 
+/// The car's own transform (for leaning in corners).
+#[derive(Component)]
+struct CarBody;
+
+/// A wheel (or hubcap): spins with the car's speed.
+#[derive(Component)]
+struct Wheel;
+
+const WHEEL_UPRIGHT: Quat = Quat::from_xyzw(0.0, 0.0, std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2);
+
+/// Wheels roll with the speed, and the body leans out of corners. Purely visual.
+fn animate_cars(
+    time: Res<Time>,
+    drivers: Query<(&Driving, &Children)>,
+    mut bodies: Query<(&mut Transform, &Children), (With<CarBody>, Without<Wheel>)>,
+    mut wheels: Query<&mut Transform, (With<Wheel>, Without<CarBody>)>,
+    mut last_heading: Local<std::collections::HashMap<Entity, f32>>,
+) {
+    let dt = time.delta_secs().max(1e-4);
+    for (driving, children) in &drivers {
+        for child in children.iter() {
+            let Ok((mut body, wheel_list)) = bodies.get_mut(child) else { continue };
+            let previous = last_heading.insert(child, driving.heading).unwrap_or(driving.heading);
+            let turn = vehicle::wrap(driving.heading - previous) / dt;
+            let lean = (turn * driving.speed * 0.012).clamp(-0.09, 0.09);
+            body.rotation = body.rotation.slerp(Quat::from_rotation_z(lean), (8.0 * dt).min(1.0));
+            let spin = driving.speed * dt / 0.33;
+            for w in wheel_list.iter() {
+                if let Ok(mut t) = wheels.get_mut(w) {
+                    t.rotation = Quat::from_rotation_x(-spin) * t.rotation;
+                }
+            }
+        }
+    }
+}
+
 /// The car mesh under a driver.
 #[derive(Component)]
 struct DriverCar;
@@ -53,7 +89,7 @@ impl Plugin for CarsPlugin {
             .add_systems(OnEnter(AppState::InGame), |mut commands: Commands| commands.insert_resource(RaceView::default()))
             .add_systems(
                 Update,
-                (spawn_parked_visuals, mount_drivers, unmount_drivers, point_cars)
+                (spawn_parked_visuals, mount_drivers, unmount_drivers, point_cars, animate_cars)
                     .chain()
                     .after(AvatarSystems::SyncTransforms)
                     .before(AvatarSystems::Overlays)
@@ -69,20 +105,27 @@ fn spawn_car_body(commands: &mut Commands, parent: Entity, model: &CarModel, mes
     let paint = materials.add(StandardMaterial { base_color: Color::srgb(r, g, b), perceptual_roughness: 0.5, ..default() });
     let glass = materials.add(StandardMaterial { base_color: Color::srgb(0.15, 0.2, 0.25), perceptual_roughness: 0.1, ..default() });
     let tyre = materials.add(StandardMaterial { base_color: Color::srgb(0.06, 0.06, 0.06), ..default() });
+    let hub = materials.add(StandardMaterial { base_color: Color::srgb(0.7, 0.7, 0.72), metallic: 0.8, ..default() });
     let light = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.95, 0.7), emissive: LinearRgba::rgb(2.0, 1.9, 1.2), ..default() });
-    let body = commands.spawn((Transform::default(), Visibility::default(), ChildOf(parent))).id();
-    let mut part = |mesh: Mesh, material: &Handle<StandardMaterial>, at: Vec3| {
-        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), Transform::from_translation(at), ChildOf(body)));
-    };
-    part(Cuboid::new(1.8, 0.6, 3.8).into(), &paint, Vec3::new(0.0, 0.55, 0.0));
-    part(Cuboid::new(1.6, 0.55, 2.0).into(), &paint, Vec3::new(0.0, 1.12, 0.35));
-    part(Cuboid::new(1.5, 0.45, 0.05).into(), &glass, Vec3::new(0.0, 1.12, -0.66));
-    for side in [-0.82, 0.82] {
-        part(Cuboid::new(0.05, 0.4, 1.7).into(), &glass, Vec3::new(side, 1.14, 0.35));
-        for z in [-1.25, 1.25] {
-            part(Cylinder::new(0.33, 0.25).into(), &tyre, Vec3::new(side * 1.12, 0.33, z));
+    let body = commands.spawn((CarBody, Transform::default(), Visibility::default(), ChildOf(parent))).id();
+    let mut part = |mesh: Mesh, material: &Handle<StandardMaterial>, transform: Transform, wheel: bool| {
+        let mut e = commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), transform, ChildOf(body)));
+        if wheel {
+            e.insert(Wheel);
         }
-        part(Cuboid::new(0.35, 0.18, 0.05).into(), &light, Vec3::new(side * 0.6, 0.62, -1.91));
+    };
+    part(Cuboid::new(1.8, 0.6, 3.8).into(), &paint, Transform::from_translation(Vec3::new(0.0, 0.55, 0.0)), false);
+    part(Cuboid::new(1.6, 0.55, 2.0).into(), &paint, Transform::from_translation(Vec3::new(0.0, 1.12, 0.35)), false);
+    part(Cuboid::new(1.5, 0.45, 0.05).into(), &glass, Transform::from_translation(Vec3::new(0.0, 1.12, -0.66)), false);
+    for side in [-0.82, 0.82] {
+        part(Cuboid::new(0.05, 0.4, 1.7).into(), &glass, Transform::from_translation(Vec3::new(side, 1.14, 0.35)), false);
+        for z in [-1.25, 1.25] {
+            // Tyres on their side (axle along X), so they can roll, with a hubcap to see them turn.
+            let upright = |x: f32| Transform::from_xyz(x, 0.33, z).with_rotation(WHEEL_UPRIGHT);
+            part(Cylinder::new(0.33, 0.25).into(), &tyre, upright(side * 1.12), true);
+            part(Cuboid::new(0.08, 0.26, 0.1).into(), &hub, upright(side * 1.25), true);
+        }
+        part(Cuboid::new(0.35, 0.18, 0.05).into(), &light, Transform::from_translation(Vec3::new(side * 0.6, 0.62, -1.91)), false);
     }
     body
 }

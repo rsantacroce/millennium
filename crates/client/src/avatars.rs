@@ -29,6 +29,23 @@ pub struct Avatar;
 #[derive(Component)]
 pub struct AvatarBody;
 
+/// An arm or leg, pivoting at the shoulder or hip. `swing` is +1 or -1 (which way it goes
+/// first), so legs alternate and arms counter-swing.
+#[derive(Component)]
+struct Limb {
+    avatar: Entity,
+    swing: f32,
+    arm: bool,
+}
+
+/// How a character is walking: smoothed ground speed and the stride phase.
+#[derive(Component, Default)]
+struct Gait {
+    last: Option<Vec3>,
+    speed: f32,
+    phase: f32,
+}
+
 /// A character's name tag (so the crew tag can be added later).
 #[derive(Component)]
 struct NameTag {
@@ -63,6 +80,7 @@ impl Plugin for AvatarPlugin {
                     rebuild_changed_looks,
                     show_crew_tags,
                     sync_transforms,
+                    animate_gaits,
                 )
                     .chain()
                     .in_set(AvatarSystems::SyncTransforms),
@@ -116,14 +134,23 @@ pub fn spawn_dressed_body(
     let w = appearance.build();
 
     let body = commands.spawn((AvatarBody, Transform::default(), Visibility::default(), ChildOf(parent))).id();
+    // Legs and arms hang from pivots at the hips and shoulders, so `animate_gaits` can swing them.
+    for (side, swing) in [(-1.0, 1.0), (1.0, -1.0)] {
+        let hip = commands
+            .spawn((Limb { avatar: parent, swing, arm: false }, Transform::from_xyz(side * 0.09 * w, 0.85, 0.0), Visibility::default(), ChildOf(body)))
+            .id();
+        commands.spawn((Mesh3d(meshes.add(Cuboid::new(0.17 * w, 0.8, 0.22))), MeshMaterial3d(pants.clone()), Transform::from_xyz(0.0, -0.4, 0.0), ChildOf(hip)));
+        commands.spawn((Mesh3d(meshes.add(Cuboid::new(0.16, 0.1, 0.3))), MeshMaterial3d(shoes.clone()), Transform::from_xyz(0.0, -0.8, -0.03), ChildOf(hip)));
+        // Arms swing opposite to the leg on the same side.
+        let shoulder = commands
+            .spawn((Limb { avatar: parent, swing: -swing, arm: true }, Transform::from_xyz(side * (0.25 * w + 0.07), 1.39, 0.0), Visibility::default(), ChildOf(body)))
+            .id();
+        commands.spawn((Mesh3d(meshes.add(Cuboid::new(0.12, 0.55, 0.14))), MeshMaterial3d(jacket.clone()), Transform::from_xyz(0.0, -0.27, 0.0), ChildOf(shoulder)));
+    }
     let mut part = |mesh: Mesh, material: Handle<StandardMaterial>, at: Vec3| {
         commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material), Transform::from_translation(at), ChildOf(body)));
     };
-    part(Cuboid::new(0.36 * w, 0.85, 0.22).into(), pants, Vec3::new(0.0, 0.425, 0.0));
     part(Cuboid::new(0.5 * w, 0.6, 0.28).into(), jacket.clone(), Vec3::new(0.0, 1.15, 0.0));
-    for side in [-1.0, 1.0] {
-        part(Cuboid::new(0.12, 0.55, 0.14).into(), jacket.clone(), Vec3::new(side * (0.25 * w + 0.07), 1.12, 0.0));
-    }
     part(Sphere::new(0.16).into(), skin, Vec3::new(0.0, 1.62, 0.0));
     // Eyes on the front (-Z) show which way someone is facing; worn shades replace them.
     if outfit.shades {
@@ -132,9 +159,6 @@ pub fn spawn_dressed_body(
         for side in [-0.06, 0.06] {
             part(Cuboid::new(0.04, 0.04, 0.03).into(), dark.clone(), Vec3::new(side, 1.66, -0.15));
         }
-    }
-    for side in [-1.0, 1.0] {
-        part(Cuboid::new(0.16, 0.1, 0.3).into(), shoes.clone(), Vec3::new(side * 0.1 * w, 0.05, -0.03));
     }
     if let Some(cap) = appearance.cap_color() {
         let cap = mat(cap);
@@ -339,6 +363,47 @@ fn sync_transforms(
             let facing = Quat::from_rotation_y((-delta.x).atan2(-delta.y));
             transform.rotation = transform.rotation.slerp(facing, (12.0 * time.delta_secs()).min(1.0));
         }
+    }
+}
+
+/// Strides from how fast each character actually moves: legs and arms swing, the body bobs
+/// a little with each step, and someone standing still sways gently. Purely visual.
+fn animate_gaits(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut avatars: Query<(Entity, &Transform, Option<&mut Gait>, &Children), With<Avatar>>,
+    mut bodies: Query<&mut Transform, (With<AvatarBody>, Without<Avatar>, Without<Limb>)>,
+    mut limbs: Query<(&Limb, &mut Transform), (Without<Avatar>, Without<AvatarBody>)>,
+) {
+    let dt = time.delta_secs().max(1e-4);
+    let t = time.elapsed_secs();
+    let mut strides = std::collections::HashMap::new();
+    for (entity, transform, gait, children) in &mut avatars {
+        let Some(mut gait) = gait else {
+            commands.entity(entity).insert(Gait::default());
+            continue;
+        };
+        let here = transform.translation;
+        let moved = gait.last.map_or(0.0, |last| (here - last).xz().length());
+        gait.last = Some(here);
+        // Teleports (portals, rollback) aren't walking.
+        let speed = if moved / dt > 15.0 { 0.0 } else { moved / dt };
+        gait.speed += (speed - gait.speed) * (10.0 * dt).min(1.0);
+        // Steps per second grow with speed; about 1.9 strides/s at walking pace.
+        gait.phase = (gait.phase + gait.speed * 2.0 * dt) % std::f32::consts::TAU;
+        let amount = (gait.speed / shared::movement::WALK_SPEED).min(1.0);
+        strides.insert(entity, (gait.phase.sin() * amount, amount));
+        for child in children.iter() {
+            if let Ok(mut body) = bodies.get_mut(child) {
+                let idle = (1.0 - amount) * 0.012 * (t * 2.2 + (entity.to_bits() % 97) as f32).sin();
+                body.translation.y = gait.phase.sin().abs() * 0.05 * amount + idle;
+            }
+        }
+    }
+    for (limb, mut transform) in &mut limbs {
+        let (stride, _) = strides.get(&limb.avatar).copied().unwrap_or((0.0, 0.0));
+        let reach = if limb.arm { 0.55 } else { 0.7 };
+        transform.rotation = Quat::from_rotation_x(stride * limb.swing * reach);
     }
 }
 
