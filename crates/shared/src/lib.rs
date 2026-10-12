@@ -18,6 +18,7 @@ pub mod clock;
 pub mod combat;
 pub mod config;
 pub mod content;
+pub mod economy;
 pub mod game;
 pub mod market;
 pub mod movement;

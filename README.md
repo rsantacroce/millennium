@@ -448,6 +448,18 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
 - **Trading:** shops pay 2% more per Trading level (up to 30%), and you get one more e-Bid
   auction every two levels (up to 20). You train it by selling.
 
+### Shops and the economy
+
+- **What shops buy:** every item has a category, and each shop buys only the kinds it deals
+  in. The pawn shop takes anything, at the lowest rate. A shop never pays under $1.
+- **Limited stock:** cheap repair inputs (broken gadgets, rusty carburetors) restock over time.
+- **Demand:** a shop pays 8% less for an item each time anyone sells it one (down to 35%),
+  recovering one sale's worth every 45 s. All of this lives on the server, and the shop window
+  shows stock left and today's price.
+- **Checking it:** `cargo run -p shared --example economy` prints every price, recipe margin,
+  quest reward and income source, plus any buy-low-sell-high loop. A test fails if a loop
+  exists.
+
 ### Cooking and buffs
 
 Recipes can use several ingredients (`extra` in `recipes.ron`). Food can heal and start a

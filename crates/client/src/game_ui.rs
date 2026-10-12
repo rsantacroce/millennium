@@ -35,6 +35,13 @@ pub struct DialogueView(pub Option<(String, String, Vec<String>)>);
 #[derive(Resource, Default)]
 struct ShopView(Option<String>);
 
+/// The open shop's limited stock (item -> left) and demand (item -> price factor).
+#[derive(Resource, Default)]
+struct ShopNumbers {
+    stock: std::collections::HashMap<String, u32>,
+    demand: std::collections::HashMap<String, f32>,
+}
+
 #[derive(Resource, Default)]
 struct ActionView(Option<(String, f32, f32)>);
 
@@ -99,6 +106,7 @@ impl Plugin for GameUiPlugin {
         app.init_resource::<LocalState>()
             .init_resource::<DialogueView>()
             .init_resource::<ShopView>()
+            .init_resource::<ShopNumbers>()
             .init_resource::<ActionView>()
             .init_resource::<Panels>()
             .init_resource::<Nearby>()
@@ -144,6 +152,7 @@ fn receive(
     mut state: ResMut<LocalState>,
     mut dialogue: ResMut<DialogueView>,
     mut shop: ResMut<ShopView>,
+    mut numbers: ResMut<ShopNumbers>,
     mut action: ResMut<ActionView>,
     mut panels: ResMut<Panels>,
     mut combat: ResMut<crate::combat_ui::CombatInbox>,
@@ -182,6 +191,9 @@ fn receive(
                 panels.inventory = true; // you'll want to see what you can sell
             }
             GameUpdate::ShopClosed => shop.0 = None,
+            GameUpdate::ShopInfo { stock, demand, .. } => {
+                *numbers = ShopNumbers { stock: stock.into_iter().collect(), demand: demand.into_iter().collect() };
+            }
             GameUpdate::ActionStarted { label, seconds } => action.0 = Some((label, seconds, time.elapsed_secs())),
             GameUpdate::ActionEnded { .. } => action.0 = None,
             update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
@@ -398,11 +410,12 @@ fn render_dialogue(mut commands: Commands, view: Res<DialogueView>, roots: Query
 fn render_shop(
     mut commands: Commands,
     view: Res<ShopView>,
+    numbers: Res<ShopNumbers>,
     state: Res<LocalState>,
     content: Res<Content>,
     roots: Query<Entity, With<ShopRoot>>,
 ) {
-    if !view.is_changed() && !state.is_changed() {
+    if !view.is_changed() && !state.is_changed() && !numbers.is_changed() {
         return;
     }
     clear(&mut commands, &roots);
@@ -418,6 +431,17 @@ fn render_shop(
         if let Some(min) = shop.required_rep(item).filter(|min| rep < *min) {
             commands.spawn((ChildOf(row), label(format!("[{}]", shared::content::rep_tier(min).0), 12.0, theme::MUTED_TEXT)));
             continue;
+        }
+        if shop.stock_of(item).is_some() {
+            match numbers.stock.get(item).copied().unwrap_or(0) {
+                0 => {
+                    commands.spawn((ChildOf(row), label("sold out", 12.0, theme::MUTED_TEXT)));
+                    continue;
+                }
+                n => {
+                    commands.spawn((ChildOf(row), label(format!("{n} left"), 12.0, theme::MUTED_TEXT)));
+                }
+            }
         }
         commands.spawn((ChildOf(row), Click::Buy(i, 1), button("Buy")));
         if content.item(item).is_some_and(|d| d.max_stack > 1) {
@@ -445,11 +469,12 @@ fn render_inventory(
     panels: Res<Panels>,
     state: Res<LocalState>,
     shop: Res<ShopView>,
+    numbers: Res<ShopNumbers>,
     social: Res<SocialState>,
     content: Res<Content>,
     roots: Query<Entity, With<InventoryRoot>>,
 ) {
-    if !panels.is_changed() && !state.is_changed() && !shop.is_changed() && !social.is_changed() {
+    if !panels.is_changed() && !state.is_changed() && !shop.is_changed() && !social.is_changed() && !numbers.is_changed() {
         return;
     }
     clear(&mut commands, &roots);
@@ -502,7 +527,8 @@ fn render_inventory(
             let row = commands.spawn((ChildOf(body), Node { column_gap: Val::Px(4.0), ..default() })).id();
             commands.spawn((ChildOf(row), Click::Use, button(if def.gear.is_some() { "Wear" } else { "Use" })));
             let trading = state.effective_level(Skill::Trading, &content);
-            if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.buy_price_for(&def, trading)) {
+            let demand = numbers.demand.get(&def.id).copied().unwrap_or(1.0);
+            if let Some(price) = shop.0.as_ref().and_then(|s| content.shops.get(s)).and_then(|s| s.offer_for(&def, trading, demand)) {
                 commands.spawn((ChildOf(row), Click::Sell, button(format!("Sell ${price}"))));
             }
             if social.trade.is_some() && !def.quest_item {

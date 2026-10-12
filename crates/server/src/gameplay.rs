@@ -64,6 +64,8 @@ pub struct GameplayPlugin;
 impl Plugin for GameplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ShiftWorkers>()
+            .init_resource::<ShopMarket>()
+            .add_systems(Update, shop_info.after(handle_actions))
             .add_systems(Startup, spawn_npcs)
             .add_systems(Update, shift_change)
             .add_systems(Update, (handle_actions, walk_away_closes, tick_channels, expire_buffs).chain());
@@ -71,6 +73,92 @@ impl Plugin for GameplayPlugin {
 }
 
 /// NPCs are ordinary replicated entities in their zone's room.
+/// Shop stock and demand, shared by every player (see `shared::content::demand_factor`).
+/// Kept in memory: a restart restocks everything.
+#[derive(Resource, Default)]
+pub struct ShopMarket {
+    /// (shop, item) -> (left, when the next one comes in)
+    stock: HashMap<(String, String), (u32, f64)>,
+    /// (shop, item) -> (recent sales, when last updated)
+    demand: HashMap<(String, String), (f32, f64)>,
+    /// Shops whose numbers changed: their open windows get a `ShopInfo`.
+    dirty: std::collections::HashSet<String>,
+}
+
+impl ShopMarket {
+    /// Units of a limited item on the shelf now (`None` = unlimited).
+    fn left(&mut self, shop: &shared::content::ShopDef, item: &str, now: f64) -> Option<u32> {
+        let (max, secs) = shop.stock_of(item)?;
+        let entry = self.stock.entry((shop.id.clone(), item.to_string())).or_insert((max, now));
+        // Restock one at a time.
+        while entry.0 < max && now >= entry.1 {
+            entry.0 += 1;
+            entry.1 += secs as f64;
+        }
+        if entry.0 >= max {
+            entry.1 = now + secs as f64;
+        }
+        Some(entry.0)
+    }
+
+    fn take(&mut self, shop: &str, item: &str, qty: u32) {
+        if let Some(entry) = self.stock.get_mut(&(shop.to_string(), item.to_string())) {
+            entry.0 = entry.0.saturating_sub(qty);
+        }
+        self.dirty.insert(shop.to_string());
+    }
+
+    /// The demand factor for selling `item` to `shop` now.
+    fn demand(&mut self, shop: &str, item: &str, now: f64) -> f32 {
+        let Some(entry) = self.demand.get_mut(&(shop.to_string(), item.to_string())) else { return 1.0 };
+        entry.0 = (entry.0 - (now - entry.1) as f32 / shared::content::DEMAND_RECOVERY_SECS).max(0.0);
+        entry.1 = now;
+        shared::content::demand_factor(entry.0)
+    }
+
+    fn sold(&mut self, shop: &str, item: &str, qty: u32, now: f64) {
+        self.demand(shop, item, now);
+        let entry = self.demand.entry((shop.to_string(), item.to_string())).or_insert((0.0, now));
+        entry.0 += qty as f32;
+        self.dirty.insert(shop.to_string());
+    }
+
+    fn info(&mut self, shop: &shared::content::ShopDef, now: f64) -> GameUpdate {
+        let stock = shop.stock.iter().map(|(i, ..)| (i.clone(), self.left(shop, i, now).unwrap_or(0))).collect();
+        let items: Vec<String> = self.demand.keys().filter(|(s, _)| *s == shop.id).map(|(_, i)| i.clone()).collect();
+        let demand = items
+            .into_iter()
+            .map(|i| (i.clone(), self.demand(&shop.id, &i, now)))
+            .filter(|(_, f)| *f < 0.999)
+            .collect();
+        GameUpdate::ShopInfo { shop: shop.id.clone(), stock, demand }
+    }
+}
+
+/// Sends fresh stock and prices to everyone looking at a shop whose numbers changed (and to
+/// players who just opened one).
+fn shop_info(
+    mut market: ResMut<ShopMarket>,
+    viewers: Query<(Entity, &PlayerLink, &ActiveShop)>,
+    opened: Query<(), Added<ActiveShop>>,
+    mut out: Outbox,
+    content: Res<Content>,
+    time: Res<Time<Real>>,
+) {
+    let now = time.elapsed_secs_f64();
+    let dirty: Vec<String> = market.dirty.drain().collect();
+    for (player, link, active) in &viewers {
+        let fresh = opened.contains(player);
+        if !fresh && !dirty.contains(&active.shop) {
+            continue;
+        }
+        if let Some(def) = content.shops.get(&active.shop) {
+            let info = market.info(def, now);
+            out.update(link.0, info);
+        }
+    }
+}
+
 /// NPC entities that come and go with the time of day.
 #[derive(Resource, Default)]
 struct ShiftWorkers(HashMap<String, Entity>);
@@ -227,6 +315,7 @@ fn handle_actions(
     time: Res<Time<Real>>,
     mut cars: MessageWriter<CarRequest>,
     mut hacks: MessageWriter<HackRequest>,
+    mut market: ResMut<ShopMarket>,
     mut commands: Commands,
 ) {
     let mut incoming = Vec::new();
@@ -347,8 +436,19 @@ fn handle_actions(
                     continue;
                 };
                 let shop_def = &content.shops[&active.shop];
+                let now = time.elapsed_secs_f64();
+                if let Some(left) = market.left(shop_def, &item, now)
+                    && left < qty
+                {
+                    let text = if left == 0 { "Sold out. More comes in later.".to_string() } else { format!("Only {left} left.") };
+                    out.notice(link, SystemNotice::info(text));
+                    continue;
+                }
                 match progress.buy(shop_def, &item, qty, &content) {
                     Ok(events) => {
+                        if shop_def.stock_of(&item).is_some() {
+                            market.take(&shop_def.id, &item, qty);
+                        }
                         let rep = shop_def.faction.as_ref().map_or(0, |f| progress.rep_with(f));
                         let price = shop_def.price_for(&item, rep).unwrap_or(0) * qty;
                         out.notice(link, SystemNotice::info(format!("You bought {} x{qty} for ${price}.", content.item_name(&item))));
@@ -364,8 +464,13 @@ fn handle_actions(
                 };
                 let shop_def = &content.shops[&active.shop];
                 let item = progress.inventory.get(slot as usize).cloned().flatten();
-                match progress.sell(shop_def, slot as usize, qty, &content) {
+                let now = time.elapsed_secs_f64();
+                let demand = item.as_ref().map_or(1.0, |s| market.demand(&shop_def.id, &s.item, now));
+                match progress.sell(shop_def, slot as usize, qty, demand, &content) {
                     Ok(events) => {
+                        if let Some(s) = &item {
+                            market.sold(&shop_def.id, &s.item, qty.clamp(1, s.qty), now);
+                        }
                         let earned: i64 = events.iter().filter_map(|e| if let GameEvent::Cash(d) = e { Some(*d) } else { None }).sum();
                         let item = item.map(|s| content.item_name(&s.item).to_string()).unwrap_or_default();
                         out.notice(link, SystemNotice::info(format!("You sold {item} for ${earned}.")));

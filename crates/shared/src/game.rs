@@ -495,13 +495,15 @@ impl PlayerState {
         })
     }
 
-    pub fn sell(&mut self, shop: &ShopDef, slot: usize, qty: u32, content: &Content) -> Result<Vec<GameEvent>, GameError> {
+    /// Sells to a shop. `demand` is the shop's current demand for the item (see
+    /// `content::demand_factor`; the server tracks it, 1.0 = full price).
+    pub fn sell(&mut self, shop: &ShopDef, slot: usize, qty: u32, demand: f32, content: &Content) -> Result<Vec<GameEvent>, GameError> {
         let Some(stack) = self.inventory.get(slot).cloned().flatten() else { return err("That slot is empty.") };
         let Some(def) = content.item(&stack.item) else { return err("Unknown item.") };
         if def.quest_item {
             return err(format!("You can't sell the {}; someone is counting on it.", def.name));
         }
-        let Some(price) = shop.buy_price_for(def, self.effective_level(Skill::Trading, content)) else {
+        let Some(price) = shop.offer_for(def, self.effective_level(Skill::Trading, content), demand) else {
             return err(format!("{} won't buy that.", shop.name));
         };
         let qty = qty.clamp(1, stack.qty);
@@ -905,15 +907,23 @@ mod tests {
         let mut s = PlayerState::new(100);
         s.buy(shop(&c, "pawn_shop"), "broken_walkman", 1, &c).unwrap();
         // The corner store doesn't buy.
-        assert!(s.sell(shop(&c, "corner_store"), 0, 1, &c).is_err());
+        assert!(s.sell(shop(&c, "corner_store"), 0, 1, 1.0, &c).is_err());
         let before = s.cash;
-        s.sell(shop(&c, "pawn_shop"), 0, 1, &c).unwrap();
-        assert_eq!(s.cash, before + 3); // value 6 * 0.5
+        s.sell(shop(&c, "pawn_shop"), 0, 1, 1.0, &c).unwrap();
+        assert_eq!(s.cash, before + 2); // value 6 * 0.4
         assert_eq!(s.count("broken_walkman"), 0);
+        // Demand: after a run of sales the same shop pays less (but never under $1, or nothing).
+        s.apply(&[Effect::GiveItem("walkman".into(), 1)], &c).unwrap();
+        let slot = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "walkman")).unwrap();
+        let before = s.cash;
+        s.sell(shop(&c, "pawn_shop"), slot, 1, crate::content::demand_factor(5.0), &c).unwrap();
+        assert_eq!(s.cash - before, 7, "30 * 0.4 = 12, at 60% demand = 7");
+        assert!(shop(&c, "corner_store").buy_price_for(c.item("soda").unwrap(), 1).is_none());
+        assert!(shop(&c, "sunny_side").buy_price_for(c.item("walkman").unwrap(), 1).is_none(), "the diner buys food only");
         // Quest items can't be sold.
         s.apply(&[Effect::GiveItem("broken_modem".into(), 1)], &c).unwrap();
         let slot = s.inventory.iter().position(|x| x.is_some()).unwrap();
-        assert!(s.sell(shop(&c, "pawn_shop"), slot, 1, &c).is_err());
+        assert!(s.sell(shop(&c, "pawn_shop"), slot, 1, 1.0, &c).is_err());
     }
 
     #[test]
@@ -1057,7 +1067,7 @@ mod tests {
         s.apply(&[Effect::GiveItem("walkman".into(), 1)], &c).unwrap();
         let slot = s.inventory.iter().position(|x| x.as_ref().is_some_and(|x| x.item == "walkman")).unwrap();
         let before = s.cash;
-        s.sell(pawn, slot, 1, &c).unwrap();
+        s.sell(pawn, slot, 1, 1.0, &c).unwrap();
         assert_eq!(s.cash - before, pawn.buy_price_for(walkman, 3).unwrap() as i64);
         assert!(s.xp(Skill::Trading) > 0);
         assert_eq!(s.max_listings(&c), crate::market::MAX_LISTINGS_PER_PLAYER + 1);

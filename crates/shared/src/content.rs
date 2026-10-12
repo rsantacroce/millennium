@@ -100,7 +100,13 @@ pub struct ItemDef {
     /// Eating it gives a temporary skill boost (and uses it up).
     #[serde(default)]
     pub buff: Option<BuffDef>,
+    /// Categories ("electronics", "food"...): which shops will buy it.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
+
+/// Item categories shops can buy (see `ShopDef::buys`).
+pub const ITEM_TAGS: [&str; 6] = ["electronics", "car_part", "food", "clothes", "tool", "junk"];
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 pub struct BuffDef {
@@ -435,6 +441,24 @@ pub struct ShopDef {
     /// ...and unlock these items at this much reputation.
     #[serde(default)]
     pub requires: Vec<(ItemId, i32)>,
+    /// Item categories it buys from players (empty = anything).
+    #[serde(default)]
+    pub buys: Vec<String>,
+    /// Limited stock: (item, how many on the shelf when full, seconds to restock one).
+    #[serde(default)]
+    pub stock: Vec<(ItemId, u32, f32)>,
+}
+
+// Demand: every item sold to a shop lowers what it pays for that item by this much, down to
+// the floor; it recovers one sale's worth every `DEMAND_RECOVERY_SECS`. Shared by all players,
+// so flooding one shop with one thing stops paying (sell the rest on e-Bid).
+pub const DEMAND_STEP: f32 = 0.08;
+pub const DEMAND_FLOOR: f32 = 0.35;
+pub const DEMAND_RECOVERY_SECS: f32 = 45.0;
+
+/// What a shop pays for an item after `recent` recent sales of it.
+pub fn demand_factor(recent: f32) -> f32 {
+    (1.0 - DEMAND_STEP * recent.max(0.0)).max(DEMAND_FLOOR)
 }
 
 /// Better prices per Trading level when selling to shops (capped).
@@ -464,13 +488,31 @@ impl ShopDef {
         self.buy_price_for(item, 0)
     }
 
-    /// What this shop pays a seller with this Trading level.
+    /// Does this shop buy this kind of item at all?
+    pub fn buys(&self, item: &ItemDef) -> bool {
+        self.buy_rate > 0.0 && !item.quest_item && (self.buys.is_empty() || item.tags.iter().any(|t| self.buys.contains(t)))
+    }
+
+    /// What this shop pays a seller with this Trading level, at full demand. `None` if it doesn't
+    /// buy it, or it would be worth less than $1 (so nothing can be bought and sold back at $1).
     pub fn buy_price_for(&self, item: &ItemDef, trading_level: u32) -> Option<u32> {
-        if self.buy_rate <= 0.0 || item.quest_item {
+        if !self.buys(item) {
             return None;
         }
         let bonus = (trading_level.saturating_sub(1) as f32 * TRADING_SELL_BONUS).min(TRADING_SELL_BONUS_MAX);
-        Some(((item.value as f32 * self.buy_rate * (1.0 + bonus)).floor() as u32).max(1))
+        let price = (item.value as f32 * self.buy_rate * (1.0 + bonus)).floor() as u32;
+        (price >= 1).then_some(price)
+    }
+
+    /// `buy_price_for`, after demand (see [`demand_factor`]).
+    pub fn offer_for(&self, item: &ItemDef, trading_level: u32, demand: f32) -> Option<u32> {
+        let price = (self.buy_price_for(item, trading_level)? as f32 * demand).floor() as u32;
+        (price >= 1).then_some(price)
+    }
+
+    /// Limited stock for `item`: (shelf size, seconds to restock one).
+    pub fn stock_of(&self, item: &str) -> Option<(u32, f32)> {
+        self.stock.iter().find(|(i, ..)| i == item).map(|(_, n, secs)| (*n, *secs))
     }
 }
 
@@ -600,6 +642,9 @@ impl Content {
             }
         }
         for def in self.items.values() {
+            if def.tags.is_empty() || def.tags.iter().any(|t| !ITEM_TAGS.contains(&t.as_str())) {
+                errors.push(format!("item `{}`: needs a category from ITEM_TAGS", def.id));
+            }
             if let Some(g) = &def.gear {
                 let ctx = format!("item `{}`", def.id);
                 if g.color.is_some_and(|c| c as usize >= crate::appearance::CLOTHES.len()) {
@@ -745,6 +790,16 @@ impl Content {
             }
             if !s.requires.is_empty() && s.faction.is_none() {
                 errors.push(format!("shop `{}`: rep requirements need a faction", s.id));
+            }
+            for t in &s.buys {
+                if !ITEM_TAGS.contains(&t.as_str()) {
+                    errors.push(format!("shop `{}`: buys unknown category `{t}`", s.id));
+                }
+            }
+            for (i, n, secs) in &s.stock {
+                if s.price_of(i).is_none() || *n == 0 || *secs <= 0.0 {
+                    errors.push(format!("shop `{}`: bad stock entry for `{i}`", s.id));
+                }
             }
         }
         for (id, m) in &self.mobs {

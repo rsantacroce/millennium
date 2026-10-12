@@ -215,6 +215,9 @@ pub enum GameUpdate {
     DialogueNode { npc: String, speaker: String, text: String, options: Vec<String> },
     DialogueClosed,
     ShopOpened { shop: String },
+    /// The shop's limited stock (item, how many left) and what it currently pays relative to
+    /// full price (item, factor), for items that aren't at the defaults.
+    ShopInfo { shop: String, stock: Vec<(String, u32)>, demand: Vec<(String, f32)> },
     ShopClosed,
     /// A timed action (e.g. a repair) started; it's cancelled if you move.
     ActionStarted { label: String, seconds: f32 },

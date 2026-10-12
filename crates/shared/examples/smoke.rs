@@ -408,6 +408,7 @@ fn receive(
             }
             GameUpdate::ShopOpened { shop } => println!("SHOP   opened {}", content.shops[&shop].name),
             GameUpdate::ShopClosed => println!("SHOP   closed"),
+            GameUpdate::ShopInfo { stock, demand, .. } => println!("SHOP   stock {stock:?}, demand {demand:?}"),
             GameUpdate::ActionStarted { label, seconds } => println!("ACTION {label} ({seconds}s)"),
             GameUpdate::ActionEnded { completed } => println!("ACTION ended, completed={completed}"),
             GameUpdate::Float { text, kind, .. } => println!("FLOAT  {kind:?} {text}"),

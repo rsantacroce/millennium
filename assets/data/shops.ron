@@ -10,8 +10,9 @@
         id: "pawn_shop",
         name: "Pawn & Pager",
         sells: [("broken_walkman", 8), ("broken_pocketplay", 20), ("pager", 40), ("baseball_bat", 30)],
-        // Pays half of an item's value.
-        buy_rate: 0.5,
+        // Buys anything, but pays the least.
+        buy_rate: 0.4,
+        stock: [("broken_walkman", 3, 90.0), ("broken_pocketplay", 2, 150.0)],
     ),
     (
         id: "gadget_shack",
@@ -19,6 +20,8 @@
         sells: [("brick_phone", 65), ("broken_camcorder", 18), ("screwdriver_set", 7)],
         // Pays better than the pawn shop.
         buy_rate: 0.6,
+        buys: ["electronics"],
+        stock: [("broken_camcorder", 2, 240.0)],
     ),
     (
         id: "pixel_palace",
@@ -31,6 +34,8 @@
         name: "Earl's Salvage",
         sells: [("wrench", 12), ("first_aid_kit", 6), ("rusty_carburetor", 8), ("spark_plug", 9), ("work_boots", 24)],
         buy_rate: 0.6,
+        buys: ["car_part", "junk"],
+        stock: [("rusty_carburetor", 3, 120.0)],
     ),
     (
         id: "threads",
@@ -45,6 +50,7 @@
             ("wraparound_shades", 18),
         ],
         buy_rate: 0.4,
+        buys: ["clothes"],
     ),
     (
         id: "meridian_supply",
@@ -59,6 +65,7 @@
         name: "Dockside Locker",
         sells: [("first_aid_kit", 6), ("work_boots", 24), ("hard_hat", 18), ("tire_iron", 20)],
         buy_rate: 0.5,
+        buys: ["tool", "clothes"],
         faction: Some("dockside"),
         requires: [("hard_hat", 100), ("tire_iron", 200)],
     ),
@@ -74,12 +81,14 @@
         sells: [("grilled_cheese", 6), ("cheeseburger", 14), ("diner_coffee", 7)],
         // Flo buys home cooking for the lunch rush.
         buy_rate: 0.7,
+        buys: ["food"],
     ),
     (
         id: "zeros_stash",
         name: "Zer0 Day Stash",
         sells: [("burned_cd", 3), ("acoustic_coupler", 45), ("laptop", 160), ("wraparound_shades", 16)],
         buy_rate: 0.5,
+        buys: ["electronics"],
         faction: Some("zeros"),
         requires: [("acoustic_coupler", 100), ("laptop", 300)],
     ),
@@ -95,6 +104,8 @@
         sells: [("spark_plug", 7), ("car_battery", 20), ("rusty_carburetor", 7), ("wrench", 12), ("work_boots", 22)],
         // Pays well for rebuilt parts.
         buy_rate: 0.7,
+        buys: ["car_part"],
+        stock: [("rusty_carburetor", 3, 120.0), ("car_battery", 2, 180.0)],
     ),
     (
         id: "gas_n_go",
