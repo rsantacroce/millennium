@@ -15,6 +15,7 @@ pub mod cluster;
 mod combat;
 pub mod config;
 mod gameplay;
+mod hacking;
 mod market;
 mod movement;
 mod net;
@@ -99,6 +100,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         market::MarketPlugin,
         vehicles::VehiclesPlugin,
         cluster::ClusterPlugin,
+        hacking::HackingPlugin,
     ));
     Ok(app)
 }

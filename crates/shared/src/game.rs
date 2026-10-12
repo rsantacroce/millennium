@@ -9,7 +9,7 @@
 //! if every step succeeds, so a failed purchase can never take your cash without giving you
 //! the item.
 
-use crate::content::{rep_tier, BuffDef, Condition, Content, Effect, FactionId, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill, REP_LIMIT};
+use crate::content::{rep_tier, BuffDef, Condition, HackDef, HackId, Content, Effect, FactionId, GearSlot, GearStats, ItemId, MobId, QuestId, RecipeDef, ShopDef, ShopId, Skill, REP_LIMIT};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
@@ -54,6 +54,11 @@ pub struct PlayerState {
     pub buffs: Vec<ActiveBuff>,
 }
 
+/// Hack successes are counted (and saved) alongside kill counters, under this key.
+pub fn hack_counter(hack: &str) -> String {
+    format!("hack:{hack}")
+}
+
 /// A temporary skill boost (from food). The server drops it once it runs out.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ActiveBuff {
@@ -82,6 +87,8 @@ pub enum GameEvent {
     OpenMarket,
     /// Reputation changed by this much.
     Rep(FactionId, i32),
+    /// The server runs the challenge.
+    HackStarted(HackId),
     /// The server creates the car (it lives in its own table, not in `PlayerState`).
     CarGranted(String),
     RaceStarted(String),
@@ -201,6 +208,7 @@ impl PlayerState {
             Condition::SkillLevel(skill, level) => self.level(*skill) >= *level,
             Condition::Kills(mob, n) => self.kills.get(mob).copied().unwrap_or(0) >= *n,
             Condition::Rep(faction, min) => self.rep_with(faction) >= *min,
+            Condition::Hacked(hack, n) => self.kills.get(&hack_counter(hack)).copied().unwrap_or(0) >= *n,
             Condition::Not(inner) => !self.check(inner),
         }
     }
@@ -325,6 +333,37 @@ impl PlayerState {
         }
     }
 
+    /// A successful hack: cash, Hacking XP, loot (rolled by the server), reputation, and the
+    /// counter quests look at.
+    pub fn reward_hack(&mut self, hack: &HackDef, cash: i64, loot: &[ItemId], content: &Content) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        *self.kills.entry(hack_counter(&hack.id)).or_insert(0) += 1;
+        self.add_xp(Skill::Hacking, hack.xp, &mut events);
+        if cash > 0 && self.change_cash(cash, &mut events).is_err() {
+            events.retain(|e| !matches!(e, GameEvent::Cash(_)));
+        }
+        for (faction, delta) in &hack.rep {
+            self.change_rep(faction, *delta, &mut events);
+        }
+        for item in loot {
+            let mut copy = self.clone();
+            let mut item_events = Vec::new();
+            if copy.add_item(item, 1, content, &mut item_events).is_ok() {
+                *self = copy;
+                events.extend(item_events);
+            }
+        }
+        events.extend(self.refresh_quests(content));
+        events
+    }
+
+    /// Getting caught.
+    pub fn hack_alarm(&mut self) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        self.change_rep("city", -5, &mut events);
+        events
+    }
+
     /// How many e-Bid auctions this player may run at once.
     pub fn max_listings(&self, content: &Content) -> usize {
         (crate::market::MAX_LISTINGS_PER_PLAYER + self.effective_level(Skill::Trading, content) as usize / 2)
@@ -411,6 +450,7 @@ impl PlayerState {
             }
             Effect::OpenMarket => events.push(GameEvent::OpenMarket),
             Effect::Rep(faction, delta) => self.change_rep(faction, *delta, events),
+            Effect::Hack(hack) => events.push(GameEvent::HackStarted(hack.clone())),
             Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
             Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
         }

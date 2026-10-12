@@ -21,6 +21,7 @@ mod chat_ui;
 mod combat_ui;
 mod config;
 mod game_ui;
+mod hack_ui;
 mod host;
 mod hud;
 mod input;
@@ -147,6 +148,6 @@ fn main() {
             sound::SoundPlugin,
             chat_ui::ChatUiPlugin,
         ))
-        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin));
+        .add_plugins((bubbles::BubblePlugin, hud::HudPlugin, bot::BotPlugin, cars::CarsPlugin, hack_ui::HackUiPlugin));
     app.run();
 }

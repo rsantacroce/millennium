@@ -78,4 +78,28 @@
         ],
         rewards: (cash: 25, xp: [(Cooking, 120)], items: [("chef_hat", 1)], rep: [("city", 30)]),
     ),
+    (
+        id: "phreaking_101",
+        name: "Phreaking 101",
+        stages: [
+            (
+                log: "Glitch, behind the Byte Cafe, wants proof you're not a narc: hack the payphone on Maple & 5th (talk to it and choose Hack).",
+                advance_when: [Hacked("payphone", 1)],
+            ),
+            (log: "Tell Glitch, behind the Byte Cafe, that the payphone is yours."),
+        ],
+        rewards: (cash: 15, xp: [(Hacking, 100)], items: [("acoustic_coupler", 1)], rep: [("zeros", 100)]),
+    ),
+    (
+        id: "black_ice",
+        name: "Black ICE",
+        stages: [
+            (
+                log: "Glitch wants the shipping manifests from the Harbor Office terminal at the docks. It needs Hacking 6 (gear counts).",
+                advance_when: [Hacked("harbor_office", 1)],
+            ),
+            (log: "Bring the manifests to Glitch behind the Byte Cafe."),
+        ],
+        rewards: (cash: 80, xp: [(Hacking, 200)], items: [("laptop", 1)], rep: [("zeros", 150), ("dockside", -30)]),
+    ),
 ]

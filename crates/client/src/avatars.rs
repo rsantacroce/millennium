@@ -143,6 +143,41 @@ pub fn spawn_dressed_body(
     }
 }
 
+/// Interactive objects (see `shared::content::PROPS`), facing -Z like characters.
+fn spawn_prop(commands: &mut Commands, parent: Entity, prop: &str, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+    let mut mat = |c: Color, glow: f32| {
+        materials.add(StandardMaterial { base_color: c, emissive: LinearRgba::from(c) * glow, perceptual_roughness: 0.6, ..default() })
+    };
+    let (metal, dark) = (mat(Color::srgb(0.55, 0.57, 0.6), 0.0), mat(Color::srgb(0.08, 0.08, 0.1), 0.0));
+    let (screen, beige) = (mat(Color::srgb(0.2, 0.9, 0.4), 1.5), mat(Color::srgb(0.85, 0.82, 0.72), 0.0));
+    let mut part = |mesh: Mesh, material: &Handle<StandardMaterial>, at: Vec3| {
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), Transform::from_translation(at), ChildOf(parent)));
+    };
+    match prop {
+        "atm" => {
+            part(Cuboid::new(0.9, 1.6, 0.6).into(), &metal, Vec3::new(0.0, 0.8, 0.0));
+            part(Cuboid::new(0.5, 0.35, 0.02).into(), &screen, Vec3::new(0.0, 1.25, -0.31));
+        }
+        "arcade" => {
+            part(Cuboid::new(0.8, 1.9, 0.9).into(), &dark, Vec3::new(0.0, 0.95, 0.0));
+            part(Cuboid::new(0.6, 0.45, 0.02).into(), &screen, Vec3::new(0.0, 1.45, -0.46));
+            part(Cuboid::new(0.8, 0.12, 0.35).into(), &mat(Color::srgb(0.9, 0.2, 0.3), 0.5), Vec3::new(0.0, 1.0, -0.55));
+        }
+        "panel" => {
+            part(Cylinder::new(0.05, 1.2).into(), &metal, Vec3::new(0.0, 0.6, 0.0));
+            part(Cuboid::new(0.45, 0.6, 0.15).into(), &dark, Vec3::new(0.0, 1.4, 0.0));
+            part(Cuboid::new(0.3, 0.15, 0.02).into(), &screen, Vec3::new(0.0, 1.55, -0.08));
+        }
+        "terminal" => {
+            part(Cuboid::new(1.2, 0.75, 0.6).into(), &beige, Vec3::new(0.0, 0.375, 0.0));
+            part(Cuboid::new(0.5, 0.45, 0.45).into(), &beige, Vec3::new(0.0, 0.98, 0.05));
+            part(Cuboid::new(0.38, 0.3, 0.02).into(), &screen, Vec3::new(0.0, 1.0, -0.18));
+        }
+        // "none": the thing is already part of the scenery (the payphone booth).
+        _ => {}
+    }
+}
+
 /// A big flat dot only the minimap camera can see (render layer 1).
 pub fn minimap_dot(commands: &mut Commands, parent: Entity, color: Color, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
     commands.spawn((
@@ -202,15 +237,25 @@ fn spawn_npc_visuals(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (entity, tag, name, pos, appearance) in &new_npcs {
-        let facing = content.npc(&tag.0).map_or(0.0, |n| n.facing);
+        let def = content.npc(&tag.0);
+        let facing = def.map_or(0.0, |n| n.facing);
         commands.entity(entity).insert((
             Avatar,
             Transform::from_xyz(pos.x, 0.0, pos.y).with_rotation(Quat::from_rotation_y(-facing.to_radians())),
             Visibility::default(),
         ));
-        spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials);
-        minimap_dot(&mut commands, entity, Color::srgb(1.0, 0.6, 0.1), &mut meshes, &mut materials);
-        name_tag(&mut commands, entity, &name.0, Color::srgb(1.0, 0.75, 0.3));
+        match def.and_then(|d| d.prop.as_deref()) {
+            // Things, not people: no minimap dot, a quieter name tag.
+            Some(prop) => {
+                spawn_prop(&mut commands, entity, prop, &mut meshes, &mut materials);
+                name_tag(&mut commands, entity, &name.0, Color::srgb(0.6, 1.0, 0.7));
+            }
+            None => {
+                spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials);
+                minimap_dot(&mut commands, entity, Color::srgb(1.0, 0.6, 0.1), &mut meshes, &mut materials);
+                name_tag(&mut commands, entity, &name.0, Color::srgb(1.0, 0.75, 0.3));
+            }
+        }
     }
 }
 

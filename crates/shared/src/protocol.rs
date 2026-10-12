@@ -68,6 +68,9 @@ pub enum GameAction {
     ExitCar,
     /// Take off what's worn in a gear slot (wearing is `UseItem`).
     TakeOff { slot: crate::content::GearSlot },
+    /// The code typed into a hack (see `GameUpdate::HackChallenge`).
+    HackAnswer { code: String },
+    HackCancel,
 }
 
 /// Trading, parties, friends and crews.
@@ -224,6 +227,9 @@ pub enum GameUpdate {
     /// A street race in progress: drive through `checkpoints[next]` next.
     Race { name: String, checkpoints: Vec<Vec2>, next: u8, seconds_left: f32 },
     RaceEnded { won: bool },
+    /// A hack: memorize `code` (shown for `show_secs`), then type it within `seconds`.
+    HackChallenge { name: String, code: String, show_secs: f32, seconds: f32 },
+    HackEnded { success: bool },
 }
 
 /// Recent chat sent once, right after login.

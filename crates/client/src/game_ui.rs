@@ -148,6 +148,7 @@ fn receive(
     mut panels: ResMut<Panels>,
     mut combat: ResMut<crate::combat_ui::CombatInbox>,
     mut race: ResMut<crate::cars::RaceInbox>,
+    mut hack: ResMut<crate::hack_ui::HackInbox>,
     mut sfx: MessageWriter<PlaySfx>,
     time: Res<Time>,
 ) {
@@ -185,6 +186,7 @@ fn receive(
             GameUpdate::ActionEnded { .. } => action.0 = None,
             update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
             update @ (GameUpdate::Race { .. } | GameUpdate::RaceEnded { .. }) => race.0.push(update),
+            update @ (GameUpdate::HackChallenge { .. } | GameUpdate::HackEnded { .. }) => hack.0.push(update),
         }
     }
 }

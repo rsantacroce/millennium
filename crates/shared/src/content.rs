@@ -230,8 +230,47 @@ pub struct NpcDef {
     /// Degrees; 0 faces north (-Z).
     #[serde(default)]
     pub facing: f32,
+    #[serde(default)]
     pub appearance: Appearance,
     pub dialogue: String,
+    /// Not a person but a thing you interact with (a payphone, an ATM...): drawn as this prop
+    /// instead of a body. See `PROPS`.
+    #[serde(default)]
+    pub prop: Option<String>,
+}
+
+/// Props an "NPC" can be drawn as.
+pub const PROPS: [&str; 5] = ["none", "atm", "arcade", "panel", "terminal"];
+
+pub type HackId = String;
+
+/// Something you can hack: a short code-recall challenge with rewards.
+#[derive(Deserialize, Clone, Debug)]
+pub struct HackDef {
+    pub id: HackId,
+    pub name: String,
+    pub level: u32,
+    /// Code length at exactly the required level (shorter as you outlevel it, at least 3).
+    pub length: u32,
+    /// Seconds to type it in.
+    pub seconds: f32,
+    pub cash: (i64, i64),
+    pub xp: u64,
+    #[serde(default)]
+    pub loot: Vec<(ItemId, f32)>,
+    #[serde(default)]
+    pub rep: Vec<(FactionId, i32)>,
+    /// Per player, after a success.
+    pub cooldown_secs: f32,
+}
+
+impl HackDef {
+    /// (code length, seconds the code is shown) for a hacker of this effective level.
+    pub fn difficulty(&self, level: u32) -> (usize, f32) {
+        let over = level.saturating_sub(self.level);
+        let length = (self.length as i64 - (over / 3) as i64).max(3) as usize;
+        (length, (1.2 + 0.15 * over as f32).min(4.0))
+    }
 }
 
 impl NpcDef {
@@ -285,6 +324,8 @@ pub enum Condition {
     Kills(MobId, u32),
     /// At least this much reputation with a faction.
     Rep(FactionId, i32),
+    /// Pulled off this hack at least this many times.
+    Hacked(HackId, u32),
     Not(Box<Condition>),
 }
 
@@ -308,6 +349,8 @@ pub enum Effect {
     StartRace(String),
     /// Changes reputation with a faction.
     Rep(FactionId, i32),
+    /// Starts a hack (see `hacks.ron`).
+    Hack(HackId),
 }
 
 pub type FactionId = String;
@@ -452,6 +495,7 @@ pub struct Content {
     pub mobs: HashMap<MobId, MobDef>,
     pub spawns: Vec<MobSpawn>,
     pub factions: HashMap<FactionId, FactionDef>,
+    pub hacks: HashMap<HackId, HackDef>,
     /// What new characters start with.
     pub starting_cash: i64,
 }
@@ -464,6 +508,7 @@ const SHOPS: &str = include_str!("../../../assets/data/shops.ron");
 const RECIPES: &str = include_str!("../../../assets/data/recipes.ron");
 const MOBS: &str = include_str!("../../../assets/data/mobs.ron");
 const FACTIONS: &str = include_str!("../../../assets/data/factions.ron");
+const HACKS: &str = include_str!("../../../assets/data/hacks.ron");
 
 fn parse<T: for<'de> Deserialize<'de>>(name: &str, text: &str) -> Result<T, String> {
     ron::from_str(text).map_err(|e| format!("assets/data/{name}: {e}"))
@@ -484,7 +529,9 @@ impl Content {
         let recipes: Vec<RecipeDef> = parse("recipes.ron", RECIPES)?;
         let mobs: MobFile = parse("mobs.ron", MOBS)?;
         let factions: Vec<FactionDef> = parse("factions.ron", FACTIONS)?;
+        let hacks: Vec<HackDef> = parse("hacks.ron", HACKS)?;
         Ok(Self {
+            hacks: hacks.into_iter().map(|h| (h.id.clone(), h)).collect(),
             factions: factions.into_iter().map(|f| (f.id.clone(), f)).collect(),
             items: items.into_iter().map(|i| (i.id.clone(), i)).collect(),
             npcs,
@@ -526,6 +573,21 @@ impl Content {
     /// Returns every broken reference. Empty = good.
     pub fn validate(&self) -> Vec<String> {
         let mut errors = Vec::new();
+        for npc in &self.npcs {
+            if npc.prop.as_ref().is_some_and(|p| !PROPS.contains(&p.as_str())) {
+                errors.push(format!("npc `{}`: unknown prop", npc.id));
+            }
+        }
+        for h in self.hacks.values() {
+            for (i, chance) in &h.loot {
+                if !self.items.contains_key(i) || !(0.0..=1.0).contains(chance) {
+                    errors.push(format!("hack `{}`: bad loot `{i}`", h.id));
+                }
+            }
+            if h.rep.iter().any(|(f, _)| !self.factions.contains_key(f)) || h.cash.0 > h.cash.1 || h.length < 3 {
+                errors.push(format!("hack `{}`: bad faction or numbers", h.id));
+            }
+        }
         for def in self.items.values() {
             if let Some(g) = &def.gear {
                 let ctx = format!("item `{}`", def.id);
@@ -571,6 +633,7 @@ impl Content {
                     Condition::HasItem(i, _) => item(errors, ctx, i),
                     Condition::Kills(m, _) if !self.mobs.contains_key(m) => errors.push(format!("{ctx}: unknown mob `{m}`")),
                     Condition::Rep(f, _) if !self.factions.contains_key(f) => errors.push(format!("{ctx}: unknown faction `{f}`")),
+                    Condition::Hacked(h, _) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
                     _ => {}
                 }
             }
@@ -621,6 +684,7 @@ impl Content {
                             Effect::ResetKills(m) if !self.mobs.contains_key(m) => {
                                 errors.push(format!("{ctx}: unknown mob `{m}`"))
                             }
+                            Effect::Hack(h) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
                             Effect::Rep(f, _) if !self.factions.contains_key(f) => {
                                 errors.push(format!("{ctx}: unknown faction `{f}`"))
                             }

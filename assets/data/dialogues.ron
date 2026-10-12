@@ -441,4 +441,136 @@
             ),
         ],
     ),
+    (
+        id: "payphone",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "A scratched payphone. Quarters only. The coin box hasn't been emptied in a while, and the handset cord looks easy to tap.",
+                options: [
+                    (text: "Hack it.", effects: [Hack("payphone")], goto: None),
+                    (text: "Make a call.", goto: Some("call")),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+            (id: "call", text: "You get a busy signal, then a modem squeal, then someone saying \"wrong number, narc\". Click.", options: [(text: "Hang up.", goto: None)]),
+        ],
+    ),
+    (
+        id: "atm",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "A Meridian Corp ATM. The screen says WELCOME in a font from 1987. There is a maintenance port under the keypad.",
+                options: [
+                    (text: "Hack it.", effects: [Hack("meridian_atm")], goto: None),
+                    (text: "Check my balance.", goto: Some("balance")),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+            (id: "balance", text: "INSUFFICIENT FUNDS. HAVE A MERIDIAN DAY.", options: [(text: "Rude.", goto: None)]),
+        ],
+    ),
+    (
+        id: "arcade",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Street Kombat II. The high-score table is full of initials you don't know. The coin door is held shut with tape.",
+                options: [
+                    (text: "Hack it.", effects: [Hack("arcade_highscore")], goto: None),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+        ],
+    ),
+    (
+        id: "factory_panel",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "A rusty keypad by the Main Hall doors. A sticker says SECURITY BY KRANKCO. The wires run somewhere warm.",
+                options: [
+                    (text: "Hack it.", effects: [Hack("factory_panel")], goto: None),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+        ],
+    ),
+    (
+        id: "harbor_terminal",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "A beige terminal behind the Harbor Office window, still logged in to SHIPPING-MGR. Green text blinks patiently.",
+                options: [
+                    (text: "Hack it.", effects: [Hack("harbor_office")], goto: None),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+        ],
+    ),
+    (
+        id: "glitch",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "...You're blocking my signal. What do you want?",
+                options: [
+                    (text: "I heard you're a hacker.", when: [QuestNotStarted("phreaking_101")], goto: Some("intro")),
+                    (text: "Still working on that payphone.", when: [QuestAt("phreaking_101", 0)], goto: Some("phone_reminder")),
+                    (text: "The payphone's mine.", when: [QuestAt("phreaking_101", 1)], effects: [CompleteQuest("phreaking_101")], goto: Some("welcome")),
+                    (
+                        text: "Got a real job for me?",
+                        when: [QuestDone("phreaking_101"), QuestNotStarted("black_ice"), Rep("zeros", 100)],
+                        goto: Some("black_ice"),
+                    ),
+                    (text: "About the Harbor Office...", when: [QuestAt("black_ice", 0)], goto: Some("ice_reminder")),
+                    (text: "Here are your manifests.", when: [QuestAt("black_ice", 1)], effects: [CompleteQuest("black_ice")], goto: Some("ice_done")),
+                    (text: "What've you got?", when: [QuestDone("phreaking_101")], effects: [OpenShop("zeros_stash")], goto: None),
+                    (text: "How does hacking work?", goto: Some("howto")),
+                    (text: "Never mind.", goto: None),
+                ],
+            ),
+            (
+                id: "intro",
+                text: "Hacker is a strong word. I \"explore systems\". Want in? Prove it. The payphone on the corner of Maple & 5th. Make it yours.",
+                options: [
+                    (text: "Easy.", effects: [StartQuest("phreaking_101")], goto: None),
+                    (text: "Sounds illegal.", goto: None),
+                ],
+            ),
+            (id: "phone_reminder", text: "The payphone. Corner of Maple & 5th. It's not going to hack itself.", options: [(text: "Right.", goto: None)]),
+            (
+                id: "welcome",
+                text: "Not bad for a newbie. Take this coupler, it'll make you faster. Welcome to Zer0 Day. We never met.",
+                options: [(text: "Never met who?", goto: None)],
+            ),
+            (
+                id: "black_ice",
+                text: "The Dockside Crew is moving something through the harbor and Meridian is paying them to. The manifests are on the Harbor Office terminal. That system's no payphone: Hacking 6, and you'll want gear.",
+                options: [
+                    (text: "I'm in.", effects: [StartQuest("black_ice")], goto: None),
+                    (text: "Not yet.", goto: None),
+                ],
+            ),
+            (id: "ice_reminder", text: "Harbor Office terminal, docks. Hacking 6. Don't trip the alarm.", options: [(text: "Got it.", goto: None)]),
+            (
+                id: "ice_done",
+                text: "Meridian AND the Dockside Crew. I knew it. Here, you've earned a real machine. Don't tell anyone where you got it.",
+                options: [(text: "Where did I get what?", goto: None)],
+            ),
+            (
+                id: "howto",
+                text: "Talk to a system and choose Hack. You get a code for a second, memorize it, type it in before the timer runs out. Higher Hacking, easier codes. Gear helps. Mess up and the alarm goes, and City Services don't like that.",
+                options: [(text: "Cool.", goto: None)],
+            ),
+        ],
+    ),
 ]

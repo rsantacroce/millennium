@@ -313,4 +313,19 @@
         value: 8,
         gear: Some((slot: Head, color: Some(2), skills: [(Cooking, 1)])),
     ),
+    // --- Hacking gear (Milestone 5).
+    (
+        id: "acoustic_coupler",
+        name: "Acoustic Coupler",
+        description: "Two rubber cups for a phone handset. 300 baud of pure freedom. +1 Hacking.",
+        value: 35,
+        gear: Some((slot: Accessory, skills: [(Hacking, 1)])),
+    ),
+    (
+        id: "laptop",
+        name: "ThinkBook 760",
+        description: "Black, heavy, a trackpoint like a pencil eraser. +2 Hacking, +1 Electronics.",
+        value: 120,
+        gear: Some((slot: Accessory, skills: [(Hacking, 2), (Electronics, 1)])),
+    ),
 ]

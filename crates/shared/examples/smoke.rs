@@ -21,6 +21,8 @@
 //!   `!collect`, `!closemarket`
 //! - cars: `!cars` (list parked cars), `!enter` (nearest), `!exit`, `!drive X Z` (straight there, then
 //!   brake), `!race` (drive through the current race's checkpoints)
+//! - hacking: talk to a terminal and `!choose Hack`, then `!hack` (types the code back) or
+//!   `!hack wrong`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
 //!
 //! Options: `--password P` (default `password123`), `--character NAME` (default: same as the account), `--server HOST:PORT`, `--interval SECS`
@@ -76,6 +78,8 @@ struct Script {
     /// Remaining checkpoints of the current race, and whether `!race` is driving them.
     race: Vec<Vec2>,
     racing: bool,
+    /// The last hack code we were shown (`!hack` types it back).
+    hack_code: Option<String>,
     idle_after: f32,
 }
 
@@ -145,6 +149,7 @@ fn main() {
         mine: Vec::new(),
         race: Vec::new(),
         racing: false,
+        hack_code: None,
         idle_after: 3.0,
     });
     app.add_systems(Startup, move |mut commands: Commands| connect(&mut commands, server, token.clone()));
@@ -418,6 +423,14 @@ fn receive(
                 script.race = checkpoints[next as usize..].to_vec();
             }
             GameUpdate::RaceEnded { won } => println!("RACE   ended, won={won}"),
+            GameUpdate::HackChallenge { name, code, show_secs, seconds } => {
+                println!("HACK   {name}: code {code} (shown {show_secs:.1}s, {seconds}s to answer)");
+                script.hack_code = Some(code);
+            }
+            GameUpdate::HackEnded { success } => {
+                println!("HACK   ended, success={success}");
+                script.hack_code = None;
+            }
         }
     }
     for h in drain(history) {
@@ -522,6 +535,11 @@ fn run_script(
             None => println!("       (no {item} in inventory)"),
         },
         ["!closeshop"] => send(GameAction::CloseShop),
+        ["!hack"] => match script.hack_code.clone() {
+            Some(code) => send(GameAction::HackAnswer { code }),
+            None => println!("       (no hack in progress)"),
+        },
+        ["!hack", "wrong"] => send(GameAction::HackAnswer { code: "0000".into() }),
         ["!takeoff", slot] => match shared::content::GearSlot::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(slot)) {
             Some(slot) => send(GameAction::TakeOff { slot }),
             None => println!("       (slots: head, body, feet, accessory)"),

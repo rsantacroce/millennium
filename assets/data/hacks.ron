@@ -1,0 +1,50 @@
+// Hackable things. You get a code flashed at you; type it back in time. Each hack needs a
+// Hacking level; outlevelling it makes the code shorter and shows it longer (see
+// HackDef::difficulty). Failing trips an alarm: City Services take note, and you have to wait.
+[
+    (
+        id: "payphone",
+        name: "Payphone (Maple & 5th)",
+        level: 1, length: 4, seconds: 8.0,
+        cash: (1, 4), xp: 25,
+        loot: [],
+        rep: [("zeros", 3)],
+        cooldown_secs: 30.0,
+    ),
+    (
+        id: "arcade_highscore",
+        name: "Pixel Palace High-Score Table",
+        level: 2, length: 5, seconds: 8.0,
+        cash: (0, 2), xp: 35,
+        loot: [("game_cartridge", 0.2)],
+        rep: [("zeros", 5)],
+        cooldown_secs: 45.0,
+    ),
+    (
+        id: "meridian_atm",
+        name: "Meridian Corp ATM",
+        level: 3, length: 6, seconds: 9.0,
+        cash: (6, 15), xp: 45,
+        loot: [],
+        rep: [("zeros", 6), ("meridian", -10)],
+        cooldown_secs: 60.0,
+    ),
+    (
+        id: "factory_panel",
+        name: "Factory Security Panel",
+        level: 4, length: 6, seconds: 8.0,
+        cash: (2, 6), xp: 60,
+        loot: [("spark_plug", 0.3), ("car_battery", 0.1)],
+        rep: [("zeros", 6)],
+        cooldown_secs: 60.0,
+    ),
+    (
+        id: "harbor_office",
+        name: "Harbor Office Terminal",
+        level: 6, length: 8, seconds: 10.0,
+        cash: (10, 25), xp: 90,
+        loot: [("pager", 0.1)],
+        rep: [("zeros", 10), ("dockside", -10)],
+        cooldown_secs: 90.0,
+    ),
+]

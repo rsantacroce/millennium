@@ -75,4 +75,12 @@
         // Flo buys home cooking for the lunch rush.
         buy_rate: 0.7,
     ),
+    (
+        id: "zeros_stash",
+        name: "Zer0 Day Stash",
+        sells: [("burned_cd", 3), ("acoustic_coupler", 45), ("laptop", 160), ("wraparound_shades", 16)],
+        buy_rate: 0.5,
+        faction: Some("zeros"),
+        requires: [("acoustic_coupler", 100), ("laptop", 300)],
+    ),
 ]

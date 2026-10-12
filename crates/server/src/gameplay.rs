@@ -7,6 +7,7 @@
 
 use crate::combat::{Fighter, Mobs};
 use crate::market::{ActiveMarket, MarketPending};
+use crate::hacking::{HackAction, HackRequest};
 use crate::vehicles::{CarAction, CarRequest};
 use shared::vehicle::Driving;
 use crate::session::{PlayerLink, Progress, Session};
@@ -85,7 +86,7 @@ fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRoom
 }
 
 /// Turns rule events into chat-window notices.
-fn describe(event: &GameEvent, content: &Content) -> Option<String> {
+pub fn describe(event: &GameEvent, content: &Content) -> Option<String> {
     let is_gear = |item: &str| content.item(item).is_some_and(|d| d.gear.is_some());
     Some(match event {
         GameEvent::Gained(item, 1) => format!("You got: {}.", content.item_name(item)),
@@ -104,7 +105,11 @@ fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::LevelUp(skill, level) => format!("*** {} level {level}! ***", skill.name()),
         GameEvent::Rep(faction, d) if *d >= 0 => format!("Reputation with {} +{d}.", content.faction_name(faction)),
         GameEvent::Rep(faction, d) => format!("Reputation with {} {d}.", content.faction_name(faction)),
-        GameEvent::OpenShop(_) | GameEvent::OpenMarket | GameEvent::CarGranted(_) | GameEvent::RaceStarted(_) => return None,
+        GameEvent::OpenShop(_)
+        | GameEvent::OpenMarket
+        | GameEvent::CarGranted(_)
+        | GameEvent::RaceStarted(_)
+        | GameEvent::HackStarted(_) => return None,
         GameEvent::Equipped(item) if is_gear(item) => format!("You put on the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) if is_gear(item) => format!("You take off the {}.", content.item_name(item)),
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
@@ -177,6 +182,7 @@ fn handle_actions(
     content: Res<Content>,
     time: Res<Time<Real>>,
     mut cars: MessageWriter<CarRequest>,
+    mut hacks: MessageWriter<HackRequest>,
     mut commands: Commands,
 ) {
     let mut incoming = Vec::new();
@@ -271,6 +277,9 @@ fn handle_actions(
                         }
                         GameEvent::RaceStarted(race) => {
                             cars.write(CarRequest { player, link, action: CarAction::Race(race.clone()) });
+                        }
+                        GameEvent::HackStarted(hack) => {
+                            hacks.write(HackRequest { player, action: HackAction::Start(hack.clone()) });
                         }
                         _ => {}
                     }
@@ -371,6 +380,12 @@ fn handle_actions(
             }
             GameAction::ExitCar => {
                 cars.write(CarRequest { player, link, action: CarAction::Exit });
+            }
+            GameAction::HackAnswer { code } => {
+                hacks.write(HackRequest { player, action: HackAction::Answer(code.chars().take(32).collect()) });
+            }
+            GameAction::HackCancel => {
+                hacks.write(HackRequest { player, action: HackAction::Cancel });
             }
             GameAction::Attack { .. } | GameAction::PowerSwing if driving => {
                 out.notice(link, SystemNotice::info("You can't fight from behind the wheel."));
