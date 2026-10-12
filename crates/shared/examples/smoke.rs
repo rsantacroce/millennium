@@ -25,7 +25,8 @@
 //!   `!hack wrong`
 //! - houses: talk to `house_door_N` and `!choose Go up`, then `!house N buy|enter`; at home `!use ITEM`
 //!   puts furniture down, `!furniture SPOT use|pickup`, `!store ITEM`, `!retrieve SLOT`
-//! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position)
+//! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position),
+//!   `!seen` (the other players we're being sent)
 //! - `!wander SECONDS`: walk between random reachable spots nearby, saying something now and then
 //!   (for load tests: `scripts/loadtest.sh`)
 //!
@@ -524,6 +525,7 @@ fn run_script(
     cars: Query<(&ParkedCar, &Position)>,
     zones: Res<shared::zone::ZoneRegistry>,
     navs: Res<shared::nav::NavGrids>,
+    others: Query<&DisplayName, (With<PlayerId>, Without<InputMarker<MoveIntent>>)>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if !script.in_world || script.goto.is_some() || script.fight.is_some() {
@@ -739,6 +741,11 @@ fn run_script(
         ["!wait", secs] => script.wait = Some(Timer::from_seconds(secs.parse().unwrap(), TimerMode::Once)),
         ["!wander", secs] => script.wander_until = Some(time.elapsed_secs() + secs.parse::<f32>().unwrap()),
         ["!state"] => print_state(&script.state, &content),
+        ["!seen"] => {
+            let mut names: Vec<&str> = others.iter().map(|n| n.0.as_str()).collect();
+            names.sort_unstable();
+            println!("SEEN   {} other player(s): {}", names.len(), names.join(", "));
+        }
         ["!where"] => match me.single() {
             Ok((pos, zone, hp)) => println!(
                 "WHERE  {zone:?} at ({:.1}, {:.1}), health {:?}, {}",

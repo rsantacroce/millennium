@@ -164,6 +164,8 @@ fn frame_started(mut window: ResMut<Window>) {
 fn frame_finished(mut window: ResMut<Window>) {
     let Some(start) = window.frame_start.take() else { return };
     let took = start.elapsed();
+    #[cfg(feature = "profile")]
+    crate::profile::frame_done(took);
     window.frames += 1;
     window.frame_total += took;
     window.frame_max = window.frame_max.max(took);

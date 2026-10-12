@@ -211,8 +211,10 @@ fn camera_controls(
     if scroll.delta.y != 0.0 {
         let factor = (1.0 - scroll.delta.y * 0.1).clamp(0.5, 1.5);
         match rig.mode {
-            CameraMode::Isometric => rig.iso_zoom = (rig.iso_zoom * factor).clamp(10.0, 80.0),
-            CameraMode::TopDown => rig.top_zoom = (rig.top_zoom * factor).clamp(10.0, 120.0),
+            // Zoomed all the way out, the view stays about as wide as the distance other players
+            // are shown at (the server's `zones::SHOW_DISTANCE`, 40 m).
+            CameraMode::Isometric => rig.iso_zoom = (rig.iso_zoom * factor).clamp(10.0, 50.0),
+            CameraMode::TopDown => rig.top_zoom = (rig.top_zoom * factor).clamp(10.0, 70.0),
             CameraMode::ThirdPerson => rig.orbit_distance = (rig.orbit_distance * factor).clamp(3.0, 30.0),
         }
     }

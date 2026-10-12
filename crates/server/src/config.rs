@@ -15,6 +15,10 @@ pub struct ServerConfig {
     pub hub: HubConfig,
     pub metrics: crate::metrics::MetricsConfig,
     pub log_filter: Option<String>,
+    /// Run systems on several threads. Off by default: a frame's work is a few milliseconds, and
+    /// waking worker threads cost more than it saved (load test: 83 slow frames vs 12, see
+    /// README "Metrics and load testing").
+    pub multi_threaded: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]

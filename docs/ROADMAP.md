@@ -40,8 +40,9 @@ What a new player notices first.
 - [x] CI: build, test, clippy and `economy` on every push
 - [x] A server package: a Docker image, a systemd unit and a deployment guide (`docs/deploy.md`)
 - [x] Load test with many smoke-tool bots: players per zone server, bandwidth, tick time (`scripts/loadtest.sh`; results in the README)
-- [ ] Find the occasional 50-80 ms frames with 100+ players in one zone (averages are 2-4 ms)
-- [ ] Interest management: only replicate players within sight, so bandwidth stops growing with the square of a zone's population (28 KB/s per player at 200 in one zone; dial-up is ~7 KB/s)
+- [x] Find the occasional 50-80 ms frames with 100+ players in one zone: thread wake-ups, not work; systems now run on one thread (`--features profile` finds slow systems)
+- [x] Interest management: only replicate players within sight (40-46 m), so bandwidth stops growing with the square of a zone's population (28 -> 17 KB/s per player at 200 bots)
+- [ ] Fewer bytes per player: send far players less often, and smaller position updates (dial-up is ~7 KB/s; a crowded street is 17 KB/s)
 - [x] Moderation tools: kick, ban, an admin panel, chat reports
 - [x] Account recovery (password reset with recovery codes), and account deletion
 - [x] Metrics and dashboards (online players, tick time, database latency): `/metrics`, a status page, a log line

@@ -606,18 +606,28 @@ All of this goes through the login service over TLS, never the game connection.
   (Prometheus), `/` (a status page) and `/health`. Keep that address private.
 - **Load test:** `scripts/loadtest.sh BOTS SECONDS` starts a server and N headless bots that
   wander around Downtown and chat (all in one zone: the worst case), then summarises the
-  metrics, CPU and memory. On an M4 Pro (release build, server and bots on one machine):
+  metrics, CPU and memory. 200 bots on an M4 Pro (release build, server and bots on one machine;
+  most bots stay Downtown, some wander through the exits):
 
-  | Bots in one zone | Frame time (avg / worst) | Database per command | Out per player | CPU (one core) | Memory |
-  |---|---|---|---|---|---|
-  | 100 | 1.8 ms / 57 ms | 0.25 ms | 15 KB/s | 51% | 244 MB |
-  | 200 | 4.2 ms / 81 ms | 0.25 ms | 28 KB/s | 67% | 275 MB |
+  | | Frame time (avg) | Worst frame in steady play | Out per player | CPU (one core) |
+  |---|---|---|---|---|
+  | Before (multi-threaded, everyone in a zone sees everyone) | 4.2 ms | 50-80 ms | 28 KB/s | 67% |
+  | Single-threaded systems | 3.6 ms | 12-16 ms | 27 KB/s | 59% |
+  | + players only see players within 40-46 m | 3.8 ms | 15-22 ms | 17 KB/s | 65% |
 
-  - **Averages:** far inside the 33 ms tick budget.
-  - **Worst frames:** an occasional spike goes over it. The spikes grow with the number of
-    players, so they're probably server work, not just CPU contention (on the roadmap).
-  - **Bandwidth per player** grows with the number of players in sight, since everyone in a zone
-    sees everyone else.
+  The tick budget is 33 ms. The login rush (200 accounts in 20 s) still gives one slow frame.
+- **Slow frames, explained:** a server built with `--features profile` logs every frame over
+  `MILLENNIUM_SLOW_FRAME_MS` (20) with the systems that took longest. The spikes turned out to be
+  barely any work: 0.3-1.6 ms in systems for a 25-200 ms frame. The rest was Bevy waking its
+  worker threads on a busy machine. Systems now run on one thread (`multi_threaded = false`),
+  which cut slow frames from 83 to 12 in the same test and lowered average frame time and CPU.
+- **Interest management** (`server/src/zones.rs`):
+  - Each zone is a lightyear room, so clients only hear about their own zone.
+  - Within a zone, other players are hidden beyond 46 m and shown again within 40 m. The gap
+    stops someone at the edge from flickering, and the camera's zoom is capped to match.
+  - NPCs, rivals and parked cars stay zone-wide.
+  - Bandwidth per player drops by a third even in compact Downtown, and more in big zones. It
+    no longer grows with the square of a zone's population.
 
 ### Backups
 

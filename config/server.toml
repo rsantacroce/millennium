@@ -2,6 +2,9 @@
 
 # Overrides the log level (also settable with RUST_LOG).
 # log_filter = "info,lightyear=warn,sqlx=warn"
+# Systems run on one thread by default: a frame's work is a few milliseconds, and waking worker
+# threads cost more than it saved. Set to true to try several threads on a big server.
+# multi_threaded = false
 
 [network]
 # UDP: the game itself.

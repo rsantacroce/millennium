@@ -106,6 +106,11 @@ awk -F, -v bots="$bots" 'NR > 1 {
     printf "server:  %.0f%% CPU (of one core), %.0f MB memory at most\n", scpu / k, mrss / 1024
   }' "$csv"
 
-failed=$(grep -l "AUTH   failed\|panicked" "$work"/bot*.log 2>/dev/null | wc -l | tr -d " ")
+failed=$( (grep -l "AUTH   failed\|panicked" "$work"/bot*.log 2>/dev/null || true) | wc -l | tr -d " ")
 echo "bots that failed to log in or crashed: $failed"
-grep -a "status:" "$work/server.log" | tail -2 | sed 's/.*status: /server log: /'
+(grep -a "status:" "$work/server.log" || true) | tail -2 | sed 's/.*status: /server log: /'
+# A server built with `--features profile` logs slow frames and what took the time.
+if grep -aq "slow frame" "$work/server.log"; then
+  grep -a "slow frame" "$work/server.log" | sed 's/.*slow frame: //' > "${csv%.csv}-slow.txt"
+  echo "slow frames: $(wc -l < "${csv%.csv}-slow.txt" | tr -d ' ') (details in ${csv%.csv}-slow.txt)"
+fi

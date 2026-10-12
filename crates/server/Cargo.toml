@@ -31,3 +31,8 @@ sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "sqlite", "m
 
 [dev-dependencies]
 tokio = { workspace = true }
+
+[features]
+# Logs slow frames with the systems that took longest (see src/profile.rs). Off normally: timing
+# every system costs a little.
+profile = ["bevy/trace"]

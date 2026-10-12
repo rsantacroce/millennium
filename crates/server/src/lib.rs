@@ -23,6 +23,8 @@ mod moderation;
 mod movement;
 mod net;
 mod persistence;
+#[cfg(feature = "profile")]
+mod profile;
 mod session;
 mod social;
 mod vehicles;
@@ -66,6 +68,8 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
             app.add_plugins((
                 LogPlugin {
                     filter: config.log_filter.clone().unwrap_or_else(|| DEFAULT_LOG_FILTER.into()),
+                    #[cfg(feature = "profile")]
+                    custom_layer: profile::layer,
                     ..default()
                 },
                 // Ctrl-C → AppExit, so we get to save everyone before quitting.
@@ -112,7 +116,37 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
     ));
     // Tuples top out at 15 plugins.
     app.add_plugins((moderation::ModerationPlugin, metrics::MetricsPlugin));
+    if !app.world().resource::<ServerConfig>().multi_threaded {
+        single_threaded(&mut app);
+    }
     Ok(app)
+}
+
+/// Runs every main schedule on one thread. The simulation only takes a few milliseconds a frame,
+/// so waking worker threads for it can cost more than it saves on a busy machine.
+fn single_threaded(app: &mut App) {
+    use bevy::app::{FixedFirst, FixedLast, FixedPostUpdate, FixedPreUpdate, RunFixedMainLoop};
+    use bevy::ecs::schedule::{ScheduleLabel, SingleThreadedExecutor};
+    let labels: [bevy::ecs::intern::Interned<dyn ScheduleLabel>; 12] = [
+        First.intern(),
+        PreUpdate.intern(),
+        RunFixedMainLoop.intern(),
+        FixedFirst.intern(),
+        FixedPreUpdate.intern(),
+        FixedUpdate.intern(),
+        FixedPostUpdate.intern(),
+        FixedLast.intern(),
+        Update.intern(),
+        PostUpdate.intern(),
+        Last.intern(),
+        StateTransition.intern(),
+    ];
+    for label in labels {
+        app.edit_schedule(label, |s| {
+            s.set_executor(SingleThreadedExecutor::new());
+        });
+    }
+    debug!("running the simulation on one thread (multi_threaded = false)");
 }
 
 /// Runs the first frame, which binds the UDP socket, and checks the server is listening.
