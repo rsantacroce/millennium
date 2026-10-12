@@ -16,7 +16,8 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use shared::auth::client::{request_ticket, KnownServers, Trust};
 use shared::auth::{AuthMode, AuthRequest, LoginTicket, AUTH_VERSION};
-use shared::protocol::{CharacterSummary, NpcTag, PlayerId, SessionUpdate};
+use shared::protocol::{CharacterSummary, MobTag, NpcTag, PlayerId, SessionUpdate};
+use shared::vehicle::ParkedCar;
 use shared::zone::ZoneId;
 use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -76,6 +77,10 @@ struct Ticket {
 
 #[derive(Resource)]
 struct ConnectTimer(Timer);
+
+/// Moving to another zone server: the old connection drops on purpose.
+#[derive(Resource)]
+struct Transferring;
 
 pub struct NetPlugin;
 
@@ -205,15 +210,17 @@ fn connect_timeout(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn session_updates(
-    mut client: Query<Option<&mut MessageReceiver<SessionUpdate>>, With<Client>>,
+    mut client: Query<(Entity, Option<&mut MessageReceiver<SessionUpdate>>), With<Client>>,
+    replicated: Query<Entity, Or<(With<PlayerId>, With<NpcTag>, With<MobTag>, With<ParkedCar>)>>,
     state: Res<State<AppState>>,
     mut roster: ResMut<Roster>,
     mut status: ResMut<LoginStatus>,
     mut next: ResMut<NextState<AppState>>,
     mut commands: Commands,
 ) {
-    let Ok(Some(mut receiver)) = client.single_mut() else { return };
+    let Ok((client_entity, Some(mut receiver))) = client.single_mut() else { return };
     for update in receiver.receive() {
         match update {
             SessionUpdate::CharacterList { account, characters, max } => {
@@ -229,7 +236,26 @@ fn session_updates(
             SessionUpdate::EnterWorld { character_id, name, zone } => {
                 info!("entered the world as {name}");
                 commands.insert_resource(LocalPlayer { character_id, name, zone });
+                commands.remove_resource::<Transferring>();
                 next.set(AppState::InGame);
+            }
+            SessionUpdate::Transfer { addr, token } => {
+                // The next zone runs on another server. The token logs us straight back in.
+                let token = match ConnectToken::try_from_bytes(&token) {
+                    Ok(t) => t,
+                    Err(e) => return fail(&mut status, &mut next, format!("bad transfer token: {e:?}")),
+                };
+                info!("moving to the server at {addr}");
+                commands.trigger(Disconnect { entity: client_entity });
+                commands.entity(client_entity).despawn();
+                for e in &replicated {
+                    commands.entity(e).try_despawn();
+                }
+                commands.remove_resource::<LocalPlayer>();
+                commands.insert_resource(Transferring);
+                commands.insert_resource(Ticket { token: Some(token), server: addr });
+                next.set(AppState::Connecting);
+                return;
             }
             SessionUpdate::Kicked { reason } => fail(&mut status, &mut next, reason),
         }
@@ -239,11 +265,12 @@ fn session_updates(
 fn watch_connection(
     client: Query<Has<Connected>, With<Client>>,
     state: Res<State<AppState>>,
+    transferring: Option<Res<Transferring>>,
     mut status: ResMut<LoginStatus>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    // While connecting, the timeout handles failure.
-    if *state.get() == AppState::Connecting {
+    // While connecting (or changing servers), the timeout handles failure.
+    if *state.get() == AppState::Connecting || transferring.is_some() {
         return;
     }
     if !client.single().unwrap_or(false) && status.0.is_none() {
@@ -265,6 +292,7 @@ fn cleanup(
         commands.entity(entity).despawn();
     }
     commands.remove_resource::<LocalPlayer>();
+    commands.remove_resource::<Transferring>();
     commands.remove_resource::<AuthTask>();
     commands.remove_resource::<Ticket>();
     commands.insert_resource(Roster::default());

@@ -4,7 +4,7 @@
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
 //!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
 //!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`,
-//!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!key f` (get in/out of your car),
+//!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!car` (get in/out of your car, like G),
 //!   `!shot FILE.png` (screenshot rendered by Bevy, works with the screen locked), `!wait SECS`,
 //!   or any chat input (`/g hello`).
 //!
@@ -198,7 +198,7 @@ fn run_script(
             let path = path.to_string();
             commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
         }
-        ["!key", "f"] => {
+        ["!car"] => {
             drive_key.write(crate::cars::DriveKey);
         }
         ["!select", slot] => panels.selected = slot.parse().ok(),

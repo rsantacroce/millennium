@@ -67,8 +67,9 @@ impl Plugin for GameplayPlugin {
 }
 
 /// NPCs are ordinary replicated entities in their zone's room.
-fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRooms>) {
-    for npc in &content.npcs {
+fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<crate::cluster::Cluster>) {
+    let ours: Vec<_> = content.npcs.iter().filter(|n| cluster.owns(n.zone_id())).collect();
+    for npc in &ours {
         commands.spawn((
             Name::new(format!("NPC {}", npc.name)),
             NpcTag(npc.id.clone()),
@@ -80,7 +81,7 @@ fn spawn_npcs(mut commands: Commands, content: Res<Content>, rooms: Res<ZoneRoom
             Rooms::single(rooms.room(npc.zone_id())),
         ));
     }
-    info!("spawned {} NPCs", content.npcs.len());
+    info!("spawned {} NPCs", ours.len());
 }
 
 /// Turns rule events into chat-window notices.
@@ -164,7 +165,7 @@ fn handle_actions(
         &PlayerId,
         Has<MarketPending>,
         Has<Driving>,
-    )>,
+    ), Without<crate::cluster::Transferring>>,
     mobs: Res<Mobs>,
     mob_info: Query<(&Position, &ZoneId, &Health), (With<MobTag>, Without<Fighter>)>,
     mut out: Outbox,

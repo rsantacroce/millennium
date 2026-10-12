@@ -225,12 +225,15 @@ fn handle_results(
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     content: Res<Content>,
     db: Res<Db>,
+    cluster: Res<crate::cluster::Cluster>,
     mut commands: Commands,
 ) {
     let tell = |notices: &mut Query<&mut MessageSender<SystemNotice>>, list: &[(i64, String)]| {
         for (character, text) in list {
-            if let Some(link) = online.by_id(*character as u64).and_then(|p| links.get(p).ok()) {
-                notice(notices, link.0, SystemNotice::info(text.clone()));
+            match online.by_id(*character as u64).and_then(|p| links.get(p).ok()) {
+                Some(link) => notice(notices, link.0, SystemNotice::info(text.clone())),
+                // Maybe they're on another server of the cluster.
+                None => cluster.notice_elsewhere(*character, text.clone()),
             }
         }
     };

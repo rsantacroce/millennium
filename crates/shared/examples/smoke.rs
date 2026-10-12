@@ -67,6 +67,9 @@ struct Script {
     fight: Option<u32>,
     options: Vec<String>,
     state: PlayerState,
+    /// A `Transfer` to act on, and whether one is in progress (the old link drops on purpose).
+    transfer: Option<(SocketAddr, Vec<u8>)>,
+    transferring: bool,
     /// Last e-Bid search results and own listings (`!bid N`, `!cancel N` index these).
     results: Vec<Listing>,
     mine: Vec<Listing>,
@@ -136,32 +139,66 @@ fn main() {
         fight: None,
         options: Vec::new(),
         state: PlayerState::default(),
+        transfer: None,
+        transferring: false,
         results: Vec::new(),
         mine: Vec::new(),
         race: Vec::new(),
         racing: false,
         idle_after: 3.0,
     });
-    app.add_systems(Startup, move |mut commands: Commands| {
-        let client = commands
-            .spawn((
-                Client,
-                Link::default(),
-                LocalAddr(SocketAddr::from(([0, 0, 0, 0], 0))),
-                PeerAddr(server),
-                ReplicationReceiver,
-                NetcodeClient::new(Authentication::Token(token.clone()), NetcodeConfig::default()).unwrap(),
-                UdpIo::default(),
-            ))
-            .id();
-        commands.trigger(Connect { entity: client });
-    });
+    app.add_systems(Startup, move |mut commands: Commands| connect(&mut commands, server, token.clone()));
     app.add_systems(FixedPreUpdate, walk.in_set(InputSystems::WriteClientInputs));
-    app.add_systems(Update, (mark_controlled, receive, run_script).chain());
+    app.add_systems(Update, (mark_controlled, receive, transfer, run_script).chain());
     // Same client-side prediction as the real client, so our own Position stays in sync.
     app.insert_resource(PredictionManager::default());
     app.add_systems(FixedUpdate, predict);
     app.run();
+}
+
+fn connect(commands: &mut Commands, server: SocketAddr, token: ConnectToken) {
+    let client = commands
+        .spawn((
+            Client,
+            Link::default(),
+            LocalAddr(SocketAddr::from(([0, 0, 0, 0], 0))),
+            PeerAddr(server),
+            ReplicationReceiver,
+            NetcodeClient::new(Authentication::Token(token), NetcodeConfig::default()).unwrap(),
+            UdpIo::default(),
+        ))
+        .id();
+    commands.trigger(Connect { entity: client });
+}
+
+/// The server handed us to another zone server: drop this connection and everything it
+/// replicated, and connect to the next one (which logs us straight back in).
+fn transfer(
+    mut script: ResMut<Script>,
+    clients: Query<Entity, With<Client>>,
+    replicated: Query<Entity, Or<(With<PlayerId>, With<NpcTag>, With<MobTag>, With<ParkedCar>)>>,
+    mut commands: Commands,
+) {
+    let Some((addr, token)) = script.transfer.take() else { return };
+    let token = match ConnectToken::try_from_bytes(&token) {
+        Ok(t) => t,
+        Err(e) => {
+            println!("TRANSFER bad token: {e:?}");
+            return;
+        }
+    };
+    println!("TRANSFER to {addr}");
+    for e in &clients {
+        commands.trigger(Disconnect { entity: e });
+        commands.entity(e).despawn();
+    }
+    for e in &replicated {
+        commands.entity(e).try_despawn();
+    }
+    script.in_world = false;
+    script.goto = None;
+    script.path.clear();
+    connect(&mut commands, addr, token);
 }
 
 /// Lets lightyear send our inputs for the entity the server says we control.
@@ -278,7 +315,9 @@ fn receive(
     mut exit: MessageWriter<AppExit>,
 ) {
     let is_connected = connected.single().unwrap_or(false);
-    if *was_connected && !is_connected {
+    if script.transferring {
+        *was_connected = is_connected;
+    } else if *was_connected && !is_connected {
         println!("DISCONNECTED");
         exit.write(AppExit::from_code(3));
     }
@@ -335,6 +374,11 @@ fn receive(
             SessionUpdate::EnterWorld { name, zone, .. } => {
                 println!("WORLD  entered as {name} in {zone:?}");
                 script.in_world = true;
+                script.transferring = false;
+            }
+            SessionUpdate::Transfer { addr, token } => {
+                script.transfer = Some((addr, token));
+                script.transferring = true;
             }
             SessionUpdate::Kicked { reason } => {
                 println!("KICKED {reason}");

@@ -10,7 +10,60 @@ pub struct ServerConfig {
     pub network: NetworkConfig,
     pub database: DatabaseConfig,
     pub chat: ChatConfig,
+    pub cluster: ClusterConfig,
+    pub hub: HubConfig,
     pub log_filter: Option<String>,
+}
+
+/// Splitting the world over several processes. The defaults are "all-in-one": this process
+/// runs every zone and needs no hub (local development and Host Game).
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct ClusterConfig {
+    /// Zones this server runs. Empty = all of them.
+    pub zones: Vec<u16>,
+    /// Address of the world hub (`millennium-server --hub`). Empty = no hub.
+    pub hub: String,
+    /// Shared by the hub and every zone server (they refuse each other without it).
+    pub secret: String,
+    /// Shown in the hub's logs.
+    pub name: String,
+    /// Where the other zones are served, as clients should reach them. Every zone server in
+    /// the cluster also shares `network.private_key` and the database.
+    pub servers: Vec<ZoneServer>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ZoneServer {
+    pub addr: SocketAddr,
+    pub zones: Vec<u16>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(default)]
+pub struct HubConfig {
+    /// TCP address the hub listens on (only zone servers connect to it).
+    pub bind: SocketAddr,
+}
+
+impl Default for HubConfig {
+    fn default() -> Self {
+        Self { bind: SocketAddr::from(([127, 0, 0, 1], 5900)) }
+    }
+}
+
+impl ClusterConfig {
+    pub fn owns(&self, zone: shared::zone::ZoneId) -> bool {
+        self.zones.is_empty() || self.zones.contains(&zone.0)
+    }
+
+    /// The server running `zone`, if it isn't this one.
+    pub fn server_for(&self, zone: shared::zone::ZoneId) -> Option<SocketAddr> {
+        if self.owns(zone) {
+            return None;
+        }
+        self.servers.iter().find(|s| s.zones.contains(&zone.0)).map(|s| s.addr)
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -109,5 +162,37 @@ impl NetworkConfig {
 impl ChatConfig {
     pub fn is_admin(&self, name: &str) -> bool {
         self.admins.iter().any(|a| a.eq_ignore_ascii_case(name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::zone::ZoneId;
+
+    fn load(path: &str) -> ServerConfig {
+        let full = format!("{}/../../{path}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{full}: {e}"));
+        toml::from_str(&text).unwrap_or_else(|e| panic!("{path}: {e}"))
+    }
+
+    #[test]
+    fn shipped_configs_parse() {
+        let main = load("config/server.toml");
+        assert!(main.cluster.zones.is_empty(), "the default config runs every zone");
+        assert!(main.cluster.owns(ZoneId::DOCKS));
+        assert!(!load("config/cluster/hub.toml").cluster.secret.is_empty());
+    }
+
+    #[test]
+    fn example_cluster_covers_every_zone_once() {
+        let a = load("config/cluster/zone-a.toml");
+        let b = load("config/cluster/zone-b.toml");
+        assert_eq!(a.network.private_key, b.network.private_key, "zone servers must share the token key");
+        for zone in shared::zone::ZoneRegistry::default().iter().map(|z| z.id) {
+            assert!(a.cluster.owns(zone) != b.cluster.owns(zone), "{zone:?} must run on exactly one server");
+            let elsewhere = if a.cluster.owns(zone) { b.cluster.server_for(zone) } else { a.cluster.server_for(zone) };
+            assert!(elsewhere.is_some(), "the other server must know where {zone:?} runs");
+        }
     }
 }

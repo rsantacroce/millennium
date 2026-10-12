@@ -35,10 +35,38 @@ const TOKEN_SECONDS: i32 = 30;
 const MAX_FAILURES: u32 = 10;
 const FAILURE_WINDOW: Duration = Duration::from_secs(10 * 60);
 
-/// Byte layout of the token's user data: account id, little-endian, in the first 8 bytes.
+/// Byte layout of the token's user data, little-endian i64s: the account id, then (for a
+/// transfer between zone servers) the character to load straight away and the car they're
+/// driving. 0 = none.
 pub fn account_from_user_data(data: &[u8]) -> Option<i64> {
-    let id = i64::from_le_bytes(data.get(..8)?.try_into().ok()?);
+    field(data, 0)
+}
+
+pub fn character_from_user_data(data: &[u8]) -> Option<i64> {
+    field(data, 1)
+}
+
+pub fn car_from_user_data(data: &[u8]) -> Option<i64> {
+    field(data, 2)
+}
+
+fn field(data: &[u8], index: usize) -> Option<i64> {
+    let id = i64::from_le_bytes(data.get(index * 8..index * 8 + 8)?.try_into().ok()?);
     (id > 0).then_some(id)
+}
+
+/// A connect token for `game_addr` (signed with the cluster's shared key).
+pub fn make_token(game_addr: SocketAddr, private_key: [u8; 32], account: i64, character: i64, car: i64) -> Result<Vec<u8>, String> {
+    let mut user_data = [0u8; lightyear::netcode::USER_DATA_BYTES];
+    for (i, v) in [account, character, car].into_iter().enumerate() {
+        user_data[i * 8..i * 8 + 8].copy_from_slice(&v.to_le_bytes());
+    }
+    let token = ConnectToken::build(game_addr, shared::PROTOCOL_ID, rand::random::<u64>(), private_key)
+        .user_data(user_data)
+        .expire_seconds(TOKEN_SECONDS)
+        .generate()
+        .map_err(|e| format!("could not create token: {e:?}"))?;
+    Ok(token.try_into_bytes().map_err(|e| e.to_string())?.to_vec())
 }
 
 struct Ctx {
@@ -211,16 +239,9 @@ fn hash_password(password: &str) -> Result<String, String> {
 }
 
 fn issue_ticket(ctx: &Ctx, creds: &Credentials, server_ip: IpAddr) -> Result<LoginTicket, String> {
-    let mut user_data = [0u8; lightyear::netcode::USER_DATA_BYTES];
-    user_data[..8].copy_from_slice(&creds.account_id.to_le_bytes());
     let game_addr = SocketAddr::new(server_ip, ctx.game_port);
-    let token = ConnectToken::build(game_addr, shared::PROTOCOL_ID, rand::random::<u64>(), ctx.private_key)
-        .user_data(user_data)
-        .expire_seconds(TOKEN_SECONDS)
-        .generate()
-        .map_err(|e| format!("could not create token: {e:?}"))?;
-    let bytes = token.try_into_bytes().map_err(|e| e.to_string())?;
-    Ok(LoginTicket { token: bytes.to_vec(), account: creds.username.clone() })
+    let token = make_token(game_addr, ctx.private_key, creds.account_id, 0, 0)?;
+    Ok(LoginTicket { token, account: creds.username.clone() })
 }
 
 #[cfg(test)]
@@ -234,6 +255,10 @@ mod tests {
         assert_eq!(account_from_user_data(&data), Some(42));
         assert_eq!(account_from_user_data(&[0u8; 256]), None);
         assert_eq!(account_from_user_data(&[1, 2]), None);
+        let mut d = [0u8; 256];
+        d[8..16].copy_from_slice(&9i64.to_le_bytes());
+        d[16..24].copy_from_slice(&4i64.to_le_bytes());
+        assert_eq!((character_from_user_data(&d), car_from_user_data(&d)), (Some(9), Some(4)));
     }
 
     #[test]

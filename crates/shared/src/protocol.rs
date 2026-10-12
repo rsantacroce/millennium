@@ -196,6 +196,9 @@ pub enum SessionUpdate {
     EnterWorld { character_id: u64, name: String, zone: ZoneId },
     /// The server is closing this session (e.g. account already online).
     Kicked { reason: String },
+    /// Your next zone runs on another server: reconnect to `addr` with this connect token
+    /// (it logs you straight back into the same character).
+    Transfer { addr: std::net::SocketAddr, token: Vec<u8> },
 }
 
 /// Results of `GameAction`s and other changes to your own character.

@@ -9,6 +9,7 @@
 //! - Knocking a mob out gives the killer Fitness XP, cash and loot through `PlayerState`, so
 //!   quest kill counters and saving happen the same way as everything else.
 
+use crate::cluster::Cluster;
 use crate::session::{PlayerLink, Progress};
 use crate::social::party::Parties;
 use crate::zones::ZoneRooms;
@@ -145,11 +146,13 @@ fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms:
     mobs.by_id.insert(id, entity);
 }
 
-fn spawn_all_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>) {
-    for i in 0..content.spawns.len() {
-        spawn_mob(&mut commands, &mut mobs, &content, &rooms, i);
+fn spawn_all_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<Cluster>) {
+    // In a cluster, each server runs the mobs of its own zones.
+    let ours: Vec<usize> = (0..content.spawns.len()).filter(|i| cluster.owns(content.spawns[*i].zone_id())).collect();
+    for i in &ours {
+        spawn_mob(&mut commands, &mut mobs, &content, &rooms, *i);
     }
-    info!("spawned {} mobs", content.spawns.len());
+    info!("spawned {} mobs", ours.len());
 }
 
 fn respawn_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>, time: Res<Time<Real>>) {

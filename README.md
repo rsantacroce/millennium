@@ -4,16 +4,25 @@ An online RPG set around the year 2000: a persistent city of CRT monitors, pager
 cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 [lightyear](https://github.com/cBournhonesque/lightyear).
 
-**What's playable (Milestones 1–3):**
+**What's playable (Milestones 1–4):**
 
 - **Accounts:** passwords hashed with argon2id, sent through a TLS login service. Up to 3
   characters per account, created with a body type, skin tone and outfit (jacket, pants, cap).
-- **The world:** two zones linked by the subway: *Downtown – Maple & 5th* (shops, NPCs) and the
-  *Harbor Docks* (warehouses, containers, rival crews). Click to walk anywhere, or use WASD.
+- **The world:** four zones linked by the subway: *Downtown – Maple & 5th* (shops, NPCs), the
+  *Harbor Docks* (warehouses, containers, rival crews), the *Galleria Mall* (no fighting) and the
+  *Abandoned Factory* (scrap, Scrappers, Old Earl). A highway links Downtown and the Factory for
+  drivers. Click to walk anywhere, or use WASD. Shops fade out when they'd hide you, and the
+  game synthesizes its own sound effects (including a dial-up modem on login).
 - **NPCs and quests:** dialogue trees, a quest log, and a first quest, **56k Dreams**.
 - **Economy:** a 20-slot inventory, cash, and two shops (one buys your stuff back).
-- **Skills:** **Electronics** (repair broken gadgets, sell them back at a profit) and **Fitness**
-  (fighting).
+- **Skills:** **Electronics** (repair broken gadgets, sell them back at a profit), **Fitness**
+  (fighting), **Mechanics** (rebuild car parts with a wrench) and **Driving**.
+- **Cars:** fix up Old Earl's junker (quest **Earl's Junker**) and it's yours. Drive it around
+  town, take the highway, and race Dash in the **Maple & 5th Sprint**. Cars stay parked where you
+  leave them.
+- **e-Bid:** an auction house at Dot's internet café and Wendy's Gadget Shack. List items with an
+  optional buyout, bid, and collect your winnings, sales and refunds from a claims box, even
+  when the other player is offline.
 - **Combat:** Dock Rats, Wharf Hounds and Big Sully at the docks. Tab or click to target,
   auto-attack, power swing, weapons (baseball bat, tire iron), first aid kits, loot. Getting
   knocked out just sends you back to the Metro. A second quest, **Rat Problem**.
@@ -24,6 +33,8 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   Moderation includes ignore lists, admin mutes, rate limiting and a word filter.
 - **Persistence:** everything is saved in PostgreSQL, or in a SQLite file.
 - **Host Game:** run a world on your own computer and let friends join, with no server to rent.
+- **Scaling out:** optionally run the zones on several server processes, linked by a world hub
+  (see [Running the world on several servers](#running-the-world-on-several-servers)).
 
 ## Quick start
 
@@ -123,12 +134,22 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
   - `!fight MOB` (target the nearest one, chase it, wait until it's down), `!power`
   - `!accept trade|party|crew`, `!offer ITEM QTY CASH`, `!tradeaccept`
   - `!wait SECS`, `!state`, `!where`
+  - e-Bid (at a terminal): `!search TEXT`, `!list ITEM QTY START BUYOUT|- HOURS`, `!bid N AMOUNT|min`,
+    `!buyout N`, `!mine`, `!cancel N`, `!claims`, `!collect`, `!closemarket`
+  - cars: `!cars`, `!enter`, `!exit`, `!drive X Z`, `!race`
   - any chat input, including `/trade`, `/invite`, `/crew ...`
+  
+  It follows server transfers in a cluster, like the real client. Set `SMOKE_TRACE=1` to print
+  the car's position every tick.
+- **Admin test commands** (accounts listed in `[chat] admins`): `/give ITEM [QTY]` and
+  `/givecar hatchback|coupe`, to skip the grind when testing.
   
   The full quest as a script is in [Appendix: quest script](#appendix-quest-script).
 - **Scripted GUI client:** `--step` works in the real client too, so you can watch the windows.
   `!goto` uses the real click-to-move pathfinding; there's also `!walkto NPC`, `!fight MOB`,
-  `!open inventory|quests|skills|social|crew` and `!accept ...`:
+  `!open inventory|quests|skills|social|crew`, `!accept ...`, `!select SLOT`,
+  `!market browse|sell|mine|claims`, `!car` (get in or out) and `!shot FILE.png` (a screenshot
+  Bevy renders itself; macOS still needs the screen unlocked to draw the window):
   ```sh
   cargo run -p client -- --name Trinity --password password123 \
       --step "!walkto dot" --step "!choose Why" --step "!open inventory"
@@ -142,7 +163,8 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 |---|---|
 | Left-click | Walk there (around obstacles). On an NPC: walk up and talk. On a rival: attack |
 | W A S D / arrows | Move (relative to the camera); cancels click-to-move |
-| E | Talk to the nearest NPC (when "[E] Talk to ..." shows) |
+| E | Talk to the nearest NPC (when "[E] Talk to ..." shows; works from a car too) |
+| G | Get into your car (when "[G] Drive your ..." shows) / get out (when stopped) |
 | Tab | Target the nearest rival (again: next one) |
 | R / F | Attack the target (toggle) / power swing (8 s cooldown) |
 | 1–9, Esc | Choose a dialogue option / close the dialogue or shop / drop your target |
@@ -158,8 +180,16 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
 **Inventory:** click an item to select it (the details and **Use** button appear below). Click
 another slot to move or merge it there. At a shop that buys, a **Sell $N** button appears.
 
-**Repairs:** using a broken item starts a timed repair (you need a Screwdriver Set and the
-Electronics level). Moving cancels it.
+**Repairs:** using a broken item starts a timed repair (you need the tool, a Screwdriver Set or
+a Wrench, and the skill level). Moving cancels it.
+
+**Driving:** steer with WASD or click where you want to go: the car turns toward that direction,
+faster the faster it's going. Pull away from the nose while stopped to back up and turn around.
+
+**e-Bid:** talk to Dot (after 56k Dreams) or Wendy and ask for the terminal. *Browse* searches
+and bids (the button always offers the minimum bid), *Sell* lists the item selected in your
+inventory, *My auctions* lets you cancel ones nobody has bid on, and *Claims* collects
+everything waiting for you. Listing costs 5% of the start price; e-Bid keeps 5% of a sale.
 
 ## Chat
 
@@ -194,6 +224,7 @@ The server enforces everything; the client is never trusted:
   - `[network]`: game port (UDP), login port (TCP), certificate directory, token signing key
   - `[database]`: URL and save interval
   - `[chat]`: limits, blocked words, admins
+  - `[cluster]`, `[hub]`: only for running the world on several servers (see below)
   
   The `DATABASE_URL` and `RUST_LOG` environment variables override it.
 - `config/client.toml`:
@@ -218,12 +249,14 @@ crates/
   server/   headless Bevy app (library + binary): login service (TLS, argon2, tokens), session
             (character select, saving), movement + portals, zones (rooms), chat, gameplay (NPCs,
             dialogue, shops, repairs), combat (mobs, AI, loot), social (trade, party, friends,
-            crews), persistence (Postgres / SQLite); EmbeddedServer
+            crews), market (e-Bid), vehicles (cars, races), cluster (zone servers + world hub),
+            persistence (Postgres / SQLite); EmbeddedServer
   client/   rendering, cameras, input (WASD, click-to-move, chase) + prediction, avatars,
-            sign-on & character select, messenger, game windows, combat UI, social UI, speech
-            bubbles, Host Game, scripted bot
+            sign-on & character select, messenger, game windows, combat UI, social UI, e-Bid
+            window, cars + race HUD, zone scenery, synthesized sound, speech bubbles, Host Game,
+            scripted bot
 migrations/ postgres/ and sqlite/ schemas, applied automatically by the server (sqlx::migrate!)
-config/     server.toml, client.toml
+config/     server.toml, client.toml, cluster/ (example hub + two zone servers)
 ```
 
 ## How it works
@@ -287,9 +320,8 @@ The server is authoritative and talks to clients over lightyear (netcode.io on U
 Each zone is a layout (bounds, buildings, props, *portals*) plus a lightyear room. Walking into a
 portal makes the server change your `ZoneId`, `Position` and room in one step. Lightyear then
 stops replicating the old zone's entities to you and starts on the new zone's, and the client
-rebuilds the scenery for the zone you're in. That function (`movement::use_portals`) is the seam
-for running zones as separate server processes later: it would become a hand-off to another
-server.
+rebuilds the scenery for the zone you're in. If the destination runs on another server, the same
+function hands you over instead (see below). Road portals (the highway) only take drivers.
 
 Click-to-move plans a path on a half-meter walkability grid (`shared::nav`, A* plus
 string-pulling), built from the same obstacles the movement code collides with. The path only
@@ -319,6 +351,64 @@ interpolated like other players.
 - **Parties** live in memory, as in most MMOs.
 - **Friends and crews** are stored. Crew rosters are cached and reloaded from the database after
   every change, so the database stays the single source of truth.
+
+### The e-Bid marketplace
+
+Listings, bids and claims live only in the database, so every server sees one market. Items and
+cash never move directly between players:
+- **Escrow:** listing takes the item (and the fee); bidding takes the cash.
+- **Claims:** an ended auction writes *claims*: the item for the winner, the proceeds for the
+  seller, refunds for outbid bidders. Players collect them at any terminal.
+- **One transaction:** every operation moves things into escrow *and* saves the acting
+  character's new state in a single transaction. Listing updates are conditional on the row
+  still being what was read (status, current bid), so two servers racing on one auction can't
+  both win.
+- **The lock:** while a transaction is in flight the player's inventory is locked
+  (`MarketPending`) and their state isn't saved separately, so a stale save can't race it.
+  Auctions are settled every 30 seconds.
+
+### Cars
+
+A driver keeps their own player entity. It gains a `Driving` component (car, heading, speed), and
+movement switches from walking to `shared::vehicle::drive`. That function is deterministic and
+shared, so driving gets the same client prediction, rollback and interpolation as walking, for
+free. The steering is arcade-style: turn toward the input direction, a K-turn when you pull
+backwards, and scraping along walls keeps the speed parallel to the wall.
+
+A parked car is its own replicated entity. Taking `Driving` away for any reason (getting out,
+logging off, a server shutdown) parks the car where the driver is, through a single observer, so
+cars can't get lost. Mobs ignore drivers, and drivers can't fight.
+
+### Running the world on several servers
+
+By default one process runs every zone. For more players, split the zones over several
+**zone servers** linked by a **world hub**. `config/cluster/` has a worked example: Downtown and
+the Mall on one server, the Docks and the Factory on another.
+
+```sh
+cargo run -p server -- --hub --config config/cluster/hub.toml
+cargo run -p server -- --config config/cluster/zone-a.toml
+cargo run -p server -- --config config/cluster/zone-b.toml
+cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
+```
+
+- **Shared:** all zone servers use the same database and the same `network.private_key`. Each
+  one spawns only the NPCs, mobs and cars of its own zones.
+- **Handing a player over:** when you take a portal into a zone that runs elsewhere, your server
+  freezes you and saves you. Once the save has landed (`DbCommand::Then`), it sends your client
+  a connect token for the other server. The token's user data names your character, and your
+  car if you're driving, so the other server puts you straight back in the world. The old server
+  never saves a transferring player again, so it can't overwrite what the new one does.
+  Logging in to a character whose zone runs elsewhere hands you over the same way.
+- **The hub** (`millennium-server --hub`) is a small TCP relay with no game state. It handles:
+  - presence, for friends lists and crew rosters
+  - global, whisper and crew chat
+  - cross-server notices, such as an e-Bid sale
+  - "this account logged in elsewhere"
+
+  Zone servers reconnect and re-announce their players if it restarts.
+- **Not cross-server:** parties and trades stay on one server; changing servers leaves your
+  party.
 
 ### ECS and persistence
 

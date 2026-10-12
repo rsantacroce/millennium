@@ -155,6 +155,11 @@ pub enum DbCommand {
     LoadCars,
     CreateCar { link: Entity, character_id: i64, model: String, zone: ZoneId, position: Vec2, heading: f32 },
     SaveCar { car: i64, zone: ZoneId, position: Vec2, heading: f32 },
+    /// One car, for a driver arriving from another server.
+    LoadCar { player: Entity, car: i64 },
+    /// Replies with this result once every earlier command has been processed (e.g. "the
+    /// character is saved, now hand them to the other server").
+    Then(Box<DbResult>),
     /// Replies once every earlier command has been processed (used at shutdown).
     Flush(Sender<()>),
 }
@@ -184,6 +189,9 @@ pub enum DbResult {
     MarketSettled { notify: Vec<(i64, String)> },
     Cars(Vec<CarRecord>),
     CarCreated { link: Entity, car: CarRecord },
+    CarLoaded { player: Entity, car: Option<CarRecord> },
+    /// A transferring player's state is saved (see `cluster`).
+    TransferSaved { link: Entity },
 }
 
 #[derive(Debug, Clone, PartialEq)]

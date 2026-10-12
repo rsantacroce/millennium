@@ -8,6 +8,9 @@ use lightyear::prelude::*;
 use shared::protocol::{ChatNetChannel, DisplayName, SystemNotice};
 use shared::movement;
 use shared::protocol::{MoveIntent, Position};
+use crate::cluster::{Cluster, Transferring};
+use crate::persistence::Db;
+use crate::session::{CharacterIds, Progress};
 use shared::vehicle::Driving;
 use shared::zone::{ZoneId, ZoneRegistry};
 
@@ -22,7 +25,7 @@ impl Plugin for MovementPlugin {
 fn apply_inputs(
     zones: Res<ZoneRegistry>,
     time: Res<Time<Fixed>>,
-    mut players: Query<(&mut Position, &ActionState<MoveIntent>, &ZoneId, Option<&mut Driving>)>,
+    mut players: Query<(&mut Position, &ActionState<MoveIntent>, &ZoneId, Option<&mut Driving>), Without<Transferring>>,
 ) {
     let dt = time.timestep().as_secs_f32();
     for (mut pos, input, zone, driving) in &mut players {
@@ -54,13 +57,37 @@ fn apply_inputs(
 fn use_portals(
     zones: Res<ZoneRegistry>,
     rooms: Res<ZoneRooms>,
-    mut players: Query<(Entity, &PlayerLink, &mut Position, &mut ZoneId, &DisplayName, Has<Driving>)>,
+    cluster: Res<Cluster>,
+    db: Res<Db>,
+    mut players: Query<
+        (Entity, &PlayerLink, &mut Position, &mut ZoneId, &DisplayName, Option<&Driving>, &CharacterIds, &Progress),
+        Without<Transferring>,
+    >,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     mut commands: Commands,
 ) {
-    for (player, link, mut pos, mut zone, name, driving) in &mut players {
-        let Some(portal) = zones.get(*zone).and_then(|z| z.portal_at(pos.0, driving)).cloned() else { continue };
+    for (player, link, mut pos, mut zone, name, driving, ids, progress) in &mut players {
+        let Some(portal) = zones.get(*zone).and_then(|z| z.portal_at(pos.0, driving.is_some())).cloned() else { continue };
         let Some(destination) = zones.get(portal.to) else { continue };
+        // The destination runs on another server: hand the player over.
+        if !cluster.owns(portal.to) {
+            match cluster.config.server_for(portal.to) {
+                Some(addr) => {
+                    info!("{} takes the {} to another server ({addr})", name.0, portal.name);
+                    let car = driving.map(|d| (d.car, d.heading));
+                    crate::cluster::begin_transfer(&mut commands, &db, player, link.0, ids, progress, portal.to, portal.arrive, addr, car);
+                }
+                None => {
+                    // Step back out so we don't try again every tick.
+                    let away = (pos.0 - portal.rect.center()).normalize_or_zero() * 1.5;
+                    pos.0 += away;
+                    if let Ok(mut tx) = notices.get_mut(link.0) {
+                        tx.send::<ChatNetChannel>(SystemNotice::info(format!("{} is closed right now.", destination.name)));
+                    }
+                }
+            }
+            continue;
+        }
         info!("{} takes the {} ({:?} -> {:?})", name.0, portal.name, *zone, portal.to);
         *zone = portal.to;
         pos.0 = portal.arrive;

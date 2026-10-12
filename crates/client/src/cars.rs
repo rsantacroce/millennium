@@ -1,4 +1,4 @@
-//! Cars on the client: parked cars, the car under a driver, the F key and the race HUD.
+//! Cars on the client: parked cars, the car under a driver, the G key and the race HUD.
 //!
 //! A driver is still their player entity (see `shared::vehicle`): we hide their body, put a
 //! car mesh under them and point it along `Driving::heading`. Parked cars are their own
@@ -29,7 +29,7 @@ struct RaceView {
     banner: Option<(String, f32)>,
 }
 
-/// Same as pressing F (for scripted runs).
+/// Same as pressing G (for scripted runs).
 #[derive(Message, Debug, Clone, Copy)]
 pub struct DriveKey;
 
@@ -59,7 +59,7 @@ impl Plugin for CarsPlugin {
                     .before(AvatarSystems::Overlays)
                     .run_if(in_state(AppState::InGame)),
             )
-            .add_systems(Update, (f_key, prompt, receive_race, race_hud, beacon).chain().run_if(in_state(AppState::InGame)));
+            .add_systems(Update, (car_key, prompt, receive_race, race_hud, beacon).chain().run_if(in_state(AppState::InGame)));
     }
 }
 
@@ -169,7 +169,7 @@ fn enterable<'a>(
         .map(|(c, _)| c)
 }
 
-fn f_key(
+fn car_key(
     keys: Res<ButtonInput<KeyCode>>,
     mut scripted: MessageReader<DriveKey>,
     chat: Res<ChatFocus>,
@@ -179,7 +179,7 @@ fn f_key(
     mut client: Query<&mut MessageSender<GameAction>, With<Client>>,
 ) {
     let scripted = scripted.read().count() > 0;
-    if !scripted && (chat.0 || !keys.just_pressed(KeyCode::KeyF)) {
+    if !scripted && (chat.0 || !keys.just_pressed(KeyCode::KeyG)) {
         return;
     }
     let (Some(local), Ok((pos, driving))) = (local, me.single()) else { return };
@@ -202,9 +202,9 @@ fn prompt(
 ) {
     let (Some(local), Ok((pos, driving))) = (local, me.single()) else { return };
     let text = match driving {
-        Some(d) if d.speed.abs() <= vehicle::EXIT_SPEED => Some("[F] Get out".to_string()),
+        Some(d) if d.speed.abs() <= vehicle::EXIT_SPEED => Some("[G] Get out".to_string()),
         Some(_) => None,
-        None => enterable(pos.0, &local, cars.iter()).map(|c| format!("[F] Drive your {}", vehicle::MODELS[c.model as usize].name)),
+        None => enterable(pos.0, &local, cars.iter()).map(|c| format!("[G] Drive your {}", vehicle::MODELS[c.model as usize].name)),
     };
     if *shown == text {
         return;

@@ -7,6 +7,7 @@
 //! netcode connect token. The player character is a *separate* entity that lightyear
 //! replicates to everyone in the zone; the link only represents the connection.
 
+use crate::cluster::Transferring;
 use crate::market::MarketPending;
 use crate::auth::account_from_user_data;
 use crate::chat::ChatState;
@@ -45,7 +46,7 @@ impl Session {
         }
     }
 
-    fn account(&self) -> i64 {
+    pub fn account(&self) -> i64 {
         match *self {
             Session::CharacterSelect { account_id }
             | Session::Loading { account_id }
@@ -80,6 +81,8 @@ pub struct OnlinePlayers {
     by_id: HashMap<u64, Entity>,
     /// Account id -> link, so an account can only be connected once.
     accounts: HashMap<i64, Entity>,
+    /// Players on other servers of the cluster (from the hub): id -> (name, zone).
+    remote: HashMap<u64, (String, ZoneId)>,
 }
 
 impl OnlinePlayers {
@@ -93,6 +96,32 @@ impl OnlinePlayers {
 
     pub fn count(&self) -> usize {
         self.by_id.len()
+    }
+
+    /// Here or on another server.
+    pub fn is_online(&self, id: u64) -> bool {
+        self.by_id.contains_key(&id) || self.remote.contains_key(&id)
+    }
+
+    /// The zone of someone on another server.
+    pub fn remote_zone(&self, id: u64) -> Option<ZoneId> {
+        self.remote.get(&id).map(|r| r.1)
+    }
+
+    pub fn set_remote(&mut self, id: u64, name: String, zone: ZoneId) {
+        self.remote.insert(id, (name, zone));
+    }
+
+    pub fn clear_remote(&mut self, id: u64) {
+        self.remote.remove(&id);
+    }
+
+    pub fn remote_players(&self) -> impl Iterator<Item = (u64, String)> + '_ {
+        self.remote.iter().map(|(id, (name, _))| (*id, name.clone()))
+    }
+
+    pub fn link_of_account(&self, account: i64) -> Option<Entity> {
+        self.accounts.get(&account).copied()
     }
 }
 
@@ -108,7 +137,7 @@ impl Plugin for SessionPlugin {
             .insert_resource(SaveTimer(Timer::from_seconds(interval.max(1.0), TimerMode::Repeating)))
             .add_observer(on_connected)
             .add_observer(on_disconnected)
-            .add_systems(Update, (receive_session_actions, handle_db_results, save_positions, sync_progress))
+            .add_systems(Update, (receive_session_actions, finish_remote_logouts, handle_db_results, save_positions, sync_progress))
             .add_systems(Last, save_on_shutdown);
     }
 }
@@ -125,8 +154,8 @@ fn on_connected(
     mut commands: Commands,
 ) {
     let link = trigger.entity;
-    let Ok((user_data, _)) = links.get(link) else { return };
-    let Some(account_id) = account_from_user_data(&user_data.0) else {
+    let Ok(user_data) = links.get(link).map(|(u, _)| u.0) else { return };
+    let Some(account_id) = account_from_user_data(&user_data) else {
         warn!("link {link:?} connected without an account in its token");
         commands.entity(link).insert(Disconnecting);
         return;
@@ -143,6 +172,16 @@ fn on_connected(
         }
         commands.entity(old).insert(Disconnecting);
     }
+    // Arriving from another zone server: straight back into the world.
+    if let Some(character_id) = crate::auth::character_from_user_data(&user_data) {
+        let mut link_commands = commands.entity(link);
+        link_commands.insert(Session::Loading { account_id });
+        if let Some(car) = crate::auth::car_from_user_data(&user_data) {
+            link_commands.insert(crate::vehicles::ArrivingWithCar(car));
+        }
+        db.send(DbCommand::LoadCharacter { link, account_id, character_id });
+        return;
+    }
     commands.entity(link).insert(Session::CharacterSelect { account_id });
     db.send(DbCommand::ListCharacters { link, account_id });
 }
@@ -152,7 +191,10 @@ fn receive_session_actions(
     online: Res<OnlinePlayers>,
     zones: Res<ZoneRegistry>,
     content: Res<Content>,
+    cluster: Res<crate::cluster::Cluster>,
+    time: Res<Time<Real>>,
     db: Res<Db>,
+    mut commands: Commands,
 ) {
     for (link, mut session, mut receiver, mut sender) in &mut links {
         for action in receiver.receive() {
@@ -180,6 +222,14 @@ fn receive_session_actions(
                     db.send(DbCommand::CreateCharacter { link, account_id, character });
                 }
                 SessionAction::SelectCharacter { id } => {
+                    if online.remote.contains_key(&id) {
+                        // Still in the world on another server: log that session out first,
+                        // and load the character once it's gone (see `finish_remote_logouts`).
+                        cluster.send(crate::cluster::wire::ToHub::Kick { account_id });
+                        *session = Session::Loading { account_id };
+                        commands.entity(link).insert(WaitingForRemoteLogout { character_id: id, since: time.elapsed_secs_f64() });
+                        continue;
+                    }
                     if online.by_id.contains_key(&id) {
                         let reason = "That character is already online.".into();
                         send(&mut sender, SessionUpdate::CharacterError { reason });
@@ -206,6 +256,7 @@ fn handle_db_results(
     zones: Res<ZoneRegistry>,
     rooms: Res<ZoneRooms>,
     config: Res<ServerConfig>,
+    cluster: Res<crate::cluster::Cluster>,
     time: Res<Time<Real>>,
     db: Res<Db>,
     mut commands: Commands,
@@ -260,6 +311,18 @@ fn handle_db_results(
                         (start.id, start.spawn)
                     }
                 };
+                // That zone runs on another server: send them there.
+                if !cluster.owns(zone) {
+                    match crate::cluster::login_elsewhere(&cluster, zone, c.account_id, c.character_id) {
+                        Some(transfer) => send(&mut session_tx, transfer),
+                        None => {
+                            *session = Session::CharacterSelect { account_id: session.account() };
+                            let reason = "That part of town is closed right now. Try again later.".into();
+                            send(&mut session_tx, SessionUpdate::CharacterError { reason });
+                        }
+                    }
+                    continue;
+                }
                 let room = rooms.room(zone);
                 let player = commands
                     .spawn((
@@ -306,6 +369,36 @@ fn handle_db_results(
     }
 }
 
+/// On a link: the character it picked is still online on another server, being logged out.
+#[derive(Component, Debug)]
+struct WaitingForRemoteLogout {
+    character_id: u64,
+    since: f64,
+}
+
+/// How long to wait for another server to let go of a character.
+const REMOTE_LOGOUT_TIMEOUT_SECS: f64 = 15.0;
+
+fn finish_remote_logouts(
+    mut links: Query<(Entity, &mut Session, &WaitingForRemoteLogout, &mut MessageSender<SessionUpdate>)>,
+    online: Res<OnlinePlayers>,
+    time: Res<Time<Real>>,
+    db: Res<Db>,
+    mut commands: Commands,
+) {
+    for (link, mut session, waiting, mut sender) in &mut links {
+        if !online.remote.contains_key(&waiting.character_id) {
+            commands.entity(link).remove::<WaitingForRemoteLogout>();
+            db.send(DbCommand::LoadCharacter { link, account_id: session.account(), character_id: waiting.character_id as i64 });
+        } else if time.elapsed_secs_f64() - waiting.since > REMOTE_LOGOUT_TIMEOUT_SECS {
+            commands.entity(link).remove::<WaitingForRemoteLogout>();
+            *session = Session::CharacterSelect { account_id: session.account() };
+            let reason = "That character is still online somewhere else. Try again in a moment.".into();
+            send(&mut sender, SessionUpdate::CharacterError { reason });
+        }
+    }
+}
+
 /// New characters spawn on a small ring around the spawn point so they don't stand inside
 /// each other. Derived from the name, so it's stable and needs no RNG.
 fn spawn_offset(name: &str) -> Vec2 {
@@ -318,7 +411,7 @@ fn spawn_offset(name: &str) -> Vec2 {
 fn on_disconnected(
     trigger: On<Add, Disconnected>,
     sessions: Query<&Session>,
-    players: Query<(&DisplayName, &PlayerId, &CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>)>,
+    players: Query<(&DisplayName, &PlayerId, &CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>, Has<Transferring>)>,
     mut online: ResMut<OnlinePlayers>,
     db: Res<Db>,
     mut commands: Commands,
@@ -328,12 +421,15 @@ fn on_disconnected(
         online.accounts.remove(&session.account());
     }
     let Some(player) = session.player() else { return };
-    let Ok((name, id, ids, pos, zone, progress, market_pending)) = players.get(player) else { return };
-    let position = SavedPosition { character_id: ids.character_id, zone: *zone, position: pos.0 };
-    db.send(DbCommand::SavePositions(vec![position]));
-    // A pending e-Bid transaction saves the state itself (or rolls back, leaving the last save).
-    if !market_pending {
-        db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
+    let Ok((name, id, ids, pos, zone, progress, market_pending, transferring)) = players.get(player) else { return };
+    // A transferring player was saved already, and the next server may be changing them now.
+    if !transferring {
+        let position = SavedPosition { character_id: ids.character_id, zone: *zone, position: pos.0 };
+        db.send(DbCommand::SavePositions(vec![position]));
+        // A pending e-Bid transaction saves the state itself (or rolls back, leaving the last save).
+        if !market_pending {
+            db.send(DbCommand::SaveState { character_id: ids.character_id, state: progress.0.clone() });
+        }
     }
     online.by_name.remove(&name.0.to_lowercase());
     online.by_id.remove(&id.0);
@@ -345,7 +441,7 @@ fn on_disconnected(
 fn save_positions(
     time: Res<Time>,
     mut timer: ResMut<SaveTimer>,
-    mut players: Query<(&CharacterIds, &Position, &ZoneId, &mut LastSaved)>,
+    mut players: Query<(&CharacterIds, &Position, &ZoneId, &mut LastSaved), Without<Transferring>>,
     db: Res<Db>,
 ) {
     if !timer.0.tick(time.delta()).just_finished() {
@@ -367,7 +463,7 @@ fn save_positions(
 /// Progress changed (bought something, finished a quest...): tell the owner and save it now.
 /// Cash and inventory are saved immediately, in one transaction, so a crash can't eat a purchase.
 fn sync_progress(
-    players: Query<(&Progress, &CharacterIds, &PlayerLink, Has<MarketPending>), Changed<Progress>>,
+    players: Query<(&Progress, &CharacterIds, &PlayerLink, Has<MarketPending>), (Changed<Progress>, Without<Transferring>)>,
     mut senders: Query<&mut MessageSender<GameUpdate>>,
     db: Res<Db>,
 ) {
@@ -388,7 +484,7 @@ fn sync_progress(
 /// and wait for the database to finish before the process goes away.
 fn save_on_shutdown(
     mut exit: MessageReader<AppExit>,
-    players: Query<(&CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>)>,
+    players: Query<(&CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>), Without<Transferring>>,
     online: Res<OnlinePlayers>,
     db: Res<Db>,
 ) {

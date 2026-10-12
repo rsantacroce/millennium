@@ -5,6 +5,8 @@
 
 mod rate_limit;
 
+use crate::cluster::wire::{Route, ToHub};
+use crate::cluster::{Cluster, RemoteChat};
 use crate::config::{ChatConfig, ServerConfig};
 use crate::persistence::{now_ms, ChatRecord, Db, DbCommand, DbEvent, DbResult};
 use crate::session::{CharacterIds, OnlinePlayers, PlayerLink, Progress, Session};
@@ -71,7 +73,7 @@ impl Plugin for ChatPlugin {
     fn build(&self, app: &mut App) {
         let words = app.world().resource::<ServerConfig>().chat.blocked_words.clone();
         app.insert_resource(ChatFilter(WordFilter::new(words)))
-            .add_systems(Update, (handle_chat_send, handle_chat_actions, handle_db_results));
+            .add_systems(Update, (handle_chat_send, deliver_remote, handle_chat_actions, handle_db_results));
     }
 }
 
@@ -97,6 +99,7 @@ fn handle_chat_send(
     parties: Res<Parties>,
     crews: Res<Crews>,
     memberships: Query<&CrewMembership>,
+    cluster: Res<Cluster>,
     filter: Res<ChatFilter>,
     config: Res<ServerConfig>,
     time: Res<Time<Real>>,
@@ -160,6 +163,8 @@ fn handle_chat_send(
             sent_at_ms: now,
         };
         let mut recipient_db_id = None;
+        // Lines that also go to the other servers of a cluster.
+        let mut relay = None;
         let recipients: Vec<Entity> = match &msg.target {
             ChatTarget::Say => players
                 .iter()
@@ -168,11 +173,10 @@ fn handle_chat_send(
                 })
                 .map(|(.., l, _, _)| l.0)
                 .collect(),
-            ChatTarget::Global => players
-                .iter()
-                .filter(|(.., s)| !s.ignores(sender_id))
-                .map(|(.., l, _, _)| l.0)
-                .collect(),
+            ChatTarget::Global => {
+                relay = Some(Route::Everyone);
+                players.iter().filter(|(.., s)| !s.ignores(sender_id)).map(|(.., l, _, _)| l.0).collect()
+            }
             ChatTarget::Zone => players
                 .iter()
                 .filter(|(_, _, _, z, _, _, s)| **z == sender_zone && !s.ignores(sender_id))
@@ -191,12 +195,31 @@ fn handle_chat_send(
                     notify(&mut notice_tx, sender_link, SystemNotice::info("You're not in a crew."));
                     continue;
                 };
+                relay = Some(Route::Crew(crew));
                 crews.online_members(crew, &online).into_iter().filter_map(|e| players.get(e).ok().map(|p| p.4.0)).collect()
             }
             ChatTarget::Whisper { to } => {
                 let target = online.by_name(to).and_then(|e| players.get(e).ok());
                 let Some((target_id, target_name, _, _, target_link, target_ids, target_state)) = target else {
-                    notify(&mut notice_tx, sender_link, SystemNotice::info(format!("{to} is not online.")));
+                    if !cluster.has_hub() {
+                        notify(&mut notice_tx, sender_link, SystemNotice::info(format!("{to} is not online.")));
+                        continue;
+                    }
+                    // Maybe they're on another server: the hub passes it on, or tells us they
+                    // aren't online. The sender sees their own line straight away.
+                    line.to = Some(to.clone());
+                    relay = Some(Route::Name(to.clone()));
+                    let delivered = vec![sender_link];
+                    deliver(&mut line_tx, &delivered, &line);
+                    cluster.send(ToHub::Chat { line: line.clone(), route: relay.take().expect("just set") });
+                    db.send(DbCommand::InsertChat(ChatRecord {
+                        channel: line.channel,
+                        sender_id: sender_db_id,
+                        recipient_id: None,
+                        zone: None,
+                        body: line.text,
+                        sent_at_ms: now,
+                    }));
                     continue;
                 };
                 if target_id.0 == sender_id {
@@ -213,13 +236,12 @@ fn handle_chat_send(
             }
         };
 
-        // 5. Deliver.
-        for link in recipients {
-            if let Ok(mut tx) = line_tx.get_mut(link) {
-                tx.send::<ChatNetChannel>(line.clone());
-            }
-        }
+        // 5. Deliver (here, and through the hub to the other servers).
+        deliver(&mut line_tx, &recipients, &line);
         debug!("[{}] {}: {}", line.channel.label(), line.from, line.text);
+        if let Some(route) = relay {
+            cluster.send(ToHub::Chat { line: line.clone(), route });
+        }
 
         // 6. Persist (async, never blocks the tick).
         db.send(DbCommand::InsertChat(ChatRecord {
@@ -230,6 +252,47 @@ fn handle_chat_send(
             body: line.text,
             sent_at_ms: now,
         }));
+    }
+}
+
+fn deliver(line_tx: &mut Query<&mut MessageSender<ChatLine>>, links: &[Entity], line: &ChatLine) {
+    for link in links {
+        if let Ok(mut tx) = line_tx.get_mut(*link) {
+            tx.send::<ChatNetChannel>(line.clone());
+        }
+    }
+}
+
+/// Chat from players on other servers.
+fn deliver_remote(
+    mut incoming: MessageReader<RemoteChat>,
+    players: PlayerQuery,
+    mut line_tx: Query<&mut MessageSender<ChatLine>>,
+    online: Res<OnlinePlayers>,
+    crews: Res<Crews>,
+    cluster: Res<Cluster>,
+) {
+    for RemoteChat { line, route } in incoming.read() {
+        let recipients: Vec<Entity> = match route {
+            Route::Everyone => players.iter().filter(|(.., s)| !s.ignores(line.from_id)).map(|(.., l, _, _)| l.0).collect(),
+            Route::Crew(crew) => crews
+                .online_members(*crew, &online)
+                .into_iter()
+                .filter_map(|e| players.get(e).ok())
+                .filter(|(.., s)| !s.ignores(line.from_id))
+                .map(|(.., l, _, _)| l.0)
+                .collect(),
+            Route::Character(id) => match online.by_id(*id as u64).and_then(|e| players.get(e).ok()) {
+                Some((_, name, .., state)) if state.ignores(line.from_id) => {
+                    cluster.notice_elsewhere(line.from_id as i64, format!("{} is ignoring you.", name.0));
+                    vec![]
+                }
+                Some((.., link, _, _)) => vec![link.0],
+                None => vec![],
+            },
+            Route::Name(_) => vec![],
+        };
+        deliver(&mut line_tx, &recipients, line);
     }
 }
 

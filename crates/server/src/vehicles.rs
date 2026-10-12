@@ -6,6 +6,7 @@
 //! out, logging off, the server shutting down) parks the car where the driver is, through one
 //! observer, so a car can't get lost.
 
+use crate::cluster::{Cluster, Transferring};
 use crate::persistence::{CarRecord, Db, DbCommand, DbEvent, DbResult};
 use crate::session::{CharacterIds, PlayerLink, Progress};
 use crate::zones::ZoneRooms;
@@ -34,6 +35,10 @@ pub struct CarRequest {
     pub link: Entity,
     pub action: CarAction,
 }
+
+/// On a link: this player arrives from another server driving this car.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ArrivingWithCar(pub i64);
 
 /// Server-only: who owns a parked car.
 #[derive(Component, Debug, Clone, Copy)]
@@ -70,7 +75,7 @@ impl Plugin for VehiclesPlugin {
             .init_resource::<ParkedCars>()
             .add_observer(park_on_exit)
             .add_systems(Startup, |db: Res<Db>| db.send(DbCommand::LoadCars))
-            .add_systems(Update, (handle_requests, handle_results, odometer, races));
+            .add_systems(Update, (handle_requests, handle_results, odometer, races, fetch_arriving_cars));
     }
 }
 
@@ -207,13 +212,14 @@ fn race_update(race: &RaceDef, next: usize, seconds_left: f32) -> GameUpdate {
 /// where they are, and they step out beside it.
 fn park_on_exit(
     trigger: On<Remove, Driving>,
-    drivers: Query<(&Driving, &Position, &ZoneId, &CharacterIds, &DisplayName)>,
+    drivers: Query<(&Driving, &Position, &ZoneId, &CharacterIds, &DisplayName), Without<Transferring>>,
     zones: Res<ZoneRegistry>,
     rooms: Res<ZoneRooms>,
     mut parked: ResMut<ParkedCars>,
     db: Res<Db>,
     mut commands: Commands,
 ) {
+    // (A transferring driver's car was already saved; the next server takes it from there.)
     let Ok((d, pos, zone, ids, name)) = drivers.get(trigger.entity) else { return };
     let car = CarRecord {
         id: d.car,
@@ -234,6 +240,8 @@ fn park_on_exit(
 
 fn handle_results(
     mut events: MessageReader<DbEvent>,
+    cluster: Res<Cluster>,
+    arrivals: Query<(&CharacterIds, &ZoneId)>,
     rooms: Res<ZoneRooms>,
     mut parked: ResMut<ParkedCars>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
@@ -242,17 +250,47 @@ fn handle_results(
     for DbEvent(result) in events.read() {
         match result {
             DbResult::Cars(cars) => {
-                for car in cars {
+                // Only the cars in our own zones (in a cluster, other servers have the rest).
+                let ours: Vec<&CarRecord> = cars.iter().filter(|c| cluster.owns(c.zone)).collect();
+                for car in &ours {
                     spawn_parked(&mut commands, &rooms, &mut parked, car);
                 }
-                info!("parked {} car(s)", cars.len());
+                info!("parked {} car(s)", ours.len());
+            }
+            DbResult::CarLoaded { player, car: Some(car) } => {
+                let Ok((ids, zone)) = arrivals.get(*player) else { continue };
+                if car.owner_id != ids.character_id || car.zone != *zone {
+                    continue;
+                }
+                if let Some(entity) = parked.0.remove(&car.id) {
+                    commands.entity(entity).despawn();
+                }
+                commands.entity(*player).insert((
+                    Driving { car: car.id, model: vehicle::model_index(&car.model), heading: car.heading, speed: 0.0 },
+                    Odometer { last: car.position, zone: car.zone, metres: 0.0 },
+                ));
             }
             DbResult::CarCreated { link, car } => {
                 spawn_parked(&mut commands, &rooms, &mut parked, car);
                 let name = vehicle::model(&car.model).map_or("car", |m| m.name);
-                notice(&mut notices, *link, format!("You got a {name}! Walk up to it and press F to get in."));
+                notice(&mut notices, *link, format!("You got a {name}! Walk up to it and press G to get in."));
             }
             _ => {}
+        }
+    }
+}
+
+/// A driver who just arrived from another server: fetch their car and put them back in it.
+fn fetch_arriving_cars(
+    players: Query<(Entity, &PlayerLink), Added<CharacterIds>>,
+    links: Query<&ArrivingWithCar>,
+    db: Res<Db>,
+    mut commands: Commands,
+) {
+    for (player, link) in &players {
+        if let Ok(ArrivingWithCar(car)) = links.get(link.0) {
+            db.send(DbCommand::LoadCar { player, car: *car });
+            commands.entity(link.0).remove::<ArrivingWithCar>();
         }
     }
 }

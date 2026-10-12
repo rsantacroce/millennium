@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use shared::names::{validate_crew_name, validate_crew_tag};
 use shared::protocol::{CrewInfo, CrewMember, CrewRank, CrewTag, DisplayName, FriendInfo, PlayerId, SocialAction, SocialUpdate};
 use shared::zone::ZoneId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// On the player: friends list, (character id, name).
 #[derive(Component, Debug, Clone, Default)]
@@ -36,9 +36,13 @@ impl Crews {
     }
 }
 
-/// Who was online last frame, to announce friends coming and going.
+/// Who was online last frame (here or on another server), to announce friends coming and
+/// going, and which local players already got their lists.
 #[derive(Resource, Default)]
-struct Presence(HashMap<Entity, (u64, String)>);
+struct Presence {
+    everyone: HashMap<u64, String>,
+    local: HashSet<Entity>,
+}
 
 pub struct FriendsPlugin;
 
@@ -54,7 +58,10 @@ fn friend_list(friends: &Friends, online: &OnlinePlayers, zones: &Query<&ZoneId>
     friends
         .0
         .iter()
-        .map(|(id, name)| FriendInfo { name: name.clone(), zone: online.by_id(*id).and_then(|e| zones.get(e).ok()).copied() })
+        .map(|(id, name)| FriendInfo {
+            name: name.clone(),
+            zone: online.by_id(*id).and_then(|e| zones.get(e).ok()).copied().or_else(|| online.remote_zone(*id)),
+        })
         .collect()
 }
 
@@ -65,7 +72,7 @@ fn crew_info(roster: &CrewRoster, online: &OnlinePlayers) -> CrewInfo {
         members: roster
             .members
             .iter()
-            .map(|(id, name, rank)| CrewMember { name: name.clone(), rank: *rank, online: online.by_id(*id as u64).is_some() })
+            .map(|(id, name, rank)| CrewMember { name: name.clone(), rank: *rank, online: online.is_online(*id as u64) })
             .collect(),
     }
 }
@@ -81,14 +88,18 @@ fn presence(
     db: Res<Db>,
     mut out: SocialOut,
 ) {
-    let now: HashMap<Entity, (u64, String)> = players.iter().map(|(e, id, n, ..)| (e, (id.0, n.0.clone()))).collect();
-    let arrived: Vec<(u64, String)> = now.iter().filter(|(e, _)| !presence.0.contains_key(e)).map(|(_, v)| v.clone()).collect();
-    let left: Vec<(u64, String)> = presence.0.iter().filter(|(e, _)| !now.contains_key(e)).map(|(_, v)| v.clone()).collect();
-    if arrived.is_empty() && left.is_empty() {
+    let mut now: HashMap<u64, String> = players.iter().map(|(_, id, n, ..)| (id.0, n.0.clone())).collect();
+    now.extend(online.remote_players());
+    let local: HashSet<Entity> = players.iter().map(|(e, ..)| e).collect();
+    let arrived: Vec<(u64, String)> = now.iter().filter(|(id, _)| !presence.everyone.contains_key(id)).map(|(i, n)| (*i, n.clone())).collect();
+    let left: Vec<(u64, String)> = presence.everyone.iter().filter(|(id, _)| !now.contains_key(id)).map(|(i, n)| (*i, n.clone())).collect();
+    let new_here: Vec<Entity> = local.iter().filter(|e| !presence.local.contains(e)).copied().collect();
+    if arrived.is_empty() && left.is_empty() && new_here.is_empty() {
+        presence.local = local;
         return;
     }
     for (entity, _, _, link, friends, crew) in &players {
-        let is_new = arrived.iter().any(|(id, _)| now.get(&entity).is_some_and(|(mine, _)| mine == id));
+        let is_new = new_here.contains(&entity);
         if is_new {
             out.update(link.0, SocialUpdate::Friends { friends: friend_list(friends, &online, &zones) });
             match crew.0 {
@@ -125,7 +136,8 @@ fn presence(
             }
         }
     }
-    presence.0 = now;
+    presence.everyone = now;
+    presence.local = local;
 }
 
 #[allow(clippy::too_many_arguments)]

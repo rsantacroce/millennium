@@ -1,0 +1,6 @@
+# The world hub: `cargo run -p server -- --hub --config config/cluster/hub.toml`
+[cluster]
+secret = "change-me"
+
+[hub]
+bind = "127.0.0.1:5900"

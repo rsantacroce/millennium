@@ -11,6 +11,7 @@
 
 pub mod auth;
 mod chat;
+pub mod cluster;
 mod combat;
 pub mod config;
 mod gameplay;
@@ -79,7 +80,11 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
     let db = persistence::Db::open(&config)?;
     // The login service runs on its own threads; it gets a handle to the database.
     let auth = auth::AuthService::start(&config, db.clone())?;
-    app.insert_resource(db).insert_resource(auth);
+    let cluster = cluster::Cluster::new(&config)?;
+    if !config.cluster.zones.is_empty() {
+        info!("zone server {:?}: running zones {:?}", config.cluster.name, config.cluster.zones);
+    }
+    app.insert_resource(db).insert_resource(auth).insert_resource(cluster);
     app.insert_resource(config);
     app.add_plugins((
         persistence::PersistencePlugin,
@@ -93,6 +98,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         social::SocialPlugin,
         market::MarketPlugin,
         vehicles::VehiclesPlugin,
+        cluster::ClusterPlugin,
     ));
     Ok(app)
 }

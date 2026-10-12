@@ -177,6 +177,11 @@ impl SqliteStore {
                 .await
                 .map(|result| Some(DbResult::MarketDone { link, result, notify: Vec::new() })),
             DbCommand::LoadCars => self.load_cars().await.map(|cars| Some(DbResult::Cars(cars))),
+            DbCommand::LoadCar { player, car } => self
+                .load_cars()
+                .await
+                .map(|cars| Some(DbResult::CarLoaded { player, car: cars.into_iter().find(|c| c.id == car) })),
+            DbCommand::Then(result) => Ok(Some(*result)),
             DbCommand::CreateCar { link, character_id, model, zone, position, heading } => self
                 .create_car(character_id, &model, zone, position, heading)
                 .await

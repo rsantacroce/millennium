@@ -38,3 +38,18 @@ history_whispers = 50
 blocked_words = ["darn", "heck", "frak"]
 # Account names (not character names) allowed to /mute and /unmute.
 admins = ["admin"]
+
+[cluster]
+# Leave this section out to run every zone in this one process (the normal setup).
+# To split the world over several servers, see config/cluster/ for a worked example.
+# zones = [1, 3]                 # zones this server runs; empty = all of them
+# hub = "127.0.0.1:5900"         # the world hub (`millennium-server --hub`)
+# secret = "change-me"           # shared by the hub and every zone server
+# name = "zone-a"                # for the hub's logs
+# [[cluster.servers]]            # where the other zones run, as clients reach them
+# addr = "203.0.113.7:5890"
+# zones = [2, 4]
+
+[hub]
+# Only used by `millennium-server --hub`: where zone servers connect (keep it private).
+# bind = "127.0.0.1:5900"

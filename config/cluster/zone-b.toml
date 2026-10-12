@@ -1,0 +1,24 @@
+# Zone server b: `cargo run -p server -- --config config/cluster/zone-b.toml`
+# Players can log in on either server; they're sent to whichever one runs their zone.
+
+[network]
+bind = "0.0.0.0:5890"
+auth_bind = "0.0.0.0:5890"
+tls_dir = "saves/tls-zone-b"
+# Every zone server must use the same key: each one signs tokens for the others.
+private_key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+
+[database]
+# Shared by the whole cluster. (A SQLite file works for trying it out on one machine:
+# url = "sqlite://saves/cluster.db")
+url = "postgres://millennium:millennium@localhost:5433/millennium"
+
+[cluster]
+name = "zone-b"
+zones = [2, 4]  # Harbor Docks and the Abandoned Factory
+hub = "127.0.0.1:5900"
+secret = "change-me"
+
+[[cluster.servers]]
+addr = "127.0.0.1:5888"
+zones = [1, 3]
