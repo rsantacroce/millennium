@@ -129,4 +129,12 @@
         buy_rate: 0.3,
         buys: ["junk", "electronics", "tool"],
     ),
+    (
+        id: "county_surplus",
+        name: "Pinecrest County Surplus",
+        sells: [("first_aid_kit", 5), ("hiking_boots", 34), ("reflective_vest", 36), ("police_scanner", 110)],
+        buy_rate: 0.0,
+        faction: Some("city"),
+        requires: [("hiking_boots", 100), ("reflective_vest", 300), ("police_scanner", 600)],
+    ),
 ]

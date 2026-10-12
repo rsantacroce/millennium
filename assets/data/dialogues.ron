@@ -809,7 +809,8 @@
             (
                 id: "ghost_offer",
                 text: "Folks say the church bell tower lights up at night. Pastor says it's not him. I say it's kids. Take a look after dark, would you? Tower door's on Main Street.",
-                options: [(text: "I'll look into it.", effects: [StartQuest("pinecrest_ghost")], goto: None), (text: "I don't believe in ghosts.", goto: None)],
+                options: [
+                    (text: "Does the county sell its surplus?", effects: [OpenShop("county_surplus")], goto: None),(text: "I'll look into it.", effects: [StartQuest("pinecrest_ghost")], goto: None), (text: "I don't believe in ghosts.", goto: None)],
             ),
             (
                 id: "ghost_found",

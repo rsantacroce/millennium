@@ -152,6 +152,23 @@ pub fn report(content: &Content) -> String {
         let _ = writeln!(out, "{:<32} lvl {}  ${avg:>4.1} a go, at most ${per_hour:>6.0}/h", h.name, h.level);
     }
 
+    let _ = writeln!(out, "\n== Reputation from quests (one-off) vs what faction shops ask ==");
+    let mut factions: Vec<_> = content.factions.values().collect();
+    factions.sort_by(|a, b| a.id.cmp(&b.id));
+    for f in factions {
+        let from_quests: i32 = content.quests.values().flat_map(|q| q.rewards.rep.iter()).filter(|(id, _)| *id == f.id).map(|(_, d)| d).sum();
+        let asks = content
+            .shops
+            .values()
+            .filter(|s| s.faction.as_ref() == Some(&f.id))
+            .flat_map(|s| s.requires.iter())
+            .map(|(_, r)| *r)
+            .max()
+            .unwrap_or(0);
+        let note = if from_quests < asks { " (the rest from kills and hacks)" } else { "" };
+        let _ = writeln!(out, "{:<16} {from_quests:>4} from quests, top item needs {asks}{note}", f.name);
+    }
+
     let _ = writeln!(out, "\n== Reputation discounts ==");
     for rep in [0, 100, 300, 600] {
         let (tier, d) = rep_tier(rep);

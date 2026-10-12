@@ -215,6 +215,6 @@
             (log: "Mr. Pemberton needs a locked briefcase taken to the Pine Motel in Pinecrest, for the Meridian board's retreat. Give it to Dolores. Don't open it."),
             (log: "Tell Mr. Pemberton the briefcase arrived."),
         ],
-        rewards: (cash: 80, xp: [(Driving, 150)], items: [], rep: [("meridian", 100)]),
+        rewards: (cash: 80, xp: [(Driving, 150)], items: [], rep: [("meridian", 150)]),
     ),
 ]

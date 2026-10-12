@@ -256,6 +256,8 @@ The server enforces everything; the client is never trusted:
   - `[network]`: game port (UDP), login port (TCP), certificate directory, token signing key
   - `[database]`: URL and save interval
   - `[chat]`: limits, blocked words, admins
+  - `[world]`: `day_minutes` (real minutes per game day, 40 by default; clients get it from the
+    server when they log in) and `clock_shift_hours`
   - `[cluster]`, `[hub]`: only for running the world on several servers (see below)
   
   The `DATABASE_URL` and `RUST_LOG` environment variables override it.
