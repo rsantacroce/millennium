@@ -213,19 +213,38 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
 
     let size = zone.bounds.size();
     let center = zone.bounds.center();
+    // Up on the roofs, the street is far below and only the roofs (and planks) are drawn at
+    // standing height.
+    let drop = if zone.walkable.is_empty() { 0.0 } else { -14.0 };
     // Outskirts (grass, water...), walkable ground, then roads on top.
     spawn(
         commands,
         (
             Mesh3d(meshes.add(Plane3d::default().mesh().size(size.x + 80.0, size.y + 80.0))),
             MeshMaterial3d(outskirts),
-            Transform::from_xyz(center.x, -0.02, center.y),
+            Transform::from_xyz(center.x, drop - 0.02, center.y),
         ),
     );
-    spawn(
-        commands,
-        (Mesh3d(meshes.add(Plane3d::default().mesh().size(size.x, size.y))), MeshMaterial3d(ground), Transform::from_xyz(center.x, 0.0, center.y)),
-    );
+    if zone.walkable.is_empty() {
+        spawn(
+            commands,
+            (Mesh3d(meshes.add(Plane3d::default().mesh().size(size.x, size.y))), MeshMaterial3d(ground), Transform::from_xyz(center.x, 0.0, center.y)),
+        );
+    } else {
+        let wood = mat(Color::srgb(0.55, 0.40, 0.25), 0.9);
+        let wall = mat(Color::srgb(0.50, 0.38, 0.32), 0.9);
+        for r in &zone.walkable {
+            let (s, c) = (r.size(), r.center());
+            if s.x.min(s.y) < 2.5 {
+                // A plank across the gap.
+                spawn(commands, (Mesh3d(meshes.add(Cuboid::new(s.x, 0.12, s.y))), MeshMaterial3d(wood.clone()), Transform::from_xyz(c.x, -0.06, c.y)));
+            } else {
+                // A roof: the building under it reaches down to the street.
+                spawn(commands, (Mesh3d(meshes.add(Cuboid::new(s.x, -drop, s.y))), MeshMaterial3d(wall.clone()), Transform::from_xyz(c.x, drop / 2.0 - 0.05, c.y)));
+                spawn(commands, (Mesh3d(meshes.add(Plane3d::default().mesh().size(s.x, s.y))), MeshMaterial3d(ground.clone()), Transform::from_xyz(c.x, 0.0, c.y)));
+            }
+        }
+    }
     for street in &zone.streets {
         let s = street.size();
         let c = street.center();

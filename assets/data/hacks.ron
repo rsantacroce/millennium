@@ -47,4 +47,13 @@
         rep: [("zeros", 10), ("dockside", -10)],
         cooldown_secs: 90.0,
     ),
+    (
+        id: "pirate_antenna",
+        name: "Pirate Radio Antenna",
+        level: 5, length: 7, seconds: 9.0,
+        cash: (0, 3), xp: 75,
+        loot: [("mixtape", 0.25)],
+        rep: [("zeros", 8)],
+        cooldown_secs: 75.0,
+    ),
 ]

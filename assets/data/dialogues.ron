@@ -593,4 +593,67 @@
             ),
         ],
     ),
+    (
+        id: "skyler",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Welcome to the top of the world! Well, the top of the Riverside Apartments. You're listening to Radio Free Maple, 87.9, as long as nobody finds the antenna.",
+                options: [
+                    (text: "How did you get a radio station up here?", goto: Some("radio")),
+                    (text: "Anything interesting up here?", goto: Some("secrets")),
+                    (text: "Keep it down.", goto: None),
+                ],
+            ),
+            (
+                id: "radio",
+                text: "Borrowed transmitter, borrowed power, borrowed roof. Zer0 Day helped me patch into the old junction box by the antenna. If you know what you're doing you can make it play anything.",
+                options: [(text: "Cool.", goto: None)],
+            ),
+            (
+                id: "secrets",
+                text: "People have been coming up here since the seventies. Somebody always hides something. I'd check the vents, if I were you. Not that I'm telling you to.",
+                options: [(text: "Noted.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "antenna",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "A junction box zip-tied to the antenna mast. Cables run to Skyler's speakers. A sticker reads ZER0 DAY WAS HERE.",
+                options: [
+                    (text: "Hack it.", effects: [Hack("pirate_antenna")], goto: None),
+                    (text: "Leave it alone.", goto: None),
+                ],
+            ),
+        ],
+    ),
+    (
+        id: "vent",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "A vent cover hangs by one screw. It rattles in the wind.",
+                options: [
+                    (
+                        text: "Reach inside.",
+                        when: [QuestNotStarted("rooftop_stash")],
+                        effects: [StartQuest("rooftop_stash"), CompleteQuest("rooftop_stash")],
+                        goto: Some("found"),
+                    ),
+                    (text: "Leave it.", goto: None),
+                ],
+            ),
+            (
+                id: "found",
+                text: "A shoebox, wrapped in a trash bag: a stack of old bills and a bootleg concert CD. Finders keepers.",
+                options: [(text: "Nice.", goto: None)],
+            ),
+        ],
+    ),
 ]

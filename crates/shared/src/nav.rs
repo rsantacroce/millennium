@@ -73,8 +73,9 @@ impl NavGrid {
         for y in 0..height {
             for x in 0..width {
                 let p = origin + (Vec2::new(x as f32, y as f32) + 0.5) * CELL;
-                blocked[y * width + x] =
-                    !inner.contains(p) || zone.obstacles.iter().any(|o| o.rect.inflate(clearance).contains(p));
+                blocked[y * width + x] = !inner.contains(p)
+                    || zone.off_walkable(p, clearance)
+                    || zone.obstacles.iter().any(|o| o.rect.inflate(clearance).contains(p));
             }
         }
         Self { origin, width, height, blocked }

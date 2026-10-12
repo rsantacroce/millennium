@@ -24,6 +24,7 @@ impl ZoneId {
     pub const MALL: ZoneId = ZoneId(3);
     pub const FACTORY: ZoneId = ZoneId(4);
     pub const SUBURBS: ZoneId = ZoneId(5);
+    pub const ROOFTOPS: ZoneId = ZoneId(6);
 }
 
 /// Walking into `rect` takes you to `arrive` in zone `to`.
@@ -70,9 +71,16 @@ pub struct ZoneLayout {
     /// sRGB colors: the walkable ground, and what's beyond the edge (grass, water...).
     pub ground: [f32; 3],
     pub outskirts: [f32; 3],
+    /// If not empty, only these areas can be stood on (rooftops: everything else is a drop).
+    pub walkable: Vec<Rect>,
 }
 
 impl ZoneLayout {
+    /// Would a circle of `radius` at `p` hang over the edge of the walkable areas?
+    pub fn off_walkable(&self, p: Vec2, radius: f32) -> bool {
+        !self.walkable.is_empty() && !self.walkable.iter().any(|r| r.inflate(-radius).contains(p))
+    }
+
     pub fn portal_at(&self, pos: Vec2, driving: bool) -> Option<&Portal> {
         self.portals.iter().find(|p| p.road == driving && p.rect.contains(pos))
     }
@@ -86,7 +94,7 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights()];
+        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops()];
         Self { zones: zones.into_iter().map(|z| (z.id, z)).collect() }
     }
 }
@@ -159,11 +167,14 @@ pub fn downtown_block() -> ZoneLayout {
             Portal { name: "Metro: Galleria Mall", rect: Rect::new(34.0, 41.0, 38.0, 43.0), to: ZoneId::MALL, arrive: Vec2::new(0.0, -24.0), road: false },
             Portal { name: "Metro: Abandoned Factory", rect: Rect::new(41.0, 34.0, 43.0, 38.0), to: ZoneId::FACTORY, arrive: Vec2::new(-31.5, 0.0), road: false },
             Portal { name: "Metro: Maple Heights", rect: Rect::new(34.0, 29.0, 38.0, 31.0), to: ZoneId::SUBURBS, arrive: Vec2::new(-29.5, 0.0), road: false },
+            // Up the fire escape behind the Byte Cafe.
+            Portal { name: "Fire Escape", rect: Rect::new(-11.0, -18.0, -9.0, -16.5), to: ZoneId::ROOFTOPS, arrive: Vec2::new(12.0, 8.0), road: false },
             // The east end of Maple St leads out to the factory, for drivers.
             Portal { name: "Highway: Abandoned Factory", rect: Rect::new(45.0, -4.5, 48.0, 4.5), to: ZoneId::FACTORY, arrive: Vec2::new(-2.0, 36.0), road: true },
         ],
         ground: [0.68, 0.67, 0.64],
         outskirts: [0.36, 0.50, 0.30],
+        walkable: vec![],
     }
 }
 
@@ -204,6 +215,45 @@ pub fn galleria_mall() -> ZoneLayout {
         }],
         ground: [0.86, 0.84, 0.80],
         outskirts: [0.30, 0.28, 0.32],
+        walkable: vec![],
+    }
+}
+
+/// "Maple & 5th Rooftops": the roofs of the north-west block, joined by planks. Only the roofs
+/// (`walkable`) can be stood on; the street is far below.
+pub fn rooftops() -> ZoneLayout {
+    let roof = |cx, cz, w, d| rect(cx, cz, w, d);
+    ZoneLayout {
+        id: ZoneId::ROOFTOPS,
+        name: "Maple & 5th Rooftops",
+        bounds: Rect::new(-30.0, -30.0, 30.0, 20.0),
+        spawn: Vec2::new(12.0, 8.0),
+        streets: vec![],
+        walkable: vec![
+            roof(10.0, 8.0, 12.0, 8.0),    // Byte Cafe
+            roof(-6.0, 8.0, 9.0, 8.0),     // Pawn & Pager
+            roof(1.25, 8.0, 8.5, 1.6),     // plank: cafe <-> pawn shop
+            roof(-6.0, -1.0, 1.6, 14.0),   // plank: pawn shop <-> apartments
+            roof(-6.0, -14.0, 24.0, 16.0), // Riverside Apartments
+        ],
+        obstacles: vec![
+            prop("AC Unit", rect(8.0, 6.0, 1.6, 1.2), 1.0, [0.60, 0.62, 0.65]),
+            prop("Water Tank", rect(-14.0, -18.0, 3.0, 3.0), 4.0, [0.45, 0.30, 0.20]),
+            prop("Pirate Antenna", rect(4.0, -18.0, 1.0, 1.0), 6.0, [0.70, 0.70, 0.72]),
+            prop("Couch", rect(-4.0, -10.0, 3.0, 1.2), 0.8, [0.55, 0.30, 0.45]),
+            prop("Speaker Stack", rect(-10.0, -12.0, 1.4, 1.4), 1.8, [0.10, 0.10, 0.12]),
+            prop("Pigeon Coop", rect(-8.0, 10.0, 2.5, 1.5), 1.4, [0.80, 0.78, 0.70]),
+        ],
+        portals: vec![Portal {
+            name: "Fire Escape (down)",
+            rect: Rect::new(14.5, 10.0, 16.0, 12.0),
+            to: ZoneId::DOWNTOWN,
+            arrive: Vec2::new(-8.0, -17.2),
+            road: false,
+        }],
+        // Tar and gravel up here; asphalt far below.
+        ground: [0.36, 0.35, 0.34],
+        outskirts: [0.20, 0.20, 0.22],
     }
 }
 
@@ -251,6 +301,7 @@ pub fn maple_heights() -> ZoneLayout {
         }],
         ground: [0.50, 0.66, 0.38],
         outskirts: [0.36, 0.52, 0.30],
+        walkable: vec![],
     }
 }
 
@@ -289,6 +340,7 @@ pub fn abandoned_factory() -> ZoneLayout {
         }],
         ground: [0.48, 0.46, 0.43],
         outskirts: [0.36, 0.33, 0.28],
+        walkable: vec![],
     }
 }
 
@@ -329,6 +381,7 @@ pub fn harbor_docks() -> ZoneLayout {
         }],
         ground: [0.52, 0.52, 0.50],
         outskirts: [0.12, 0.25, 0.38],
+        walkable: vec![],
     }
 }
 

@@ -49,7 +49,7 @@ pub fn advance(pos: Vec2, driving: Option<&mut crate::vehicle::Driving>, intent:
 }
 
 fn blocked(pos: Vec2, zone: &ZoneLayout) -> bool {
-    zone.obstacles.iter().any(|o| o.rect.inflate(PLAYER_RADIUS).contains(pos))
+    zone.off_walkable(pos, PLAYER_RADIUS) || zone.obstacles.iter().any(|o| o.rect.inflate(PLAYER_RADIUS).contains(pos))
 }
 
 #[cfg(test)]
@@ -116,6 +116,21 @@ mod tests {
             pos = step(pos, &intent(1.0, 0.0), DT, &zone);
         }
         assert!(pos.x <= zone.bounds.max.x - PLAYER_RADIUS);
+    }
+
+    #[test]
+    fn rooftops_have_edges_and_planks() {
+        let zone = crate::zone::rooftops();
+        // Walking north off the cafe roof stops at the edge.
+        let mut pos = Vec2::new(10.0, 8.0);
+        for _ in 0..300 {
+            pos = step(pos, &intent(0.0, 1.0), DT, &zone);
+        }
+        assert!(pos.y < 12.0, "walked off the roof: {pos:?}");
+        // The nav grid finds the way across the planks to the apartment roof.
+        let grid = crate::nav::NavGrid::build(&zone);
+        let path = grid.find_path(Vec2::new(12.0, 8.0), Vec2::new(-6.0, -14.0)).expect("planks connect the roofs");
+        assert!(path.len() >= 2);
     }
 
     #[test]

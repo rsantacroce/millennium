@@ -340,4 +340,10 @@
         on_use: Some("Exactly what you needed at this hour."),
     ),
     (id: "spray_can", name: "Spray Can", description: "Half full, nozzle crusted. A tagger dropped it.", value: 2, max_stack: 20),
+    (
+        id: "bootleg_cd",
+        name: "Bootleg Concert CD",
+        description: "Live, 1994, recorded from the back row. Collectors pay real money for these.",
+        value: 40,
+    ),
 ]

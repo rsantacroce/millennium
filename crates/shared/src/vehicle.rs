@@ -183,7 +183,7 @@ pub fn drive(pos: Vec2, d: &mut Driving, intent: &MoveIntent, dt: f32, zone: &Zo
 }
 
 pub fn blocked(pos: Vec2, zone: &ZoneLayout) -> bool {
-    zone.obstacles.iter().any(|o| o.rect.inflate(CAR_RADIUS).contains(pos))
+    zone.off_walkable(pos, CAR_RADIUS) || zone.obstacles.iter().any(|o| o.rect.inflate(CAR_RADIUS).contains(pos))
 }
 
 /// Where the driver stands after getting out: beside the driver's door, or failing that

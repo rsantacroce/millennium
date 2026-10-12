@@ -95,8 +95,14 @@ fn use_portals(
         commands.entity(player).insert(room.clone());
         commands.entity(link.0).insert(room);
         if let Ok(mut tx) = notices.get_mut(link.0) {
-            let how = if portal.road { "drive" } else { "ride the subway" };
-            tx.send::<ChatNetChannel>(SystemNotice::info(format!("You {how} to {}.", destination.name)));
+            let text = if portal.road {
+                format!("You drive to {}.", destination.name)
+            } else if portal.name.starts_with("Metro") {
+                format!("You ride the subway to {}.", destination.name)
+            } else {
+                format!("You take the {} to {}.", portal.name.to_lowercase(), destination.name)
+            };
+            tx.send::<ChatNetChannel>(SystemNotice::info(text));
         }
     }
 }

@@ -143,4 +143,16 @@
         dialogue: "vinnie",
         hours: Some((20.0, 4.0)),
     ),
+    // --- Up on the rooftops.
+    (
+        id: "skyler",
+        name: "Skyler",
+        zone: 6,
+        position: (-2.0, -12.0),
+        facing: 180.0,
+        appearance: (body: 0, skin: 2, jacket: 6, pants: 1, cap: 4),
+        dialogue: "skyler",
+    ),
+    (id: "antenna_panel", name: "Antenna Junction Box", zone: 6, position: (4.0, -16.6), facing: 180.0, dialogue: "antenna", prop: Some("panel")),
+    (id: "loose_vent", name: "Loose Vent Cover", zone: 6, position: (-16.0, -8.0), facing: 0.0, dialogue: "vent", prop: Some("none")),
 ]

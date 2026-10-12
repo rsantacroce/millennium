@@ -102,4 +102,10 @@
         ],
         rewards: (cash: 80, xp: [(Hacking, 200)], items: [("laptop", 1)], rep: [("zeros", 150), ("dockside", -30)]),
     ),
+    (
+        id: "rooftop_stash",
+        name: "Rooftop Stash",
+        stages: [(log: "You found someone's stash in a vent on the Riverside Apartments roof.")],
+        rewards: (cash: 50, xp: [(Fitness, 60)], items: [("bootleg_cd", 1)]),
+    ),
 ]
