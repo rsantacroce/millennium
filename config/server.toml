@@ -44,7 +44,8 @@ history_global = 50
 history_whispers = 50
 # Whole-word, case-insensitive; simple leetspeak (d4rn) and stretched letters are caught too.
 blocked_words = ["darn", "heck", "frak"]
-# Account names (not character names) allowed to /mute and /unmute.
+# Account names (not character names) with admin powers: /admin, /mod ..., /mute (see the
+# website's admin guide).
 admins = ["admin"]
 
 [world]
