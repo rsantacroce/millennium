@@ -33,7 +33,9 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   workbench and computer help with Cooking, Mechanics and Hacking at home; a waterbed leaves you
   Well Rested; a footlocker stores 20 stacks. Your party can visit.
 - **Factions:** City Services, Meridian Corp, the Dockside Crew and the Zer0 Day hackers.
-  Quests, fights and hacks change your reputation with them.
+  Quests, fights and hacks change your reputation with them. Three storylines (**The Leak**,
+  **Paper Trail**, **The Petition**) end with a choice: help one faction and another turns on you,
+  for good.
 - **Skills:** all seven:
   - **Electronics:** repair broken gadgets and sell them on at a profit.
   - **Fitness:** fighting.
@@ -507,6 +509,12 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
   require it, and faction shops give 5–15% off by tier and lock items until a tier.
 - **Trading:** shops pay 2% more per Trading level (up to 30%), and you get one more e-Bid
   auction every two levels (up to 20). You train it by selling.
+- **Choices:** `Effect::SetFlag(name)` remembers a choice for good and `Condition::Flag(name)`
+  checks it (kept with the kill counters as `flag:<name>`, so it's saved with no table of its
+  own). The storylines' last step is a pair of dialogue options, one per side: each moves
+  reputation both ways, sets its flag and completes the quest. Flags close doors later (Cipher
+  won't run the vault job for someone who sold them out; Rizzo won't deal with someone who took
+  his ledger to the police). The content check fails on a flag that's checked but never set.
 
 ### Shops and the economy
 

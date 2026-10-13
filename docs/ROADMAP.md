@@ -29,6 +29,7 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 | 15 | Lake Wren and the Mile 88 Truck Stop, fishing, and the Route 9 road trip chain |
 | 16 | Raids (the Meridian Vault, the Harbor Smugglers) and animals (dogs, raccoons, deer) |
 | 17 | Three new cars and a used-car lot, paint jobs and performance parts, more gear and furniture |
+| 18 | Faction storylines with choices: The Leak, Paper Trail, The Petition |
 
 ## Next: feel and usability
 
@@ -63,7 +64,7 @@ What a new player notices first.
 - [x] Group challenges: a raid-style job for a full party (the Meridian vault, the harbor smugglers): parties of 3-5, three waves and a boss, a one-hour cooldown
 - [x] Animals and non-human creatures (dogs, raccoons, deer; mobs are all people today): Junkyard Dogs, The Lake Wren Monster, Deer Count
 - [x] More cars (and car customization: paint, parts), more gear, more furniture: Fast Eddie's lot, Hank's paint jobs and parts, 7 pieces of gear, 5 pieces of furniture
-- [ ] More faction storylines, including choices that cost you reputation with someone else
+- [x] More faction storylines, including choices that cost you reputation with someone else: The Leak, Paper Trail, The Petition (choices are remembered with flags)
 
 ## Known gaps
 

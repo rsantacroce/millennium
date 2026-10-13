@@ -264,4 +264,6 @@
         id: "fast_eddie", name: "Fast Eddie", zone: 7, position: (56.0, 8.0), facing: 0.0,
         appearance: (body: 1, skin: 1, jacket: 8, pants: 9, cap: 10), dialogue: "fast_eddie",
     ),
+    // --- Milestone 18: faction storylines.
+    (id: "harbor_cabinet", name: "Filing Cabinet", zone: 2, position: (26.5, -23.0), facing: 180.0, dialogue: "harbor_cabinet", prop: Some("cabinet")),
 ]

@@ -5,10 +5,14 @@
         id: "dot",
         start: "hello",
         nodes: [
+            (id: "leak", text: "Faxes? Everybody faxes. But the Gazette ones always go out right after Glitch's friend stops by. Black hoodie, never orders anything. Ask Glitch, out back.", options: [(text: "Thanks, Dot.", goto: None)]),
+            (id: "signed", text: "A mall on the docks? Where would the fishermen get their coffee? Give me that pen.", options: [(text: "Thanks, Dot.", goto: None)]),
             (
                 id: "hello",
                 text: "Welcome to the Byte Cafe! ...Well, it's usually busier than this.",
                 options: [
+                    (text: "Who's been faxing the Gazette from here?", when: [QuestAt("the_leak", 0)], effects: [SetQuestStage("the_leak", 1)], goto: Some("leak")),
+                    (text: "Would you sign a petition against Harbor Plaza?", when: [QuestAt("the_petition", 0), Not(Flag("signed_dot"))], effects: [SetFlag("signed_dot")], goto: Some("signed")),
                     (text: "Why is it so quiet in here?", when: [QuestNotStarted("56k_dreams")], goto: Some("problem")),
                     (text: "Still looking for that modem.", when: [QuestAt("56k_dreams", 0)], goto: Some("reminder")),
                     (text: "I'm working on fixing the modem.", when: [QuestAt("56k_dreams", 1)], goto: Some("reminder")),
@@ -97,10 +101,12 @@
         id: "kim",
         start: "hello",
         nodes: [
+            (id: "signed", text: "My cousin works the docks. Of course I sign. Neatly, see?", options: [(text: "Thanks, Mr. Kim.", goto: None)]),
             (
                 id: "hello",
                 text: "Welcome to Corner Store 24/7. We never close, not even for Y2K.",
                 options: [
+                    (text: "Would you sign a petition against Harbor Plaza?", when: [QuestAt("the_petition", 0), Not(Flag("signed_kim"))], effects: [SetFlag("signed_kim")], goto: Some("signed")),
                     (text: "Let me see what you have.", effects: [OpenShop("corner_store")], goto: None),
                     (text: "Anything new?", goto: Some("news")),
                     (text: "Bye.", goto: None),
@@ -118,9 +124,29 @@
         start: "hello",
         nodes: [
             (
+                id: "trail_offer",
+                text: "Customs says cargo keeps vanishing at the Harbor Docks. Nobody talks. Ask Foreman Rizzo, he runs the place. Carefully.",
+                options: [(text: "I'll ask around.", effects: [StartQuest("paper_trail")], goto: None), (text: "Not my beat.", goto: None)],
+            ),
+            (id: "trail_done", text: "Well, well. Customs will love this. You did the city a service, {name}. The docks won't see it that way.", options: [(text: "I know.", goto: None)]),
+            (id: "petition_done", text: "Three signatures and a lot of feeling. I'll make sure the council reads it before the vote. Here, from the community fund.", options: [(text: "Thanks, officer.", goto: None)]),
+            (
                 id: "hello",
                 text: "Welcome to Maple & 5th. You look new in town.",
                 options: [
+                    (text: "Anything I can do for the city?", when: [QuestDone("welcome"), QuestNotStarted("paper_trail")], goto: Some("trail_offer")),
+                    (
+                        text: "Here's the docks' other ledger.",
+                        when: [QuestAt("paper_trail", 2), HasItem("cargo_ledger", 1)],
+                        effects: [TakeItem("cargo_ledger", 1), Rep("city", 200), Rep("dockside", -200), GiveCash(150), SetFlag("ledger_city"), CompleteQuest("paper_trail")],
+                        goto: Some("trail_done"),
+                    ),
+                    (
+                        text: "I'd like to file a petition.",
+                        when: [QuestAt("the_petition", 1), HasItem("petition", 1)],
+                        effects: [TakeItem("petition", 1), Rep("dockside", 150), Rep("city", 50), Rep("meridian", -150), GiveCash(80), SetFlag("petition_filed"), CompleteQuest("the_petition")],
+                        goto: Some("petition_done"),
+                    ),
                     (text: "First day. Any advice?", when: [QuestNotStarted("welcome")], goto: Some("advice")),
                     (text: "Still getting that soda.", when: [QuestAt("welcome", 0)], goto: Some("reminder")),
                     (
@@ -169,6 +195,14 @@
         start: "hello",
         nodes: [
             (
+                id: "petition_offer",
+                text: "Meridian wants to pave my docks for a mall. Harbor Plaza. There's a zoning vote coming, and nobody listens to longshoremen. Get Dot, Mr. Kim and Flo to sign this, then file it with Pruitt.",
+                options: [(text: "I'll get your signatures.", effects: [StartQuest("the_petition"), GiveItem("petition", 1)], goto: None), (text: "Not my fight.", goto: None)],
+            ),
+            (id: "trail", text: "Missing? Nothing goes missing on my docks. Who's asking, the cops? Go read the shipping records at the Harbor Office, if you love paperwork.", options: [(text: "Maybe I will.", goto: None)]),
+            (id: "trail_done", text: "That's... ours. And you didn't take it to Pruitt. My guys eat, the cops don't get a show. You're all right, kid.", options: [(text: "Keep it safe.", goto: None)]),
+            (id: "ratted", text: "Not for you. You took our ledger to the cops. Walk away.", options: [(text: "Fair enough.", goto: None)]),
+            (
                 id: "smugglers",
                 text: "Smugglers. Captain Vance's lot. They run knock-off pagers through my warehouse and my crew takes the heat. Bring some friends who can throw a punch (Fitness 5), and you've got ten minutes before Vance's boat leaves.",
                 options: [(text: "We'll handle it.", goto: None)],
@@ -178,8 +212,17 @@
                 id: "hello",
                 text: "Watch your step, kid. The docks ain't Maple Street.",
                 options: [
+                    (text: "Cargo's going missing on your docks.", when: [QuestAt("paper_trail", 0)], effects: [SetQuestStage("paper_trail", 1)], goto: Some("trail")),
+                    (
+                        text: "Found your other ledger. Thought you'd want it back.",
+                        when: [QuestAt("paper_trail", 2), HasItem("cargo_ledger", 1)],
+                        effects: [TakeItem("cargo_ledger", 1), Rep("dockside", 200), Rep("city", -200), GiveCash(150), SetFlag("ledger_dockside"), CompleteQuest("paper_trail")],
+                        goto: Some("trail_done"),
+                    ),
+                    (text: "Anything else going on?", when: [QuestNotStarted("the_petition"), Not(Flag("ledger_city"))], goto: Some("petition_offer")),
+                    (text: "Anything else going on?", when: [QuestNotStarted("the_petition"), Flag("ledger_city")], goto: Some("ratted")),
                     (text: "What's going on in Warehouse 7?", goto: Some("smugglers")),
-                    (text: "We'll clear out Warehouse 7. (A party of 3 or more)", when: [SkillLevel(Fitness, 5)], effects: [StartRaid("harbor_smugglers")], goto: None),
+                    (text: "We'll clear out Warehouse 7. (A party of 3 or more)", when: [SkillLevel(Fitness, 5), Not(Flag("ledger_city"))], effects: [StartRaid("harbor_smugglers")], goto: None),
                     (text: "Delivery from Big Ray.", when: [QuestAt("long_haul", 2), HasItem("cb_crate", 1)], effects: [TakeItem("cb_crate", 1), GiveItem("delivery_receipt", 1), SetQuestStage("long_haul", 3)], goto: Some("ray_delivery")),
                     (text: "Anything I can help with?", when: [QuestNotStarted("rat_problem")], goto: Some("problem")),
                     (text: "Still working on those Dock Rats.", when: [QuestAt("rat_problem", 0)], goto: Some("reminder")),
@@ -436,6 +479,30 @@
         start: "hello",
         nodes: [
             (
+                id: "leak_offer",
+                text: "Someone in this building is faxing our memos to the Gazette. Lies, all of it. Find out who, and Meridian will be very grateful. Start at that internet cafe: everyone faxes from there.",
+                options: [(text: "I'll find your leak.", effects: [StartQuest("the_leak")], goto: None), (text: "Not my business.", goto: None)],
+            ),
+            (id: "leak_wait", text: "Well? Who is it? Every day that memo is out there costs us.", options: [(text: "Still looking.", goto: None)]),
+            (
+                id: "leak_done",
+                text: "Cipher. Of course. Our lawyers will take it from here, and this memo never existed. Meridian takes care of its friends, {name}. Zer0 Day, less so.",
+                options: [(text: "Pleasure doing business.", goto: None)],
+            ),
+            (
+                id: "petition_offer",
+                text: "Harbor Plaza means jobs, a food court and a six-story parking structure. That petition only slows progress. Four hundred dollars says it gets lost.",
+                options: [
+                    (
+                        text: "Deal. What petition?",
+                        effects: [TakeItem("petition", 1), GiveCash(400), Rep("meridian", 150), Rep("dockside", -200), Rep("city", -50), SetFlag("petition_sold"), CompleteQuest("the_petition")],
+                        goto: Some("petition_sold"),
+                    ),
+                    (text: "It's not for sale.", goto: None),
+                ],
+            ),
+            (id: "petition_sold", text: "A pleasure. Shred it on your way out. The docks will get over it, eventually.", options: [(text: "Sure they will.", goto: None)]),
+            (
                 id: "retreat_offer",
                 text: "The board is holding its retreat at the Pine Motel. Don't ask me why. This briefcase needs to be there, and I don't trust couriers. You have a car, I hear. Drive it out to Pinecrest, give it to the motel manager.",
                 options: [
@@ -449,6 +516,15 @@
                 id: "hello",
                 text: "Pemberton, Meridian Corp, Facilities. Make it quick, we have four hundred days to make every computer in this building understand the year 2000.",
                 options: [
+                    (text: "Need any discreet help?", when: [QuestNotStarted("the_leak")], goto: Some("leak_offer")),
+                    (text: "About the leak...", when: [Not(QuestNotStarted("the_leak")), Not(QuestDone("the_leak")), Not(QuestAt("the_leak", 2))], goto: Some("leak_wait")),
+                    (
+                        text: "It's Cipher. Here's the memo they've been leaking.",
+                        when: [QuestAt("the_leak", 2), HasItem("y2k_memo", 1)],
+                        effects: [TakeItem("y2k_memo", 1), Rep("meridian", 200), Rep("zeros", -200), GiveCash(250), SetFlag("leak_meridian"), CompleteQuest("the_leak")],
+                        goto: Some("leak_done"),
+                    ),
+                    (text: "I hear you want to talk about a petition.", when: [QuestAt("the_petition", 1), HasItem("petition", 1)], goto: Some("petition_offer")),
                     (text: "Anything else for Meridian?", when: [QuestDone("y2k_compliance"), QuestNotStarted("corporate_retreat")], goto: Some("retreat_offer")),
                     (text: "The briefcase arrived.", when: [QuestAt("corporate_retreat", 1)], effects: [CompleteQuest("corporate_retreat")], goto: Some("retreat_done")),
                     (text: "Need help with that?", when: [QuestNotStarted("y2k_compliance")], goto: Some("offer")),
@@ -489,10 +565,12 @@
         id: "flo",
         start: "hello",
         nodes: [
+            (id: "signed", text: "Honey, I'll sign anything that keeps a food court out of this town.", options: [(text: "Thanks, Flo.", goto: None)]),
             (
                 id: "hello",
                 text: "Sit anywhere, hon. Unless you can cook. Can you cook? My fry cook ran off to be in a band.",
                 options: [
+                    (text: "Would you sign a petition against Harbor Plaza?", when: [QuestAt("the_petition", 0), Not(Flag("signed_flo"))], effects: [SetFlag("signed_flo")], goto: Some("signed")),
                     (text: "I can cook.", when: [QuestNotStarted("lunch_rush")], goto: Some("offer")),
                     (text: "Still on those sandwiches.", when: [QuestAt("lunch_rush", 0)], goto: Some("reminder")),
                     (
@@ -632,6 +710,7 @@
         id: "glitch",
         start: "hello",
         nodes: [
+            (id: "leak", text: "Working for Pemberton now? Cute. It's Cipher, by the Meridian building, and they're right. Here, the Y2K fund memo: two million billed to the city for compliance work nobody did. Now you know. Your move.", options: [(text: "My move.", goto: None)]),
             (
                 id: "ghost_read",
                 text: "Ha! That's ours. A relay for the pirate radio, bouncing the signal off the church tower. We lost it last fall. The Pinecrest ghost is... us. Don't tell the sheriff.",
@@ -641,6 +720,7 @@
                 id: "hello",
                 text: "...You're blocking my signal. What do you want?",
                 options: [
+                    (text: "Who's leaking the Meridian memos?", when: [QuestAt("the_leak", 1)], effects: [GiveItem("y2k_memo", 1), SetQuestStage("the_leak", 2)], goto: Some("leak")),
                     (
                         text: "Can you read this floppy? GHOST.EXE.",
                         when: [QuestAt("ghost_in_the_machine", 0), HasItem("strange_floppy", 1)],
@@ -1419,12 +1499,20 @@
         start: "hello",
         nodes: [
             (
+                id: "leak_done",
+                text: "You could have sold me to Pemberton. You didn't. The Gazette runs it tomorrow, front page. Zer0 Day doesn't forget a friend, {name}.",
+                options: [(text: "Give 'em hell.", goto: None)],
+            ),
+            (id: "sold_out", text: "You sold me to Pemberton. Find yourself another crew.", options: [(text: "...", goto: None)]),
+            (
                 id: "hello",
                 text: "Don't look at me. Look at the building. Meridian keeps a vault in the sub-basement, and what's in it is going to make Y2K look like a power cut.",
                 options: [
                     (text: "What's in the vault?", goto: Some("vault")),
-                    (text: "We're ready to go in. (A party of 3 or more)", when: [SkillLevel(Hacking, 5)], effects: [StartRaid("meridian_vault")], goto: None),
-                    (text: "We're ready to go in.", when: [Not(SkillLevel(Hacking, 5))], goto: Some("no_hacker")),
+                    (text: "I've got the memo. It's yours.", when: [QuestAt("the_leak", 2), HasItem("y2k_memo", 1)], effects: [TakeItem("y2k_memo", 1), Rep("zeros", 200), Rep("meridian", -200), GiveCash(150), GiveItem("beanie", 1), SetFlag("leak_zeros"), CompleteQuest("the_leak")], goto: Some("leak_done")),
+                    (text: "We're ready to go in. (A party of 3 or more)", when: [SkillLevel(Hacking, 5), Not(Flag("leak_meridian"))], effects: [StartRaid("meridian_vault")], goto: None),
+                    (text: "We're ready to go in.", when: [Not(SkillLevel(Hacking, 5)), Not(Flag("leak_meridian"))], goto: Some("no_hacker")),
+                    (text: "We're ready to go in.", when: [Flag("leak_meridian")], goto: Some("sold_out")),
                     (text: "Bye.", goto: None),
                 ],
             ),
@@ -1485,6 +1573,26 @@
                 id: "sold",
                 text: "Pleasure doing business! She's parked right next to you. Hank in Pinecrest does paint jobs and parts: tell him Eddie sent you. He'll charge you double.",
                 options: [(text: "Thanks, Eddie.", goto: None)],
+            ),
+        ],
+    ),
+    // --- Milestone 18: faction storylines.
+    (
+        id: "harbor_cabinet",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Shipping records, filed by somebody who hates filing.",
+                options: [
+                    (text: "Look for the real records.", when: [QuestAt("paper_trail", 1)], effects: [GiveItem("cargo_ledger", 1)], goto: Some("found")),
+                    (text: "Leave it.", goto: None),
+                ],
+            ),
+            (
+                id: "found",
+                text: "Under three years of coffee-stained manifests: a second ledger, in Rizzo's handwriting. \"One crate per ship. Split it fair.\"",
+                options: [(text: "Take it.", goto: None)],
             ),
         ],
     ),

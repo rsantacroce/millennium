@@ -520,8 +520,9 @@ fn print_state(state: &PlayerState, content: &Content) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
     let buffs: Vec<String> = state.buffs.iter().map(|b| format!("{} +{} ({}s)", b.skill.name(), b.levels, (b.until_ms - now) / 1000)).collect();
     let cooldowns: Vec<String> = state.cooldowns.iter().filter(|(_, t)| **t > now).map(|(k, t)| format!("{k} ({}s)", (t - now) / 1000)).collect();
+    let rep: Vec<String> = state.rep.iter().map(|(f, r)| format!("{f} {r}")).collect();
     println!(
-        "STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?} | wearing: {gear:?} | buffs: {buffs:?} | cooldowns: {cooldowns:?}",
+        "STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?} | wearing: {gear:?} | buffs: {buffs:?} | cooldowns: {cooldowns:?} | rep: {rep:?}",
         state.cash
     );
 }

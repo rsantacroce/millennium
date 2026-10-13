@@ -93,7 +93,9 @@ fn main() {
                 Effect::OpenMarket => "e-Bid terminal",
                 Effect::Hack(_) => "hackable",
                 Effect::StartRace(_) => "races",
-                Effect::GiveCar(_) => "gives a car",
+                Effect::GiveCar(_) => "sells or gives cars",
+                Effect::StartRaid(_) => "raids",
+                Effect::PaintCar(..) | Effect::InstallPart(_) => "paint jobs and car parts",
                 Effect::House(_) => "house door",
                 _ => continue,
             };
@@ -212,12 +214,17 @@ fn main() {
                 format!("<strong>{}</strong>", esc(content.item_name(&r.output))),
                 esc(&format!("{} {}", r.skill.name(), r.level)),
                 esc(&input.join(" + ")),
-                esc(r.tool.as_deref().map_or("", |t| content.item_name(t))),
+                esc(&match (r.tool.as_deref().map(|t| content.item_name(t)), r.near.as_deref()) {
+                    (Some(t), Some("fishing")) => format!("{t}, at a fishing spot"),
+                    (Some(t), Some(p)) => format!("{t}, next to a {p}"),
+                    (Some(t), None) => t.to_string(),
+                    (None, _) => String::new(),
+                }),
                 format!("{} xp, {} s", r.xp, r.seconds),
             ]
         })
         .collect();
-    table("recipes", "Repairs and cooking", "Use the input item from your inventory, with the tool, to make the result.", &["Makes", "Skill", "From", "Tool", "Gives"], rows);
+    table("recipes", "Repairs, cooking and fishing", "Use the input item from your inventory, with the tool, to make the result.", &["Makes", "Skill", "From", "Tool", "Gives"], rows);
 
     // Rivals.
     let mut mobs: Vec<_> = content.mobs.values().collect();
@@ -227,18 +234,62 @@ fn main() {
         .map(|m| {
             let spawns: Vec<_> = content.spawns.iter().filter(|s| s.mob == m.id).collect();
             let places: BTreeSet<String> = spawns.iter().map(|s| zone_name(&zones, s.zone)).collect();
-            let night = if spawns.iter().all(|s| s.hours.is_some()) { " (at night)" } else { "" };
+            let night = if spawns.iter().all(|s| s.raid.is_some()) {
+                " (raid)"
+            } else if spawns.iter().all(|s| s.hours.is_some()) {
+                " (at night)"
+            } else {
+                ""
+            };
             vec![
                 format!("<strong>{}</strong>", esc(&m.name)),
                 m.level.to_string(),
                 m.max_hp.to_string(),
                 format!("{}-{}", m.min_damage, m.max_damage),
                 esc(&format!("{}{night}", places.into_iter().collect::<Vec<_>>().join(", "))),
-                if m.aggro_radius > 0.0 { "attacks on sight".into() } else { "only if provoked".into() },
+                if m.skittish {
+                    "runs away".into()
+                } else if m.aggro_radius > 0.0 {
+                    "attacks on sight".into()
+                } else {
+                    "only if provoked".into()
+                },
             ]
         })
         .collect();
-    table("rivals", "Rivals", "People you can fight. Knockouts give Fitness XP, cash and loot.", &["Rival", "Level", "Health", "Damage", "Where", "Temper"], rows);
+    table("rivals", "Rivals and animals", "Who you can fight (and deer, which you tag). Knockouts give Fitness XP, and rivals drop cash and loot.", &["Name", "Level", "Health", "Damage", "Where", "Temper"], rows);
+
+    // Raids.
+    let mut raids: Vec<_> = content.raids.values().collect();
+    raids.sort_by_key(|r| r.name.clone());
+    let rows = raids
+        .iter()
+        .map(|r| {
+            let giver = content
+                .npcs
+                .iter()
+                .find(|n| {
+                    content.dialogues.get(&n.dialogue).is_some_and(|d| {
+                        d.nodes.iter().flat_map(|x| &x.options).flat_map(|o| &o.effects).any(|e| matches!(e, Effect::StartRaid(id) if *id == r.id))
+                    })
+                })
+                .map_or(String::new(), |n| n.name.clone());
+            let w = &r.rewards;
+            let mut reward = vec![format!("${}", w.cash)];
+            reward.extend(w.xp.iter().map(|(s, n)| format!("{n} {} xp", s.name())));
+            reward.extend(w.items.iter().map(|(i, _)| content.item_name(i).to_string()));
+            reward.extend(w.rep.iter().map(|(f, n)| format!("{n:+} {}", content.faction_name(f))));
+            vec![
+                format!("<strong>{}</strong>", esc(&r.name)),
+                esc(&giver),
+                esc(&zone_name(&zones, r.zone)),
+                format!("{}+ players, {} waves, {} min", r.min_party, r.waves, r.minutes),
+                esc(&reward.join(", ")),
+                format!("{} min", r.cooldown_minutes),
+            ]
+        })
+        .collect();
+    table("raids", "Raids", "Group jobs. Everyone still inside at the end gets the reward.", &["Raid", "Offered by", "Where", "Party, waves, time", "Reward (each)", "Cooldown"], rows);
 
     // Hacks.
     let mut hacks: Vec<_> = content.hacks.values().collect();
@@ -263,7 +314,34 @@ fn main() {
         .iter()
         .map(|m| vec![format!("<strong>{}</strong>", esc(m.name)), format!("{:.0} km/h", m.max_speed * 3.6), format!("{:.1} m/s²", m.accel), format!("{:.1} rad/s", m.turn_rate)])
         .collect();
-    table("cars", "Cars", "", &["Model", "Top speed", "Acceleration", "Steering"], rows);
+    table("cars", "Cars", "Fast Eddie's lot on Route 9 sells all but the hatchback, which is Old Earl's.", &["Model", "Top speed", "Acceleration", "Steering"], rows);
+    let rows = shared::vehicle::PARTS
+        .iter()
+        .map(|p| {
+            let mut gains = Vec::new();
+            if p.max_speed > 0.0 {
+                gains.push(format!("+{:.0} km/h top speed", p.max_speed * 3.6));
+            }
+            if p.accel > 0.0 {
+                gains.push(format!("+{:.1} m/s² acceleration", p.accel));
+            }
+            if p.brake > 0.0 {
+                gains.push(format!("+{:.0} m/s² braking", p.brake));
+            }
+            if p.turn_rate > 0.0 {
+                gains.push(format!("+{:.2} rad/s steering", p.turn_rate));
+            }
+            vec![format!("<strong>{}</strong>", esc(p.name)), esc(&gains.join(", "))]
+        })
+        .collect();
+    let paints: Vec<&str> = shared::vehicle::PAINTS.iter().map(|(n, _)| *n).collect();
+    table(
+        "car-parts",
+        "Car parts",
+        &format!("Hank's Garage in Pinecrest fits them for free. Paint jobs ($60): {}.", paints.join(", ")),
+        &["Part", "What it does"],
+        rows,
+    );
     let rows = RACES
         .iter()
         .map(|r| vec![format!("<strong>{}</strong>", esc(r.name)), esc(&zone_name(&zones, r.zone.0)), r.checkpoints.len().to_string(), format!("{} s", r.seconds), format!("${}, {} Driving xp", r.cash, r.xp)])

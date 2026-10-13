@@ -353,7 +353,7 @@ pub struct NpcDef {
 }
 
 /// Props an "NPC" can be drawn as.
-pub const PROPS: [&str; 7] = ["none", "atm", "arcade", "panel", "terminal", "fishing", "cb_radio"];
+pub const PROPS: [&str; 8] = ["none", "atm", "arcade", "panel", "terminal", "fishing", "cb_radio", "cabinet"];
 
 pub type HackId = String;
 
@@ -446,6 +446,8 @@ pub enum Condition {
     Hacked(HackId, u32),
     /// Won this raid at least this many times.
     Raided(RaidId, u32),
+    /// A choice made earlier (`Effect::SetFlag`): "gave the memo to Meridian".
+    Flag(String),
     Not(Box<Condition>),
 }
 
@@ -482,6 +484,8 @@ pub enum Effect {
     /// A garage: fits the part you brought (`vehicle::PARTS`, the item of the same id) to your
     /// car parked outside.
     InstallPart(String),
+    /// Remembers a choice for good (see `Condition::Flag`).
+    SetFlag(String),
 }
 
 /// World events (see `server::events`).
@@ -861,6 +865,25 @@ impl Content {
                 if !self.factions.contains_key(f) {
                     errors.push(format!("{ctx}: unknown faction `{f}`"));
                 }
+            }
+        }
+        // Every flag a condition looks at has to be set somewhere.
+        let set: std::collections::HashSet<&str> = self
+            .dialogues
+            .values()
+            .flat_map(|d| d.nodes.iter())
+            .flat_map(|n| n.options.iter())
+            .flat_map(|o| o.effects.iter())
+            .filter_map(|e| if let Effect::SetFlag(f) = e { Some(f.as_str()) } else { None })
+            .collect();
+        let used = self.dialogues.values().flat_map(|d| d.nodes.iter()).flat_map(|n| n.options.iter()).flat_map(|o| o.when.iter());
+        let used = used.chain(self.quests.values().flat_map(|q| q.stages.iter()).flat_map(|s| s.advance_when.iter()));
+        let mut stack: Vec<&Condition> = used.collect();
+        while let Some(c) = stack.pop() {
+            match c {
+                Condition::Not(inner) => stack.push(inner),
+                Condition::Flag(f) if !set.contains(f.as_str()) => errors.push(format!("flag `{f}` is checked but never set")),
+                _ => {}
             }
         }
         fn conditions<'a>(c: &'a Condition, out: &mut Vec<&'a Condition>) {

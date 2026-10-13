@@ -631,4 +631,8 @@
         description: "Third place, Maple Heights Lanes, 1987. Not yours, but nobody needs to know. At home: +1 Fitness.",
         furniture: Some((look: "trophy", skills: [(Fitness, 1)])),
     ),
+    // --- Milestone 18: faction storylines.
+    (id: "y2k_memo", tags: ["junk"], name: "Y2K Fund Memo", description: "Meridian letterhead: two million dollars billed to the city for Y2K work that never happened. Somebody wants this.", value: 0, quest_item: true),
+    (id: "cargo_ledger", tags: ["junk"], name: "The Other Ledger", description: "Rizzo's handwriting: \"One crate per ship. Split it fair.\" Customs would love it. So would Rizzo.", value: 0, quest_item: true),
+    (id: "petition", tags: ["junk"], name: "Harbor Petition", description: "\"We, the undersigned, say NO to Harbor Plaza.\" It needs signatures.", value: 0, quest_item: true),
 ]

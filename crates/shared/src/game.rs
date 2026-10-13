@@ -74,6 +74,11 @@ pub fn hack_counter(hack: &str) -> String {
     format!("hack:{hack}")
 }
 
+/// Choices (`Effect::SetFlag`) are kept the same way, as a 1.
+pub fn flag_key(flag: &str) -> String {
+    format!("flag:{flag}")
+}
+
 /// Raid wins are counted the same way.
 pub fn raid_counter(raid: &str) -> String {
     format!("raid:{raid}")
@@ -251,6 +256,7 @@ impl PlayerState {
             Condition::Rep(faction, min) => self.rep_with(faction) >= *min,
             Condition::Hacked(hack, n) => self.kills.get(&hack_counter(hack)).copied().unwrap_or(0) >= *n,
             Condition::Raided(raid, n) => self.kills.get(&raid_counter(raid)).copied().unwrap_or(0) >= *n,
+            Condition::Flag(flag) => self.kills.contains_key(&flag_key(flag)),
             Condition::Not(inner) => !self.check(inner),
         }
     }
@@ -526,6 +532,9 @@ impl PlayerState {
             Effect::StartRaid(raid) => events.push(GameEvent::RaidStarted(raid.clone())),
             Effect::PaintCar(paint, price) => events.push(GameEvent::PaintCar(*paint, *price)),
             Effect::InstallPart(part) => events.push(GameEvent::InstallPart(part.clone())),
+            Effect::SetFlag(flag) => {
+                self.kills.insert(flag_key(flag), 1);
+            }
         }
         Ok(())
     }
@@ -1237,6 +1246,19 @@ mod tests {
         assert_eq!(s.cash - before, pawn.buy_price_for(walkman, 3).unwrap() as i64);
         assert!(s.xp(Skill::Trading) > 0);
         assert_eq!(s.max_listings(&c), crate::market::MAX_LISTINGS_PER_PLAYER + 1);
+    }
+
+    #[test]
+    fn flags_remember_choices() {
+        let c = content();
+        let mut s = PlayerState::new(0);
+        assert!(!s.check(&Condition::Flag("leak_meridian".into())));
+        s.apply(&[Effect::SetFlag("leak_meridian".into())], &c).unwrap();
+        assert!(s.check(&Condition::Flag("leak_meridian".into())));
+        assert!(s.check(&Condition::Not(Box::new(Condition::Flag("leak_zeros".into())))));
+        // Kill counters reset; flags don't.
+        s.apply(&[Effect::ResetKills("dock_rat".into())], &c).unwrap();
+        assert!(s.check(&Condition::Flag("leak_meridian".into())));
     }
 
     #[test]

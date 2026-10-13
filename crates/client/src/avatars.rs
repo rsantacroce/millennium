@@ -209,6 +209,13 @@ fn spawn_prop(commands: &mut Commands, parent: Entity, prop: &str, meshes: &mut 
                 ChildOf(parent),
             ));
         }
+        "cabinet" => {
+            // A grey filing cabinet: four drawers with handles.
+            part(Cuboid::new(0.55, 1.35, 0.65).into(), &metal, Vec3::new(0.0, 0.675, 0.0));
+            for i in 0..4 {
+                part(Cuboid::new(0.2, 0.04, 0.03).into(), &dark, Vec3::new(0.0, 0.25 + i as f32 * 0.32, -0.34));
+            }
+        }
         "cb_radio" => {
             // A CB base station on a stand, with a whip antenna.
             part(Cylinder::new(0.05, 1.0).into(), &metal, Vec3::new(0.0, 0.5, 0.0));

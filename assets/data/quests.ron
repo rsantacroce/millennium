@@ -325,4 +325,47 @@
         ],
         rewards: (cash: 40, xp: [(Fitness, 150)], rep: [("city", 40)]),
     ),
+    // --- Milestone 18: faction storylines. Each ends in a choice: who gets the evidence decides
+    // whose side you're on (reputation up with one, down with another, and a flag they remember).
+    (
+        id: "the_leak",
+        name: "The Leak",
+        stages: [
+            (log: "Someone is faxing Meridian memos about the \"Y2K fund\" to the Gazette. Mr. Pemberton wants a name. Dot sees everyone who uses the Byte Cafe's fax machine."),
+            (log: "Dot says the faxes come from a friend of Glitch's. Ask Glitch, out behind the Byte Cafe."),
+            (
+                log: "Glitch gave you the proof: Meridian billed the city two million for Y2K work nobody did. The leak is Cipher, by the Meridian building. Give the memo to Mr. Pemberton, or to Cipher.",
+                hint: Some("Pemberton: Meridian Corp will owe you, Zer0 Day won't forgive you. Cipher: the other way round. You can't take it back."),
+            ),
+        ],
+        rewards: (xp: [(Trading, 150), (Hacking, 100)]),
+    ),
+    (
+        id: "paper_trail",
+        name: "Paper Trail",
+        stages: [
+            (log: "Officer Pruitt says cargo keeps vanishing at the Harbor Docks and nobody will talk. Ask Foreman Rizzo."),
+            (log: "Rizzo says nothing goes missing on his docks. Search the filing cabinet outside the Harbor Office.", advance_when: [HasItem("cargo_ledger", 1)]),
+            (
+                log: "The other ledger: Rizzo's crew skims a crate from every ship to pay the dockhands. Take it to Officer Pruitt, or give it back to Rizzo.",
+                hint: Some("Pruitt: City Services will thank you, the Dockside Crew won't. Rizzo: the other way round."),
+            ),
+        ],
+        rewards: (xp: [(Fitness, 100), (Trading, 100)]),
+    ),
+    (
+        id: "the_petition",
+        name: "The Petition",
+        stages: [
+            (
+                log: "Meridian wants to pave the docks for a waterfront mall, Harbor Plaza. Get Foreman Rizzo's petition signed by Dot (Byte Cafe), Mr. Kim (Corner Store) and Flo (Sunny Side Diner, Maple Heights).",
+                advance_when: [Flag("signed_dot"), Flag("signed_kim"), Flag("signed_flo")],
+            ),
+            (
+                log: "Three signatures. File the petition with Officer Pruitt before the zoning vote. (Mr. Pemberton has heard about it too.)",
+                hint: Some("Pruitt: the Dockside Crew and the city are glad, Meridian isn't. Pemberton pays well to make it disappear, and the docks will never forget."),
+            ),
+        ],
+        rewards: (xp: [(Trading, 150)]),
+    ),
 ]
