@@ -138,7 +138,8 @@ pub enum FurnitureAction {
     Watch(Vec<String>),
 }
 
-pub const FURNITURE_LOOKS: [&str; 8] = ["stove", "workbench", "desk", "bed", "footlocker", "tv", "lamp", "poster"];
+pub const FURNITURE_LOOKS: [&str; 13] =
+    ["stove", "workbench", "desk", "bed", "footlocker", "tv", "lamp", "poster", "beanbag", "arcade", "aquarium", "boombox", "trophy"];
 
 /// Item categories shops can buy (see `ShopDef::buys`).
 pub const ITEM_TAGS: [&str; 6] = ["electronics", "car_part", "food", "clothes", "tool", "junk"];
@@ -476,6 +477,11 @@ pub enum Effect {
     EventTask(String),
     /// Starts a raid (`raids.ron`) for your party; the server checks who's coming.
     StartRaid(RaidId),
+    /// A garage: paints your car parked outside (`vehicle::PAINTS` index) for this much.
+    PaintCar(u8, i64),
+    /// A garage: fits the part you brought (`vehicle::PARTS`, the item of the same id) to your
+    /// car parked outside.
+    InstallPart(String),
 }
 
 /// World events (see `server::events`).
@@ -936,6 +942,12 @@ impl Content {
                             Effect::Hack(h) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
                             Effect::EventTask(t) if !EVENT_TASKS.contains(&t.as_str()) => errors.push(format!("{ctx}: unknown event task `{t}`")),
                             Effect::StartRaid(r) if !self.raids.contains_key(r) => errors.push(format!("{ctx}: unknown raid `{r}`")),
+                            Effect::PaintCar(p, price) if *p as usize >= crate::vehicle::PAINTS.len() || *price < 0 => {
+                                errors.push(format!("{ctx}: bad paint job"))
+                            }
+                            Effect::InstallPart(p) if crate::vehicle::part(p).is_none() || !self.items.contains_key(p) => {
+                                errors.push(format!("{ctx}: unknown car part `{p}` (it needs an item too)"))
+                            }
                             Effect::House(p) if crate::zone::house(*p).is_none() => errors.push(format!("{ctx}: no house {p}")),
                             Effect::Rep(f, _) if !self.factions.contains_key(f) => {
                                 errors.push(format!("{ctx}: unknown faction `{f}`"))

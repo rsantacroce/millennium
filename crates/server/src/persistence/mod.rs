@@ -180,6 +180,8 @@ pub enum DbCommand {
     LoadCars,
     CreateCar { link: Entity, character_id: i64, model: String, zone: ZoneId, position: Vec2, heading: f32 },
     SaveCar { car: i64, zone: ZoneId, position: Vec2, heading: f32 },
+    /// A paint job or a new part.
+    SaveCarLook { car: i64, paint: Option<u8>, parts: u8 },
     // Houses.
     /// Every owned house, with its furniture.
     LoadHouses,
@@ -270,6 +272,9 @@ pub struct CarRecord {
     pub zone: ZoneId,
     pub position: Vec2,
     pub heading: f32,
+    /// A `vehicle::PAINTS` index (`None`: the factory color) and the installed parts' bits.
+    pub paint: Option<u8>,
+    pub parts: u8,
 }
 
 #[derive(Debug, Clone)]

@@ -721,7 +721,16 @@ fn run_script(
         }
         ["!cars"] => {
             for (car, pos) in &cars {
-                println!("CAR    #{} {} owned by {} at ({:.1}, {:.1})", car.car, shared::vehicle::MODELS[car.model as usize].name, car.owner_name, pos.x, pos.y);
+                let paint = shared::vehicle::PAINTS.get(car.paint as usize).map_or("factory paint", |(n, _)| *n);
+                println!(
+                    "CAR    #{} {} owned by {} at ({:.1}, {:.1}), {paint}, {}",
+                    car.car,
+                    shared::vehicle::MODELS[car.model as usize].name,
+                    car.owner_name,
+                    pos.x,
+                    pos.y,
+                    shared::vehicle::parts_list(car.parts)
+                );
             }
         }
         ["!search", ..] => {

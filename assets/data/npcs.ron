@@ -259,4 +259,9 @@
         id: "tyler", name: "Tyler", zone: 10, position: (28.0, 1.0), facing: 90.0,
         appearance: (body: 0, skin: 2, jacket: 8, pants: 0, cap: 3), dialogue: "tyler",
     ),
+    // --- Milestone 17: cars.
+    (
+        id: "fast_eddie", name: "Fast Eddie", zone: 7, position: (56.0, 8.0), facing: 0.0,
+        appearance: (body: 1, skin: 1, jacket: 8, pants: 9, cap: 10), dialogue: "fast_eddie",
+    ),
 ]

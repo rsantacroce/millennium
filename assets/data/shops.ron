@@ -9,7 +9,7 @@
     (
         id: "pawn_shop",
         name: "Pawn & Pager",
-        sells: [("broken_walkman", 8), ("broken_pocketplay", 20), ("pager", 40), ("baseball_bat", 30)],
+        sells: [("broken_walkman", 8), ("broken_pocketplay", 20), ("pager", 40), ("baseball_bat", 30), ("mood_ring", 14), ("bowling_trophy", 25)],
         // Buys anything, but pays the least.
         buy_rate: 0.4,
         stock: [("broken_walkman", 3, 90.0), ("broken_pocketplay", 2, 150.0)],
@@ -17,7 +17,7 @@
     (
         id: "gadget_shack",
         name: "Gadget Shack",
-        sells: [("brick_phone", 65), ("broken_camcorder", 18), ("screwdriver_set", 7)],
+        sells: [("brick_phone", 65), ("broken_camcorder", 18), ("screwdriver_set", 7), ("nokia_phone", 70), ("discman", 42)],
         // Pays better than the pawn shop.
         buy_rate: 0.6,
         buys: ["electronics"],
@@ -26,7 +26,7 @@
     (
         id: "pixel_palace",
         name: "Pixel Palace",
-        sells: [("game_cartridge", 15), ("pocketplay", 85)],
+        sells: [("game_cartridge", 15), ("pocketplay", 85), ("home_arcade", 180)],
         buy_rate: 0.0,
     ),
     (
@@ -48,6 +48,9 @@
             ("bomber_jacket", 55),
             ("skate_shoes", 22),
             ("wraparound_shades", 18),
+            ("starter_jacket", 48),
+            ("bandana", 9),
+            ("platform_sneakers", 26),
         ],
         buy_rate: 0.4,
         buys: ["clothes"],
@@ -86,7 +89,7 @@
     (
         id: "zeros_stash",
         name: "Zer0 Day Stash",
-        sells: [("burned_cd", 3), ("acoustic_coupler", 45), ("laptop", 160), ("wraparound_shades", 16)],
+        sells: [("burned_cd", 3), ("acoustic_coupler", 45), ("laptop", 160), ("wraparound_shades", 16), ("beanie", 11)],
         buy_rate: 0.5,
         buys: ["electronics"],
         faction: Some("zeros"),
@@ -101,7 +104,7 @@
     (
         id: "hanks_garage",
         name: "Hank's Garage",
-        sells: [("spark_plug", 7), ("car_battery", 20), ("rusty_carburetor", 7), ("wrench", 12), ("work_boots", 22)],
+        sells: [("spark_plug", 7), ("car_battery", 20), ("rusty_carburetor", 7), ("wrench", 12), ("work_boots", 22), ("sport_tires", 120), ("body_kit", 90)],
         // Pays well for rebuilt parts.
         buy_rate: 0.7,
         buys: ["car_part"],
@@ -125,6 +128,9 @@
             ("crt_tv", 60),
             ("lava_lamp", 18),
             ("band_poster", 10),
+            ("beanbag_chair", 30),
+            ("aquarium", 55),
+            ("boombox", 38),
         ],
         buy_rate: 0.3,
         buys: ["junk", "electronics", "tool"],
@@ -162,7 +168,7 @@
     (
         id: "diesel_bay",
         name: "Diesel Bay",
-        sells: [("seized_alternator", 6), ("wrench", 12), ("spark_plug", 8), ("car_battery", 21), ("cb_handset", 45)],
+        sells: [("seized_alternator", 6), ("wrench", 12), ("spark_plug", 8), ("car_battery", 21), ("cb_handset", 45), ("turbo_kit", 220)],
         // A truck garage: pays well for working parts.
         buy_rate: 0.7,
         buys: ["car_part"],

@@ -545,4 +545,90 @@
     ),
     // --- Animals (Milestone 17).
     (id: "bottle_caps", tags: ["junk"], name: "Bottle Caps", description: "Shiny. Raccoons collect them. Nobody else does.", value: 1, max_stack: 20),
+    // --- Milestone 17: car parts (bolted on at Hank's Garage, see vehicle::PARTS), gear, furniture.
+    (id: "turbo_kit", tags: ["car_part"], name: "Turbo Kit", description: "Whistles like a kettle. Hank fits it: your car gets faster off the line and at the top.", value: 140),
+    (id: "sport_tires", tags: ["car_part"], name: "Sport Tires", description: "Low profile, chrome rims. Hank fits them: better grip, sharper turns, shorter stops.", value: 80),
+    (id: "body_kit", tags: ["car_part"], name: "Body Kit", description: "A spoiler and side skirts. Mostly for looks, a little for speed. Hank fits it.", value: 60),
+    (
+        id: "starter_jacket", tags: ["clothes"],
+        name: "Satin Starter Jacket",
+        description: "The Maple Heights Mallards, in satin, with snaps. 2 armor, +1 Fitness.",
+        value: 40,
+        gear: Some((slot: Body, color: Some(3), armor: 2, skills: [(Fitness, 1)])),
+    ),
+    (
+        id: "bandana", tags: ["clothes"],
+        name: "Paisley Bandana",
+        description: "Tied pirate-style. Very serious. +1 Fitness.",
+        value: 8,
+        gear: Some((slot: Head, color: Some(4), skills: [(Fitness, 1)])),
+    ),
+    (
+        id: "beanie", tags: ["clothes"],
+        name: "Hacker Beanie",
+        description: "Black, ribbed, worn indoors. +1 Hacking.",
+        value: 9,
+        gear: Some((slot: Head, color: Some(1), skills: [(Hacking, 1)])),
+    ),
+    (
+        id: "platform_sneakers", tags: ["clothes"],
+        name: "Platform Sneakers",
+        description: "Two inches of foam. You're taller, and the floor is further away. +1 Trading.",
+        value: 22,
+        gear: Some((slot: Feet, color: Some(2), skills: [(Trading, 1)])),
+    ),
+    (
+        id: "nokia_phone", tags: ["electronics"],
+        name: "Indestructible Cell Phone",
+        description: "Snake on it, and a battery that lasts a week. +1 Trading, +1 Electronics.",
+        value: 55,
+        gear: Some((slot: Accessory, skills: [(Trading, 1), (Electronics, 1)])),
+    ),
+    (
+        id: "discman", tags: ["electronics"],
+        name: "Discman",
+        description: "Anti-skip protection, mostly. A soundtrack for the road. +1 Driving, +1 Fitness.",
+        value: 35,
+        gear: Some((slot: Accessory, skills: [(Driving, 1), (Fitness, 1)])),
+    ),
+    (
+        id: "mood_ring", tags: ["junk"],
+        name: "Mood Ring",
+        description: "It's blue, which means... calm? Focused? +1 Hacking.",
+        value: 12,
+        gear: Some((slot: Accessory, skills: [(Hacking, 1)])),
+    ),
+    (
+        id: "beanbag_chair", name: "Beanbag Chair", tags: ["junk"], value: 25,
+        description: "Purple vinyl. Sink in for Comfy: +1 Hacking for 10 minutes.",
+        furniture: Some((look: "beanbag", action: Rest((skill: Hacking, levels: 1, seconds: 600.0)))),
+    ),
+    (
+        id: "home_arcade", name: "Galaxy Raiders Cabinet", tags: ["electronics"], value: 150,
+        description: "Bought off the arcade when they got a new one. At home: +1 Driving (reflexes), and practice your high-score hack.",
+        furniture: Some((look: "arcade", skills: [(Driving, 1)], action: Practice("arcade_highscore"))),
+    ),
+    (
+        id: "aquarium", name: "Aquarium", tags: ["junk"], value: 45,
+        description: "Two goldfish, Bert and Ernie, and a plastic diver. Calming. At home: +1 Cooking.",
+        furniture: Some((look: "aquarium", skills: [(Cooking, 1)])),
+    ),
+    (
+        id: "boombox", name: "Boombox", tags: ["electronics"], value: 30,
+        description: "Dual tape decks, a CD player and a handle. Turn it on to hear what's playing.",
+        furniture: Some((
+            look: "boombox",
+            action: Watch([
+                "Z-100 is playing that song about the Macarena again. You know all the moves. You hate that.",
+                "A DJ takes a call from a guy who's stockpiling canned beans for Y2K. He has opinions.",
+                "Smooth 98.7: a saxophone solo that goes on for four minutes. Nobody stops it.",
+                "Radio Free Maple cuts in through the static: \"...they can't own the airwaves...\" Then it's gone.",
+            ]),
+        )),
+    ),
+    (
+        id: "bowling_trophy", name: "Bowling Trophy", tags: ["junk"], value: 20,
+        description: "Third place, Maple Heights Lanes, 1987. Not yours, but nobody needs to know. At home: +1 Fitness.",
+        furniture: Some((look: "trophy", skills: [(Fitness, 1)])),
+    ),
 ]

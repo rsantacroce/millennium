@@ -242,6 +242,13 @@ impl SqliteStore {
                 .create_car(character_id, &model, zone, position, heading)
                 .await
                 .map(|car| car.map(|car| DbResult::CarCreated { link, car })),
+            DbCommand::SaveCarLook { car, paint, parts } => sqlx::query("UPDATE cars SET paint = ?, parts = ? WHERE id = ?")
+                .bind(paint.map(|p| p as i32))
+                .bind(parts as i32)
+                .bind(car)
+                .execute(&self.pool)
+                .await
+                .map(|_| None),
             DbCommand::SaveCar { car, zone, position, heading } => sqlx::query("UPDATE cars SET zone = ?, x = ?, z = ?, heading = ? WHERE id = ?")
                 .bind(zone.0 as i32)
                 .bind(position.x as f64)
@@ -1115,16 +1122,26 @@ async fn insert_claim(tx: &mut Transaction<'_, Sqlite>, character_id: i64, stack
     Ok(())
 }
 
-type CarRow = (i64, i64, String, String, i32, f64, f64, f64);
+type CarRow = (i64, i64, String, String, i32, f64, f64, f64, Option<i32>, i32);
 
-fn car_from((id, owner_id, owner_name, model, zone, x, z, heading): CarRow) -> CarRecord {
-    CarRecord { id, owner_id, owner_name, model, zone: ZoneId(zone as u16), position: Vec2::new(x as f32, z as f32), heading: heading as f32 }
+fn car_from((id, owner_id, owner_name, model, zone, x, z, heading, paint, parts): CarRow) -> CarRecord {
+    CarRecord {
+        id,
+        owner_id,
+        owner_name,
+        model,
+        zone: ZoneId(zone as u16),
+        position: Vec2::new(x as f32, z as f32),
+        heading: heading as f32,
+        paint: paint.and_then(|p| u8::try_from(p).ok()),
+        parts: parts as u8,
+    }
 }
 
 impl SqliteStore {
     async fn load_cars(&self) -> Result<Vec<CarRecord>, sqlx::Error> {
         let rows: Vec<CarRow> = sqlx::query_as(
-            "SELECT k.id, k.owner_id, c.name, k.model, k.zone, k.x, k.z, k.heading FROM cars k JOIN characters c ON c.id = k.owner_id ORDER BY k.id",
+            "SELECT k.id, k.owner_id, c.name, k.model, k.zone, k.x, k.z, k.heading, k.paint, k.parts FROM cars k JOIN characters c ON c.id = k.owner_id ORDER BY k.id",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -1146,7 +1163,7 @@ impl SqliteStore {
         .await?;
         let Some((id,)) = row else { return Ok(None) };
         let rows: Vec<CarRow> = sqlx::query_as(
-            "SELECT k.id, k.owner_id, c.name, k.model, k.zone, k.x, k.z, k.heading FROM cars k JOIN characters c ON c.id = k.owner_id WHERE k.id = ?",
+            "SELECT k.id, k.owner_id, c.name, k.model, k.zone, k.x, k.z, k.heading, k.paint, k.parts FROM cars k JOIN characters c ON c.id = k.owner_id WHERE k.id = ?",
         )
         .bind(id)
         .fetch_all(&self.pool)

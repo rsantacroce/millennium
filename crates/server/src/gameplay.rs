@@ -319,6 +319,8 @@ pub fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         GameEvent::OpenShop(_)
         | GameEvent::OpenMarket
         | GameEvent::CarGranted(_)
+        | GameEvent::PaintCar(..)
+        | GameEvent::InstallPart(_)
         | GameEvent::RaceStarted(_)
         | GameEvent::HackStarted(_)
         | GameEvent::HouseDoor(_)
@@ -507,6 +509,12 @@ fn handle_actions(
                         }
                         GameEvent::EventTask(task) => {
                             event_tasks.write(crate::events::EventTaskDone { player, link, npc: active.npc.clone(), task: task.clone() });
+                        }
+                        GameEvent::PaintCar(paint, price) => {
+                            cars.write(CarRequest { player, link, action: CarAction::Paint { paint: *paint, price: *price } });
+                        }
+                        GameEvent::InstallPart(part) => {
+                            cars.write(CarRequest { player, link, action: CarAction::Install(part.clone()) });
                         }
                         GameEvent::RaidStarted(raid) => {
                             raids.write(crate::raids::RaidRequest { player, raid: raid.clone() });

@@ -9,6 +9,7 @@
 use crate::cluster::{Cluster, Transferring};
 use crate::persistence::{CarRecord, Db, DbCommand, DbEvent, DbResult};
 use crate::session::{CharacterIds, PlayerLink, Progress};
+use shared::content::{Content, Effect};
 use crate::zones::ZoneRooms;
 use bevy::prelude::*;
 use lightyear::prelude::*;
@@ -26,7 +27,14 @@ pub enum CarAction {
     Grant(String),
     /// From dialogue: start this race.
     Race(String),
+    /// From a garage's dialogue: paint the car parked outside, for this much.
+    Paint { paint: u8, price: i64 },
+    /// From a garage's dialogue: fit this part (the player brings the item).
+    Install(String),
 }
+
+/// A garage works on your car if it's parked this close to you.
+const GARAGE_RANGE: f32 = 15.0;
 
 /// Sent by gameplay (which owns the `GameAction` receiver).
 #[derive(Message, Debug, Clone)]
@@ -95,7 +103,14 @@ fn spawn_parked(commands: &mut Commands, rooms: &ZoneRooms, parked: &mut ParkedC
     let entity = commands
         .spawn((
             Name::new(format!("Car {}", car.id)),
-            ParkedCar { car: car.id, model: vehicle::model_index(&car.model), heading: car.heading, owner_name: car.owner_name.clone() },
+            ParkedCar {
+                car: car.id,
+                model: vehicle::model_index(&car.model),
+                heading: car.heading,
+                owner_name: car.owner_name.clone(),
+                paint: car.paint.unwrap_or(vehicle::NO_PAINT),
+                parts: car.parts,
+            },
             CarOwner(car.owner_id),
             Position(car.position),
             car.zone,
@@ -125,10 +140,12 @@ fn free_spot(pos: Vec2, zone: &shared::zone::ZoneLayout, people: &[Vec2]) -> Vec
     pos
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_requests(
     mut requests: MessageReader<CarRequest>,
-    mut players: Query<(&CharacterIds, &mut Position, &ZoneId, Option<&Driving>, &DisplayName), Without<ParkedCar>>,
-    cars: Query<(&ParkedCar, &CarOwner, &Position, &ZoneId)>,
+    mut players: Query<(&CharacterIds, &mut Position, &ZoneId, Option<&Driving>, &DisplayName, &mut Progress), Without<ParkedCar>>,
+    mut cars: Query<(&mut ParkedCar, &CarOwner, &Position, &ZoneId), Without<CharacterIds>>,
+    content: Res<Content>,
     mut parked: ResMut<ParkedCars>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     mut updates: Query<&mut MessageSender<GameUpdate>>,
@@ -139,7 +156,7 @@ fn handle_requests(
 ) {
     for req in requests.read() {
         let people: Vec<Vec2> = players.iter().map(|(_, p, ..)| p.0).collect();
-        let Ok((ids, mut pos, zone, driving, name)) = players.get_mut(req.player) else { continue };
+        let Ok((ids, mut pos, zone, driving, name, mut progress)) = players.get_mut(req.player) else { continue };
         match &req.action {
             CarAction::Enter(id) => {
                 if driving.is_some() {
@@ -161,7 +178,7 @@ fn handle_requests(
                 commands.entity(entity).despawn();
                 pos.0 = car_pos.0;
                 commands.entity(req.player).insert((
-                    Driving { car: *id, model: car.model, heading: car.heading, speed: 0.0 },
+                    Driving { car: *id, model: car.model, heading: car.heading, speed: 0.0, paint: car.paint, parts: car.parts },
                     Odometer { last: car_pos.0, zone: *zone, metres: 0.0 },
                 ));
                 info!("{} gets into car {id}", name.0);
@@ -186,6 +203,50 @@ fn handle_requests(
                     position: spot,
                     heading: 0.0,
                 });
+            }
+            CarAction::Paint { .. } | CarAction::Install(_) => {
+                // Your own car, parked outside (the closest one, if you have several).
+                let mine = parked
+                    .0
+                    .values()
+                    .filter(|e| cars.get(**e).is_ok_and(|(_, owner, p, z)| owner.0 == ids.character_id && z == zone && p.0.distance(pos.0) <= GARAGE_RANGE))
+                    .min_by(|a, b| {
+                        let d = |e: &Entity| cars.get(*e).map_or(f32::MAX, |(_, _, p, _)| p.0.distance(pos.0));
+                        d(a).total_cmp(&d(b))
+                    })
+                    .copied();
+                let Some(Ok((mut car, ..))) = mine.map(|e| cars.get_mut(e)) else {
+                    notice(&mut notices, req.link, "Park your car out front first.");
+                    continue;
+                };
+                let model = vehicle::MODELS[(car.model as usize).min(vehicle::MODELS.len() - 1)].name;
+                match &req.action {
+                    CarAction::Paint { paint, price } => {
+                        let color = vehicle::PAINTS.get(*paint as usize).map_or("that color", |(n, _)| *n);
+                        if car.paint == *paint {
+                            notice(&mut notices, req.link, format!("Your {model} is already {color}."));
+                        } else if progress.apply(&[Effect::TakeCash(*price)], &content).is_err() {
+                            notice(&mut notices, req.link, format!("A paint job is ${price}. You're short."));
+                        } else {
+                            car.paint = *paint;
+                            db.send(DbCommand::SaveCarLook { car: car.car, paint: Some(*paint), parts: car.parts });
+                            notice(&mut notices, req.link, format!("Your {model} comes out of the booth {color}. (-${price})"));
+                        }
+                    }
+                    CarAction::Install(id) => {
+                        let Some((bit, part)) = vehicle::part(id) else { continue };
+                        if car.parts & bit != 0 {
+                            notice(&mut notices, req.link, format!("Your {model} already has the {}.", part.name));
+                        } else if progress.apply(&[Effect::TakeItem(id.clone(), 1)], &content).is_err() {
+                            notice(&mut notices, req.link, format!("Bring a {} and I'll fit it.", part.name));
+                        } else {
+                            car.parts |= bit;
+                            db.send(DbCommand::SaveCarLook { car: car.car, paint: (car.paint != vehicle::NO_PAINT).then_some(car.paint), parts: car.parts });
+                            notice(&mut notices, req.link, format!("{} fitted to your {model}. It's now: {}.", part.name, vehicle::parts_list(car.parts)));
+                        }
+                    }
+                    _ => {}
+                }
             }
             CarAction::Race(id) => {
                 let Some(race) = vehicle::race(id) else { continue };
@@ -234,6 +295,8 @@ fn park_on_exit(
         zone: *zone,
         position: pos.0,
         heading: d.heading,
+        paint: (d.paint != vehicle::NO_PAINT).then_some(d.paint),
+        parts: d.parts,
     };
     db.send(DbCommand::SaveCar { car: car.id, zone: car.zone, position: car.position, heading: car.heading });
     spawn_parked(&mut commands, &rooms, &mut parked, &car);
@@ -271,7 +334,14 @@ fn handle_results(
                     commands.entity(entity).despawn();
                 }
                 commands.entity(*player).insert((
-                    Driving { car: car.id, model: vehicle::model_index(&car.model), heading: car.heading, speed: 0.0 },
+                    Driving {
+                        car: car.id,
+                        model: vehicle::model_index(&car.model),
+                        heading: car.heading,
+                        speed: 0.0,
+                        paint: car.paint.unwrap_or(vehicle::NO_PAINT),
+                        parts: car.parts,
+                    },
                     Odometer { last: car.position, zone: car.zone, metres: 0.0 },
                 ));
             }

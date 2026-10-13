@@ -42,9 +42,10 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   - **Cooking:** meals heal and give timed buffs. Fishing (at Lake Wren) trains it too.
   - **Hacking:** payphones, ATMs and terminals, through a code-recall mini-game.
   - **Trading:** better prices and more e-Bid auctions.
-- **Cars:** fix up Old Earl's junker (quest **Earl's Junker**) and it's yours. Drive it around
-  town, take the highway, and race Dash in the **Maple & 5th Sprint**. Cars stay parked where you
-  leave them.
+- **Cars:** fix up Old Earl's junker (quest **Earl's Junker**) and it's yours, or buy a minivan,
+  pickup, turbo coupe or roadster from Fast Eddie on Route 9. Hank's Garage in Pinecrest paints
+  them and fits a turbo kit, sport tires and a body kit. Drive around town, take the highway, and
+  race Dash in the **Maple & 5th Sprint**. Cars stay parked where you leave them.
 - **e-Bid:** an auction house at Dot's internet café and Wendy's Gadget Shack. List items with an
   optional buyout, bid, and collect your winnings, sales and refunds from a claims box, even
   when the other player is offline.
@@ -454,6 +455,14 @@ backwards, and scraping along walls keeps the speed parallel to the wall.
 A parked car is its own replicated entity. Taking `Driving` away for any reason (getting out,
 logging off, a server shutdown) parks the car where the driver is, through a single observer, so
 cars can't get lost. Mobs ignore drivers, and drivers can't fight.
+
+**Buying and tuning:** Fast Eddie's lot on Route 9 sells four models (minivan, pickup, coupe,
+roadster; the fast ones need Driving levels). At Hank's Garage in Pinecrest you can paint the car
+you've parked out front (`Effect::PaintCar`, one of `vehicle::PAINTS`) and have parts fitted
+(`Effect::InstallPart`: the Turbo Kit, Sport Tires and Body Kit in `vehicle::PARTS`, bought as
+items). A car's paint and parts are saved on its row (`paint`, `parts`), travel in `ParkedCar` and
+`Driving`, and `vehicle::tuned` adds the parts to the model's stats, so prediction and the server
+agree on how fast it goes.
 
 ### Running the world on several servers
 

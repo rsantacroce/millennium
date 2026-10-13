@@ -120,6 +120,10 @@ pub enum GameEvent {
     EventTask(String),
     /// The server checks the party and starts the raid (see `server::raids`).
     RaidStarted(String),
+    /// The server paints the player's car parked nearby (paint, price)...
+    PaintCar(u8, i64),
+    /// ...or fits this part to it.
+    InstallPart(String),
     /// The server creates the car (it lives in its own table, not in `PlayerState`).
     CarGranted(String),
     RaceStarted(String),
@@ -520,6 +524,8 @@ impl PlayerState {
             Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
             Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
             Effect::StartRaid(raid) => events.push(GameEvent::RaidStarted(raid.clone())),
+            Effect::PaintCar(paint, price) => events.push(GameEvent::PaintCar(*paint, *price)),
+            Effect::InstallPart(part) => events.push(GameEvent::InstallPart(part.clone())),
         }
         Ok(())
     }

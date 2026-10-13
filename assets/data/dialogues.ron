@@ -839,6 +839,31 @@
         start: "hello",
         nodes: [
             (
+                id: "paint",
+                text: "Sixty bucks, any color you like, as long as it's on this card. Park it out front first.",
+                options: [
+                    (text: "Cherry Red.", effects: [PaintCar(0, 60)], goto: None),
+                    (text: "Midnight Black.", effects: [PaintCar(1, 60)], goto: None),
+                    (text: "Pearl White.", effects: [PaintCar(2, 60)], goto: None),
+                    (text: "Teal.", effects: [PaintCar(3, 60)], goto: None),
+                    (text: "Purple Haze.", effects: [PaintCar(4, 60)], goto: None),
+                    (text: "Highlighter Yellow.", effects: [PaintCar(5, 60)], goto: None),
+                    (text: "Forest Green.", effects: [PaintCar(6, 60)], goto: None),
+                    (text: "Electric Blue.", effects: [PaintCar(7, 60)], goto: None),
+                    (text: "Never mind.", goto: None),
+                ],
+            ),
+            (
+                id: "parts",
+                text: "Bring the parts, I'll fit 'em, no charge. I sell tires and body kits; for a turbo you want Wanda out at the Mile 88 truck stop. Car's got to be parked out front.",
+                options: [
+                    (text: "Fit the Turbo Kit.", when: [HasItem("turbo_kit", 1)], effects: [InstallPart("turbo_kit")], goto: None),
+                    (text: "Fit the Sport Tires.", when: [HasItem("sport_tires", 1)], effects: [InstallPart("sport_tires")], goto: None),
+                    (text: "Fit the Body Kit.", when: [HasItem("body_kit", 1)], effects: [InstallPart("body_kit")], goto: None),
+                    (text: "Never mind.", goto: None),
+                ],
+            ),
+            (
                 id: "hello",
                 text: "Hank's Garage. If it's got an engine, I've had my arm in it.",
                 options: [
@@ -851,6 +876,8 @@
                     (text: "Need anything?", when: [QuestNotStarted("scenic_route")], goto: Some("scenic_offer")),
                     (text: "About the lookout footage...", when: [QuestAt("scenic_route", 0)], goto: Some("scenic_reminder")),
                     (text: "Here's your lookout footage.", when: [QuestAt("scenic_route", 1)], effects: [CompleteQuest("scenic_route")], goto: Some("scenic_done")),
+                    (text: "Paint my car. ($60)", goto: Some("paint")),
+                    (text: "Can you fit some parts?", goto: Some("parts")),
                     (text: "Show me your parts.", effects: [OpenShop("hanks_garage")], goto: None),
                     (text: "See you.", goto: None),
                 ],
@@ -1431,6 +1458,34 @@
             (id: "brave", text: "You're so brave. I'll watch from here. Way over here.", options: [(text: "Stay put.", goto: None)]),
             (id: "hurry", text: "Did you see it? Is it huge? It's huge, isn't it.", options: [(text: "Working on it.", goto: None)]),
             (id: "done", text: "A RACCOON? Billy's gonna be so mad he was scared. Here, these are my dad's minnows. Don't tell him.", options: [(text: "Our secret.", goto: None)]),
+        ],
+    ),
+    // --- Milestone 17: cars.
+    (
+        id: "fast_eddie",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Fast Eddie's! Every car on this lot was driven by a little old lady, on Sundays, to church. Mostly.",
+                options: [(text: "What've you got?", goto: Some("lot")), (text: "Just passing.", goto: None)],
+            ),
+            (
+                id: "lot",
+                text: "Family Minivan, $550. Pickup Truck, $650. The Turbo Coupe, $1,200, for drivers who know what they're doing (Driving 5). And the Roadster, $2,000: Driving 10, and don't tell your mother. Cash only, no refunds.",
+                options: [
+                    (text: "The '97 Family Minivan. ($550)", when: [Cash(550)], effects: [TakeCash(550), GiveCar("minivan")], goto: Some("sold")),
+                    (text: "The '94 Pickup Truck. ($650)", when: [Cash(650)], effects: [TakeCash(650), GiveCar("pickup")], goto: Some("sold")),
+                    (text: "The '89 Turbo Coupe. ($1,200)", when: [Cash(1200), SkillLevel(Driving, 5)], effects: [TakeCash(1200), GiveCar("coupe")], goto: Some("sold")),
+                    (text: "The '99 Roadster. ($2,000)", when: [Cash(2000), SkillLevel(Driving, 10)], effects: [TakeCash(2000), GiveCar("roadster")], goto: Some("sold")),
+                    (text: "Just looking.", goto: None),
+                ],
+            ),
+            (
+                id: "sold",
+                text: "Pleasure doing business! She's parked right next to you. Hank in Pinecrest does paint jobs and parts: tell him Eddie sent you. He'll charge you double.",
+                options: [(text: "Thanks, Eddie.", goto: None)],
+            ),
         ],
     ),
 ]

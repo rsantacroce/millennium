@@ -44,7 +44,8 @@ pub struct CarModel {
     pub color: [f32; 3],
 }
 
-pub const MODELS: [CarModel; 2] = [
+/// Indices are sent over the network and kept in the database by id, so add new ones at the end.
+pub const MODELS: [CarModel; 5] = [
     CarModel {
         id: "hatchback",
         name: "Rusty Hatchback",
@@ -63,7 +64,94 @@ pub const MODELS: [CarModel; 2] = [
         turn_rate: 2.6,
         color: [0.85, 0.82, 0.20],
     },
+    CarModel {
+        id: "pickup",
+        name: "'94 Pickup Truck",
+        max_speed: 15.5,
+        accel: 8.0,
+        brake: 17.0,
+        turn_rate: 2.2,
+        color: [0.22, 0.38, 0.28],
+    },
+    CarModel {
+        id: "minivan",
+        name: "'97 Family Minivan",
+        max_speed: 13.5,
+        accel: 6.5,
+        brake: 16.0,
+        turn_rate: 2.3,
+        color: [0.58, 0.62, 0.70],
+    },
+    CarModel {
+        id: "roadster",
+        name: "'99 Roadster",
+        max_speed: 21.0,
+        accel: 11.5,
+        brake: 22.0,
+        turn_rate: 2.9,
+        color: [0.80, 0.10, 0.12],
+    },
 ];
+
+/// Paint jobs (Hank's Garage): index into this, or [`NO_PAINT`] for the factory color.
+pub const PAINTS: [(&str, [f32; 3]); 8] = [
+    ("Cherry Red", [0.75, 0.08, 0.10]),
+    ("Midnight Black", [0.05, 0.05, 0.07]),
+    ("Pearl White", [0.92, 0.92, 0.90]),
+    ("Teal", [0.10, 0.55, 0.55]),
+    ("Purple Haze", [0.45, 0.20, 0.60]),
+    ("Highlighter Yellow", [0.95, 0.85, 0.20]),
+    ("Forest Green", [0.15, 0.38, 0.20]),
+    ("Electric Blue", [0.15, 0.35, 0.85]),
+];
+pub const NO_PAINT: u8 = u8::MAX;
+
+/// A performance part, installed for good (one bit each in a car's `parts`). The item with the
+/// same id is what you bring to the garage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CarPart {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub max_speed: f32,
+    pub accel: f32,
+    pub brake: f32,
+    pub turn_rate: f32,
+}
+
+pub const PARTS: [CarPart; 3] = [
+    CarPart { id: "turbo_kit", name: "Turbo Kit", max_speed: 2.5, accel: 2.5, brake: 0.0, turn_rate: 0.0 },
+    CarPart { id: "sport_tires", name: "Sport Tires", max_speed: 0.0, accel: 0.5, brake: 4.0, turn_rate: 0.35 },
+    CarPart { id: "body_kit", name: "Body Kit", max_speed: 1.0, accel: 0.0, brake: 0.0, turn_rate: 0.1 },
+];
+
+pub fn part(id: &str) -> Option<(u8, &'static CarPart)> {
+    PARTS.iter().enumerate().find(|(_, p)| p.id == id).map(|(i, p)| (1 << i, p))
+}
+
+/// The model's stats with these parts installed.
+pub fn tuned(model: &CarModel, parts: u8) -> CarModel {
+    let mut m = *model;
+    for (i, p) in PARTS.iter().enumerate() {
+        if parts & (1 << i) != 0 {
+            m.max_speed += p.max_speed;
+            m.accel += p.accel;
+            m.brake += p.brake;
+            m.turn_rate += p.turn_rate;
+        }
+    }
+    m
+}
+
+/// What color a car is: its paint job, or the model's own.
+pub fn car_color(model: &CarModel, paint: u8) -> [f32; 3] {
+    PAINTS.get(paint as usize).map_or(model.color, |(_, c)| *c)
+}
+
+/// "Turbo Kit, Sport Tires" (or "stock").
+pub fn parts_list(parts: u8) -> String {
+    let names: Vec<&str> = PARTS.iter().enumerate().filter(|(i, _)| parts & (1 << i) != 0).map(|(_, p)| p.name).collect();
+    if names.is_empty() { "stock".to_string() } else { names.join(", ") }
+}
 
 pub fn model(id: &str) -> Option<&'static CarModel> {
     MODELS.iter().find(|m| m.id == id)
@@ -85,11 +173,19 @@ pub struct Driving {
     pub heading: f32,
     /// m/s, negative when reversing.
     pub speed: f32,
+    /// Index into [`PAINTS`] or [`NO_PAINT`], and the installed [`PARTS`] (one bit each).
+    pub paint: u8,
+    pub parts: u8,
 }
 
 impl Driving {
     pub fn model(&self) -> &'static CarModel {
         &MODELS[(self.model as usize).min(MODELS.len() - 1)]
+    }
+
+    /// How it drives: the model, plus its parts.
+    pub fn stats(&self) -> CarModel {
+        tuned(self.model(), self.parts)
     }
 }
 
@@ -111,6 +207,8 @@ pub struct ParkedCar {
     pub heading: f32,
     /// Who may drive it.
     pub owner_name: String,
+    pub paint: u8,
+    pub parts: u8,
 }
 
 /// Wraps an angle to -PI..PI.
@@ -120,7 +218,7 @@ pub fn wrap(a: f32) -> f32 {
 
 /// Advances the car one tick: updates heading and speed in `d`, returns the new position.
 pub fn drive(pos: Vec2, d: &mut Driving, intent: &MoveIntent, dt: f32, zone: &ZoneLayout) -> Vec2 {
-    let m = *d.model();
+    let m = d.stats();
     let want = intent.direction();
     let authority = (d.speed.abs() / FULL_STEER_SPEED).min(1.0);
     let max_turn = m.turn_rate * dt * authority;
@@ -250,7 +348,27 @@ mod tests {
     const DT: f32 = 1.0 / 30.0;
 
     fn car(heading: f32) -> Driving {
-        Driving { car: 1, model: 0, heading, speed: 0.0 }
+        Driving { car: 1, model: 0, heading, speed: 0.0, paint: NO_PAINT, parts: 0 }
+    }
+
+    #[test]
+    fn parts_make_a_car_faster_and_paint_changes_its_color() {
+        let zone = downtown_block();
+        let top_speed = |parts: u8| {
+            let mut d = Driving { parts, ..car(0.0) };
+            let mut pos = Vec2::new(-46.0, 0.0);
+            for _ in 0..120 {
+                pos = drive(pos, &mut d, &go(Vec2::X), DT, &zone);
+            }
+            d.speed
+        };
+        let (turbo, _) = part("turbo_kit").unwrap();
+        assert!((top_speed(0) - MODELS[0].max_speed).abs() < 1e-3);
+        assert!((top_speed(turbo) - MODELS[0].max_speed - 2.5).abs() < 1e-3);
+        assert_eq!(parts_list(0), "stock");
+        assert_eq!(parts_list(turbo | part("sport_tires").unwrap().0), "Turbo Kit, Sport Tires");
+        assert_eq!(car_color(&MODELS[0], NO_PAINT), MODELS[0].color);
+        assert_eq!(car_color(&MODELS[0], 0), PAINTS[0].1);
     }
 
     fn go(dir: Vec2) -> MoveIntent {

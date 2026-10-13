@@ -103,14 +103,25 @@ impl Plugin for CarsPlugin {
     }
 }
 
-/// Boxy late-80s hatchback, pointing along -Z like the character models.
-fn spawn_car_body(commands: &mut Commands, parent: Entity, model: &CarModel, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Entity {
-    let [r, g, b] = model.color;
+/// A car's body, pointing along -Z like the character models: boxes in the shape of its model
+/// (`shape`), in its paint, with whatever parts it has bolted on.
+fn spawn_car_body(
+    commands: &mut Commands,
+    parent: Entity,
+    model: &CarModel,
+    paint: u8,
+    parts: u8,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Entity {
+    let [r, g, b] = vehicle::car_color(model, paint);
     let paint = materials.add(StandardMaterial { base_color: Color::srgb(r, g, b), perceptual_roughness: 0.5, ..default() });
     let glass = materials.add(StandardMaterial { base_color: Color::srgb(0.15, 0.2, 0.25), perceptual_roughness: 0.1, ..default() });
     let tyre = materials.add(StandardMaterial { base_color: Color::srgb(0.06, 0.06, 0.06), ..default() });
     let hub = materials.add(StandardMaterial { base_color: Color::srgb(0.7, 0.7, 0.72), metallic: 0.8, ..default() });
     let light = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.95, 0.7), emissive: LinearRgba::rgb(2.0, 1.9, 1.2), ..default() });
+    let trim = materials.add(StandardMaterial { base_color: Color::srgb(0.08, 0.08, 0.09), perceptual_roughness: 0.4, ..default() });
+    let chrome = materials.add(StandardMaterial { base_color: Color::srgb(0.8, 0.8, 0.82), metallic: 0.9, perceptual_roughness: 0.2, ..default() });
     let body = commands.spawn((CarBody, Transform::default(), Visibility::default(), ChildOf(parent))).id();
     let mut part = |mesh: Mesh, material: &Handle<StandardMaterial>, transform: Transform, wheel: bool| {
         let mut e = commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), transform, ChildOf(body)));
@@ -118,18 +129,59 @@ fn spawn_car_body(commands: &mut Commands, parent: Entity, model: &CarModel, mes
             e.insert(Wheel);
         }
     };
-    part(Cuboid::new(1.8, 0.6, 3.8).into(), &paint, Transform::from_translation(Vec3::new(0.0, 0.55, 0.0)), false);
-    part(Cuboid::new(1.6, 0.55, 2.0).into(), &paint, Transform::from_translation(Vec3::new(0.0, 1.12, 0.35)), false);
-    part(Cuboid::new(1.5, 0.45, 0.05).into(), &glass, Transform::from_translation(Vec3::new(0.0, 1.12, -0.66)), false);
+    let at = |x: f32, y: f32, z: f32| Transform::from_translation(Vec3::new(x, y, z));
+    // (lower body length, cabin: height, length, how far back, whether it has a roof)
+    let (length, cabin_h, cabin_len, cabin_z, roof) = match model.id {
+        "coupe" => (4.0, 0.42, 1.8, 0.25, true),
+        "pickup" => (4.4, 0.6, 1.5, -0.35, true),
+        "minivan" => (4.2, 0.85, 3.0, 0.35, true),
+        "roadster" => (3.8, 0.0, 1.2, 0.2, false),
+        _ => (3.8, 0.55, 2.0, 0.35, true),
+    };
+    let half = length / 2.0;
+    part(Cuboid::new(1.8, 0.6, length).into(), &paint, at(0.0, 0.55, 0.0), false);
+    let cabin_y = 0.85 + cabin_h / 2.0;
+    if roof {
+        part(Cuboid::new(1.6, cabin_h, cabin_len).into(), &paint, at(0.0, cabin_y, cabin_z), false);
+        part(Cuboid::new(1.5, cabin_h * 0.8, 0.05).into(), &glass, at(0.0, cabin_y, cabin_z - cabin_len / 2.0 - 0.01), false);
+        for side in [-0.82, 0.82] {
+            part(Cuboid::new(0.05, cabin_h * 0.7, cabin_len * 0.85).into(), &glass, at(side, cabin_y + 0.02, cabin_z), false);
+        }
+    } else {
+        // Open top: a windshield, two seats.
+        part(Cuboid::new(1.5, 0.35, 0.05).into(), &glass, at(0.0, 1.02, -0.45).with_rotation(Quat::from_rotation_x(-0.4)), false);
+        for side in [-0.38, 0.38] {
+            part(Cuboid::new(0.55, 0.45, 0.5).into(), &trim, at(side, 1.0, 0.35), false);
+        }
+    }
+    if model.id == "pickup" {
+        // The bed: sides and a tailgate behind the cab.
+        for side in [-0.85, 0.85] {
+            part(Cuboid::new(0.1, 0.35, 1.9).into(), &paint, at(side, 1.02, 1.15), false);
+        }
+        part(Cuboid::new(1.8, 0.35, 0.1).into(), &paint, at(0.0, 1.02, half - 0.05), false);
+    }
     for side in [-0.82, 0.82] {
-        part(Cuboid::new(0.05, 0.4, 1.7).into(), &glass, Transform::from_translation(Vec3::new(side, 1.14, 0.35)), false);
-        for z in [-1.25, 1.25] {
+        for z in [-(half - 0.65), half - 0.65] {
             // Tyres on their side (axle along X), so they can roll, with a hubcap to see them turn.
             let upright = |x: f32| Transform::from_xyz(x, 0.33, z).with_rotation(WHEEL_UPRIGHT);
             part(Cylinder::new(0.33, 0.25).into(), &tyre, upright(side * 1.12), true);
-            part(Cuboid::new(0.08, 0.26, 0.1).into(), &hub, upright(side * 1.25), true);
+            part(Cuboid::new(0.08, 0.26, 0.1).into(), if parts & 0b010 != 0 { &chrome } else { &hub }, upright(side * 1.25), true);
         }
-        part(Cuboid::new(0.35, 0.18, 0.05).into(), &light, Transform::from_translation(Vec3::new(side * 0.6, 0.62, -1.91)), false);
+        part(Cuboid::new(0.35, 0.18, 0.05).into(), &light, at(side * 0.6, 0.62, -half - 0.01), false);
+    }
+    // Turbo Kit: a hood scoop. Body Kit: a spoiler and side skirts. (Sport Tires: chrome hubs.)
+    if parts & 0b001 != 0 {
+        part(Cuboid::new(0.6, 0.14, 0.7).into(), &trim, at(0.0, 0.92, -half + 0.9), false);
+    }
+    if parts & 0b100 != 0 {
+        part(Cuboid::new(1.7, 0.06, 0.35).into(), &trim, at(0.0, 1.25, half - 0.2), false);
+        for side in [-0.7, 0.7] {
+            part(Cuboid::new(0.06, 0.4, 0.06).into(), &trim, at(side, 1.05, half - 0.2), false);
+        }
+        for side in [-0.92, 0.92] {
+            part(Cuboid::new(0.05, 0.12, length * 0.55).into(), &trim, at(side, 0.3, 0.0), false);
+        }
     }
     body
 }
@@ -140,12 +192,27 @@ fn heading_rotation(heading: f32) -> Quat {
     Quat::from_rotation_y((-dir.x).atan2(-dir.y))
 }
 
+#[allow(clippy::type_complexity)]
 fn spawn_parked_visuals(
     mut commands: Commands,
     new: Query<(Entity, &ParkedCar, &Position), Without<Avatar>>,
+    repainted: Query<(Entity, &ParkedCar, &Children), (With<Avatar>, Changed<ParkedCar>)>,
+    bodies: Query<(), With<CarBody>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // A paint job or a new part at the garage: swap the body.
+    for (entity, car, children) in &repainted {
+        let model = &vehicle::MODELS[(car.model as usize).min(vehicle::MODELS.len() - 1)];
+        let old: Vec<Entity> = children.iter().filter(|c| bodies.contains(*c)).collect();
+        if old.is_empty() {
+            continue;
+        }
+        for c in old {
+            commands.entity(c).despawn();
+        }
+        spawn_car_body(&mut commands, entity, model, car.paint, car.parts, &mut meshes, &mut materials);
+    }
     for (entity, car, pos) in &new {
         let model = &vehicle::MODELS[(car.model as usize).min(vehicle::MODELS.len() - 1)];
         commands.entity(entity).insert((
@@ -153,8 +220,8 @@ fn spawn_parked_visuals(
             Transform::from_xyz(pos.x, 0.0, pos.y).with_rotation(heading_rotation(car.heading)),
             Visibility::default(),
         ));
-        spawn_car_body(&mut commands, entity, model, &mut meshes, &mut materials);
-        let [r, g, b] = model.color;
+        spawn_car_body(&mut commands, entity, model, car.paint, car.parts, &mut meshes, &mut materials);
+        let [r, g, b] = vehicle::car_color(model, car.paint);
         minimap_dot(&mut commands, entity, Color::srgb(r, g, b), &mut meshes, &mut materials);
         name_tag(&mut commands, entity, &format!("{}'s {}", car.owner_name, model.name), Color::srgb(0.85, 0.85, 0.9));
     }
@@ -174,7 +241,7 @@ fn mount_drivers(
                 *vis = Visibility::Hidden;
             }
         }
-        let car = spawn_car_body(&mut commands, entity, driving.model(), &mut meshes, &mut materials);
+        let car = spawn_car_body(&mut commands, entity, driving.model(), driving.paint, driving.parts, &mut meshes, &mut materials);
         commands.entity(car).insert(DriverCar);
     }
 }

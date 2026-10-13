@@ -255,6 +255,10 @@ macro_rules! store_tests {
         let cars = s.load_cars().await.unwrap();
         assert_eq!(cars.len(), 1);
         assert_eq!((cars[0].zone, cars[0].position, cars[0].heading), (ZoneId(1), Vec2::new(40.0, 2.0), 3.0));
+        assert_eq!((cars[0].paint, cars[0].parts), (None, 0), "factory fresh");
+        s.handle(DbCommand::SaveCarLook { car: car.id, paint: Some(3), parts: 0b101 }, LIMITS).await;
+        let cars = s.load_cars().await.unwrap();
+        assert_eq!((cars[0].paint, cars[0].parts, cars[0].zone), (Some(3), 0b101, ZoneId(1)));
     }
 
     #[tokio::test]

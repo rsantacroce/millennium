@@ -293,6 +293,10 @@ pub fn route_9() -> ZoneLayout {
         prop("Gas Pumps", rect(-2.0, 9.0, 6.0, 1.2), 1.6, [0.85, 0.85, 0.80]),
         prop("Billboard", rect(-60.0, -14.0, 8.0, 0.5), 6.0, [0.95, 0.90, 0.35]),
         prop("Billboard", rect(80.0, 14.0, 8.0, 0.5), 6.0, [0.30, 0.60, 0.90]),
+        // Fast Eddie's Used Cars: a sign and a couple of cars on the lot.
+        prop("Fast Eddie's Used Cars", rect(56.0, 17.0, 7.0, 0.4), 4.0, [0.95, 0.75, 0.15]),
+        prop("Car For Sale", rect(52.0, 12.5, 2.0, 4.0), 1.4, [0.22, 0.38, 0.28]),
+        prop("Car For Sale", rect(60.0, 12.5, 2.0, 4.0), 1.4, [0.80, 0.10, 0.12]),
     ];
     for i in -5..=5 {
         let x = i as f32 * 20.0 + 6.0;
