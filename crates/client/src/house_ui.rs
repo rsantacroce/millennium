@@ -25,6 +25,8 @@ pub struct HouseInbox(pub Vec<GameUpdate>);
 struct HouseView {
     /// The front-door menu: (plot, house name, owner, mine, price).
     door: Option<(u8, String, Option<String>, bool, i64)>,
+    /// "Sell it" was clicked once: ask before doing it.
+    confirm_sell: bool,
     storage_open: bool,
     /// The furniture we're next to: (spot, item).
     near: Option<(u8, String)>,
@@ -44,6 +46,8 @@ enum Click {
     CloseDoor,
     Buy(u8),
     Enter(u8),
+    Sell,
+    ConfirmSell(u8),
     CloseStorage,
     Retrieve(u8),
     Store,
@@ -85,7 +89,10 @@ fn receive(
     }
     for update in inbox.0.drain(..) {
         match update {
-            GameUpdate::HouseMenu { plot, name, owner, mine, price } => view.door = Some((plot, name, owner, mine, price)),
+            GameUpdate::HouseMenu { plot, name, owner, mine, price } => {
+                view.door = Some((plot, name, owner, mine, price));
+                view.confirm_sell = false;
+            }
             GameUpdate::OpenStorage => {
                 view.storage_open = true;
                 panels.inventory = true;
@@ -235,7 +242,12 @@ fn clicks(
             continue;
         }
         match *click {
-            Click::CloseDoor => view.door = None,
+            Click::CloseDoor => {
+                view.door = None;
+                view.confirm_sell = false;
+            }
+            Click::Sell => view.confirm_sell = true,
+            Click::ConfirmSell(plot) => act(&mut client, GameAction::House { plot, choice: HouseChoice::Sell }),
             Click::Buy(plot) => act(&mut client, GameAction::House { plot, choice: HouseChoice::Buy }),
             Click::Enter(plot) => {
                 act(&mut client, GameAction::House { plot, choice: HouseChoice::Enter });
@@ -271,6 +283,13 @@ fn render_door(mut commands: Commands, view: Res<HouseView>, state: Res<LocalSta
         (Some(_), true) => {
             commands.spawn((ChildOf(body), label("Home sweet home.", theme::FONT_NORMAL, theme::TEXT)));
             commands.spawn((ChildOf(body), Click::Enter(*plot), button("Go in")));
+            let sell = shared::zone::HOUSE_SELL_PRICE;
+            if view.confirm_sell {
+                commands.spawn((ChildOf(body), label(format!("Sell it back for ${sell}? Pick up your furniture and empty the footlocker first."), 12.0, theme::MUTED_TEXT)));
+                commands.spawn((ChildOf(body), Click::ConfirmSell(*plot), button(format!("Yes, sell it for ${sell}"))));
+            } else {
+                commands.spawn((ChildOf(body), Click::Sell, button("Sell it")));
+            }
         }
         (Some(owner), false) => {
             commands.spawn((ChildOf(body), label(format!("{owner} lives here. Their party is welcome."), theme::FONT_NORMAL, theme::TEXT)));

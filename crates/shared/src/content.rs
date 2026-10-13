@@ -385,11 +385,59 @@ pub struct HackDef {
 }
 
 impl HackDef {
-    /// (code length, seconds the code is shown) for a hacker of this effective level.
-    pub fn difficulty(&self, level: u32) -> (usize, f32) {
+    /// The puzzle for a hacker of this effective level: (digits in the code, guesses allowed,
+    /// seconds in all). The code's length comes from the hack (`length` 4-5: 3 digits, 6-7: 4,
+    /// 8+: 5); outlevelling it gives you an extra guess every 3 levels (up to 4 more), and the
+    /// time is `seconds` per guess.
+    pub fn puzzle(&self, level: u32) -> (usize, u32, f32) {
+        let digits = ((self.length as usize + 2) / 2).clamp(3, 5);
         let over = level.saturating_sub(self.level);
-        let length = (self.length as i64 - (over / 3) as i64).max(3) as usize;
-        (length, (1.2 + 0.15 * over as f32).min(4.0))
+        // A careful player needs about 5.5 guesses on average, 9 at worst.
+        let guesses = digits as u32 + 5 + (over / 3).min(4);
+        (digits, guesses, self.seconds * guesses as f32)
+    }
+}
+
+/// Hacking is a code-breaking game (Bulls and Cows): the server keeps a code of different
+/// digits, and every guess is answered with how many digits are right and in the right place
+/// (`exact`) and how many are in the code but somewhere else (`misplaced`). The code itself
+/// never leaves the server, so a modified client can't read it.
+pub mod codebreak {
+    /// Is `guess` a valid guess for a code this long (digits only, none repeated)?
+    pub fn valid(guess: &str, digits: usize) -> bool {
+        guess.len() == digits && guess.chars().all(|c| c.is_ascii_digit()) && {
+            let mut seen = [false; 10];
+            guess.bytes().all(|b| !std::mem::replace(&mut seen[(b - b'0') as usize], true))
+        }
+    }
+
+    /// (exact, misplaced) for `guess` against `code`.
+    pub fn score(code: &str, guess: &str) -> (u8, u8) {
+        let exact = code.bytes().zip(guess.bytes()).filter(|(a, b)| a == b).count();
+        let shared = guess.bytes().filter(|b| code.as_bytes().contains(b)).count();
+        (exact as u8, (shared - exact) as u8)
+    }
+
+    /// The first code still possible given these (guess, exact, misplaced) answers: what a
+    /// careful player (or a bot, which gains nothing over one) would try next.
+    pub fn consistent_guess(digits: usize, history: &[(String, u8, u8)]) -> Option<String> {
+        fn next(prefix: &mut String, digits: usize, history: &[(String, u8, u8)]) -> bool {
+            if prefix.len() == digits {
+                return history.iter().all(|(g, e, m)| score(prefix, g) == (*e, *m));
+            }
+            for d in b'0'..=b'9' {
+                if !prefix.as_bytes().contains(&d) {
+                    prefix.push(d as char);
+                    if next(prefix, digits, history) {
+                        return true;
+                    }
+                    prefix.pop();
+                }
+            }
+            false
+        }
+        let mut code = String::new();
+        next(&mut code, digits, history).then_some(code)
     }
 }
 
@@ -1112,6 +1160,36 @@ mod tests {
         for spawn in &content.spawns {
             let zone = zones.get(spawn.zone_id()).expect("spawn zone exists");
             assert!(crate::nav::NavGrid::build(zone).walkable(spawn.pos()), "{} spawns in a wall", spawn.mob);
+        }
+    }
+
+    #[test]
+    fn code_breaking_scores_and_can_always_be_solved_in_time() {
+        use codebreak::*;
+        assert_eq!(score("1234", "1234"), (4, 0));
+        assert_eq!(score("1234", "4321"), (0, 4));
+        assert_eq!(score("1234", "1560"), (1, 0));
+        assert_eq!(score("1234", "5617"), (0, 1));
+        assert!(valid("0123", 4) && !valid("0113", 4) && !valid("012", 4) && !valid("01a3", 4));
+        // A careful player finds every code within the guesses the hardest hacks allow at
+        // exactly their level.
+        let content = Content::builtin();
+        for hack in content.hacks.values() {
+            let (digits, guesses, _) = hack.puzzle(hack.level);
+            for code in ["01234", "98765", "40718", "58390", "26103", "76543"].iter().map(|c| c[..digits].to_string()) {
+                let mut history = Vec::new();
+                let mut solved = false;
+                for _ in 0..guesses {
+                    let guess = consistent_guess(digits, &history).expect("some code fits");
+                    let (e, m) = score(&code, &guess);
+                    if e as usize == digits {
+                        solved = true;
+                        break;
+                    }
+                    history.push((guess, e, m));
+                }
+                assert!(solved, "{}: {code} not found in {guesses} guesses", hack.id);
+            }
         }
     }
 

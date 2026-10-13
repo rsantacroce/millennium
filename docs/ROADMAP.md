@@ -30,6 +30,8 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 | 16 | Raids (the Meridian Vault, the Harbor Smugglers) and animals (dogs, raccoons, deer) |
 | 17 | Three new cars and a used-car lot, paint jobs and performance parts, more gear and furniture |
 | 18 | Faction storylines with choices: The Leak, Paper Trail, The Petition |
+| 19 | Fixes from the GUI check (car spawning, animal sizes, HUD placement, the truck stop) |
+| 20 | Selling houses; cheat-proof hacking (code-breaking, the code stays on the server) |
 
 ## Next: feel and usability
 
@@ -68,10 +70,10 @@ What a new player notices first.
 
 ## Known gaps
 
-- [ ] Houses can't be sold, and there's only one house per character
+- [x] Houses can't be sold (sold back for $300 since Milestone 20; still one house at a time, so you can move)
 - [ ] Trades only work between players on the same server (they stand next to each other anyway)
 - [x] Food buffs end when you log out or change servers (saved since Milestone 14; they keep counting down while you're away)
-- [ ] Hacking can be auto-solved by a modified client (see `docs/hacking.md` for the cheat-proof design)
+- [x] Hacking can be auto-solved by a modified client: since Milestone 20 it's a code-breaking game and the code never leaves the server (`docs/hacking.md`)
 - [x] Hack cooldowns and shop stock reset when a server restarts (saved since Milestone 14)
 
 ## To explore later: blockchain and a peer-to-peer version

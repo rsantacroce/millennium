@@ -567,8 +567,10 @@ pub struct House {
     pub facing: f32,
 }
 
-/// What a house costs.
+/// What a house costs...
 pub const HOUSE_PRICE: i64 = 400;
+/// ...and what the realtor pays when you sell it back.
+pub const HOUSE_SELL_PRICE: i64 = 300;
 
 pub const HOUSES: [House; 5] = [
     House { plot: 1, name: "12 Elm Street", door: (-22.0, -7.6), facing: 180.0 },

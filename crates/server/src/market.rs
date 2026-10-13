@@ -45,6 +45,8 @@ pub enum MarketPending {
     List { slot: usize, qty: u32, fee: i64, fallback: PlayerState },
     /// Bid or buyout: pay `amount`.
     Pay { amount: i64, fallback: PlayerState },
+    /// Sold something (a house): receive `amount`.
+    Earn { amount: i64, fallback: PlayerState },
     /// Cancelled: nothing changes in the inventory (the item goes to claims).
     Nothing,
     /// Collected these claims.
@@ -201,6 +203,12 @@ fn settle(progress: &mut PlayerState, pending: MarketPending, content: &Content)
         }
         MarketPending::Pay { amount, fallback } => {
             if progress.pay(amount).is_ok() {
+                return;
+            }
+            fallback
+        }
+        MarketPending::Earn { amount, fallback } => {
+            if progress.earn(amount).is_ok() {
                 return;
             }
             fallback

@@ -20,7 +20,7 @@ use lightyear::prelude::*;
 use shared::content::{Content, FurnitureAction};
 use shared::protocol::{ChatNetChannel, DisplayName, FurnitureChoice, Furniture, GameChannel, GameUpdate, HouseChoice, Position, SystemNotice};
 use shared::vehicle::Driving;
-use shared::zone::{self, ZoneId, FURNITURE_SLOTS, HOUSE_PRICE};
+use shared::zone::{self, ZoneId, FURNITURE_SLOTS, HOUSE_PRICE, HOUSE_SELL_PRICE};
 use std::collections::HashMap;
 
 /// How close you must be to a door or a piece of furniture.
@@ -156,6 +156,24 @@ fn handle_requests(
                             commands.entity(req.player).insert(MarketPending::Pay { amount: HOUSE_PRICE, fallback: next });
                         }
                     }
+                    HouseChoice::Sell => {
+                        if owner.is_none_or(|o| o.owner_id != me) {
+                            say(&mut notices, link, "That isn't your house to sell.");
+                        } else if !progress.furniture.is_empty() || progress.storage.iter().any(|s| s.is_some()) {
+                            // So nothing can be lost in the move: you carry it all out first.
+                            say(&mut notices, link, "Clear it out first: pick up your furniture and empty the footlocker.");
+                        } else if busy {
+                            say(&mut notices, link, "One moment...");
+                        } else {
+                            let mut next = progress.0.clone();
+                            if let Err(e) = next.earn(HOUSE_SELL_PRICE) {
+                                say(&mut notices, link, format!("Can't sell it: {e}"));
+                                continue;
+                            }
+                            db.send(DbCommand::SellHouse { link, character_id: me, plot, state: next.clone() });
+                            commands.entity(req.player).insert(MarketPending::Earn { amount: HOUSE_SELL_PRICE, fallback: next });
+                        }
+                    }
                     HouseChoice::Enter => {
                         let Some(owner) = owner else {
                             say(&mut notices, link, "Nobody lives here (yet). It's for sale.");
@@ -270,8 +288,11 @@ fn handle_results(
     mut updates: Query<&mut MessageSender<GameUpdate>>,
     content: Res<Content>,
     cluster: Res<crate::cluster::Cluster>,
+    mut visitors: Query<(Entity, &crate::session::PlayerLink, &mut Position, &mut ZoneId), Without<MarketPending>>,
+    rooms: Res<ZoneRooms>,
     mut commands: Commands,
 ) {
+    let mut evicted = Vec::new();
     for DbEvent(result) in events.read() {
         match result {
             DbResult::Houses(list) => {
@@ -310,7 +331,45 @@ fn handle_results(
                     }
                 }
             }
+            DbResult::HouseSold { link, plot, result } => {
+                let Some(player) = sessions.get(*link).ok().and_then(|s| s.player()) else { continue };
+                let Ok((_, _, mut progress, pending)) = players.get_mut(player) else { continue };
+                commands.entity(player).remove::<MarketPending>();
+                progress.set_changed();
+                match result {
+                    Ok(()) => {
+                        if let Some(MarketPending::Earn { amount, .. }) = pending
+                            && progress.earn(*amount).is_err()
+                        {
+                            warn!("house sale no longer applies to the live state");
+                        }
+                        progress.storage.clear();
+                        houses.by_plot.remove(plot);
+                        evicted.push(*plot);
+                        let house = zone::house(*plot).map_or("the house", |h| h.name);
+                        if let Ok(mut tx) = updates.get_mut(*link) {
+                            tx.send::<GameChannel>(GameUpdate::HouseMenu { plot: *plot, name: house.to_string(), owner: None, mine: false, price: HOUSE_PRICE });
+                        }
+                        say(&mut notices, *link, format!("Sold! {house} is back on the market. +${HOUSE_SELL_PRICE}"));
+                    }
+                    Err(why) => say(&mut notices, *link, why.clone()),
+                }
+            }
             _ => {}
+        }
+    }
+    // A sold house's visitors find themselves on the front step.
+    for plot in evicted {
+        let Some(house) = zone::house(plot) else { continue };
+        for (player, link, mut pos, mut zone) in &mut visitors {
+            if *zone == ZoneId::house(plot) {
+                *zone = ZoneId::SUBURBS;
+                pos.0 = house.outside();
+                let room = Rooms::single(rooms.room(ZoneId::SUBURBS));
+                commands.entity(player).insert(room.clone());
+                commands.entity(link.0).insert(room);
+                say(&mut notices, link.0, format!("{} has been sold. You let yourself out.", house.name));
+            }
         }
     }
 }

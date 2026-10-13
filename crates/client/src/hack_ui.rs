@@ -1,7 +1,8 @@
-//! The hacking window: a green-on-black terminal that flashes a code, then asks for it back.
+//! The hacking window: a green-on-black terminal for breaking a code.
 //!
-//! The server picks the code and the time limits and checks the answer; this only shows it,
-//! hides it on time and sends what you type (Enter to send, Esc to give up).
+//! The server keeps the code (see `shared::content::codebreak`); this window only knows how
+//! long it is, shows each guess with the server's answer (digits right and in place, digits in
+//! the code but elsewhere) and sends what you type (Enter to guess, Esc to give up).
 
 use crate::sound::{PlaySfx, Sfx};
 use crate::theme;
@@ -19,12 +20,21 @@ pub struct HackInbox(pub Vec<GameUpdate>);
 
 #[derive(Resource, Default)]
 struct HackView {
-    /// (name, code, hide the code at, give up at) by our clock.
-    active: Option<(String, String, f32, f32)>,
+    active: Option<Puzzle>,
+}
+
+struct Puzzle {
+    digits: u8,
+    guesses_left: u8,
+    /// When time runs out, by our clock.
+    deadline: f32,
+    /// (guess, exact, misplaced), oldest first.
+    tries: Vec<(String, u8, u8)>,
 }
 
 #[derive(Component)]
 struct HackRoot;
+/// The list of guesses and their scores.
 #[derive(Component)]
 struct CodeText;
 #[derive(Component)]
@@ -61,16 +71,26 @@ fn receive(
 ) {
     let now = time.elapsed_secs();
     for update in inbox.0.drain(..) {
-        for r in &roots {
-            commands.entity(r).despawn();
-        }
         match update {
-            GameUpdate::HackChallenge { name, code, show_secs, seconds } => {
-                view.active = Some((name.clone(), code.clone(), now + show_secs, now + show_secs + seconds));
-                spawn_window(&mut commands, &name, &code);
+            GameUpdate::HackChallenge { name, digits, guesses, seconds } => {
+                for r in &roots {
+                    commands.entity(r).despawn();
+                }
+                view.active = Some(Puzzle { digits, guesses_left: guesses, deadline: now + seconds, tries: Vec::new() });
+                spawn_window(&mut commands, &name, digits);
                 sfx.write(PlaySfx(Sfx::DialUp));
             }
+            GameUpdate::HackFeedback { guess, exact, misplaced, left } => {
+                if let Some(p) = view.active.as_mut() {
+                    p.tries.push((guess, exact, misplaced));
+                    p.guesses_left = left;
+                }
+                sfx.write(PlaySfx(Sfx::Click));
+            }
             GameUpdate::HackEnded { success } => {
+                for r in &roots {
+                    commands.entity(r).despawn();
+                }
                 view.active = None;
                 sfx.write(PlaySfx(if success { Sfx::Coin } else { Sfx::KnockedOut }));
             }
@@ -79,7 +99,7 @@ fn receive(
     }
 }
 
-fn spawn_window(commands: &mut Commands, name: &str, code: &str) {
+fn spawn_window(commands: &mut Commands, name: &str, digits: u8) {
     let mono = |size: f32| theme::text_font(size);
     commands.spawn((
         HackRoot,
@@ -88,8 +108,8 @@ fn spawn_window(commands: &mut Commands, name: &str, code: &str) {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
             top: Val::Px(160.0),
-            width: Val::Px(360.0),
-            margin: UiRect::left(Val::Px(-180.0)),
+            width: Val::Px(400.0),
+            margin: UiRect::left(Val::Px(-200.0)),
             padding: UiRect::all(Val::Px(12.0)),
             border: UiRect::all(Val::Px(3.0)),
             flex_direction: FlexDirection::Column,
@@ -101,25 +121,26 @@ fn spawn_window(commands: &mut Commands, name: &str, code: &str) {
         Interaction::default(),
         children![
             (Text::new(format!("> CONNECT {}", name.to_uppercase())), mono(theme::FONT_SMALL), TextColor(GREEN)),
-            (CodeText, Text::new(format!("ACCESS CODE: {code}")), mono(26.0), TextColor(GREEN)),
+            (Text::new(format!("ACCESS CODE: {} DIFFERENT DIGITS\n* = right digit, right place   + = right digit, wrong place", digits)), mono(12.0), TextColor(GREEN)),
+            (CodeText, Text::new(""), mono(18.0), TextColor(GREEN)),
             (TimerText, Text::new(""), mono(theme::FONT_SMALL), TextColor(GREEN)),
             (
                 Node { border: UiRect::all(Val::Px(1.0)), padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)), ..default() },
                 BorderColor::all(GREEN),
                 children![(
                     AnswerField,
-                    EditableText { max_characters: Some(16), ..default() },
+                    EditableText { max_characters: Some(5), ..default() },
                     mono(20.0),
                     TextColor(GREEN),
                     Node { width: Val::Percent(100.0), ..default() },
                 )],
             ),
-            (Text::new("Enter: send   Esc: disconnect"), mono(12.0), TextColor(Color::srgb(0.2, 0.6, 0.3))),
+            (Text::new("Enter: try it   Esc: disconnect"), mono(12.0), TextColor(Color::srgb(0.2, 0.6, 0.3))),
         ],
     ));
 }
 
-/// Hides the code when its time is up, focuses the answer box, and counts down.
+/// Shows the guesses so far, keeps the answer box focused, and counts down.
 fn tick(
     view: Res<HackView>,
     time: Res<Time>,
@@ -128,23 +149,26 @@ fn tick(
     field: Query<Entity, With<AnswerField>>,
     mut focus: ResMut<InputFocus>,
 ) {
-    let Some((_, _, hide_at, deadline)) = &view.active else { return };
-    let now = time.elapsed_secs();
-    if now >= *hide_at {
-        for mut t in &mut code {
-            if !t.0.ends_with("????") {
-                t.0 = "ACCESS CODE: ????".into();
-            }
-        }
-        if let Ok(f) = field.single()
-            && focus.get() != Some(f)
-        {
-            focus.set(f, FocusCause::Navigated);
+    let Some(p) = &view.active else { return };
+    if let Ok(f) = field.single()
+        && focus.get() != Some(f)
+    {
+        focus.set(f, FocusCause::Navigated);
+    }
+    let lines: Vec<String> = p
+        .tries
+        .iter()
+        .map(|(g, e, m)| format!("> {g}   {}{}{}", "*".repeat(*e as usize), "+".repeat(*m as usize), if e + m == 0 { "-" } else { "" }))
+        .collect();
+    let shown = if lines.is_empty() { format!("> {}", "_".repeat(p.digits as usize)) } else { lines.join("\n") };
+    for mut t in &mut code {
+        if t.0 != shown {
+            t.0 = shown.clone();
         }
     }
-    let left = (deadline - now).max(0.0);
+    let left = (p.deadline - time.elapsed_secs()).max(0.0);
     for mut t in &mut timer {
-        t.0 = if now < *hide_at { "MEMORIZE...".into() } else { format!("TYPE IT IN: {left:.1}s") };
+        t.0 = format!("GUESSES LEFT: {}   TIME: {left:.0}s", p.guesses_left);
     }
 }
 

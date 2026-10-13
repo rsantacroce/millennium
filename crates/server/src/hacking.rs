@@ -1,31 +1,35 @@
 //! Hacking: payphones, ATMs, terminals (see `assets/data/hacks.ron`).
 //!
-//! Choosing "Hack it" in a terminal's dialogue starts a challenge: the server picks a random
-//! code and sends it to the client, which flashes it for a moment; the player types it back
-//! before the clock runs out. The server checks the answer and the time, rolls the rewards and
-//! puts the hack on a cooldown for that player (saved with the character). A wrong or late answer trips an alarm.
+//! Choosing "Hack it" in a terminal's dialogue starts a code-breaking game: the server picks a
+//! code of different digits and keeps it. The client only learns how long it is, how many
+//! guesses it gets and how long it has. Every guess comes back scored (digits right and in
+//! place, digits in the code but elsewhere; `content::codebreak`). Cracking it rolls the rewards
+//! and puts the hack on a cooldown for that player (saved with the character); running out of
+//! guesses or time trips an alarm.
 //!
-//! The code does travel to the client, so a modified client could solve it instantly. The
-//! payouts are small and capped by cooldowns; a cheat-proof puzzle would need a different design.
+//! Since the code never leaves the server, a modified client can't read it: a bot has to break
+//! it like a person, with no fewer guesses.
 
 use crate::session::{PlayerLink, Progress};
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use rand::Rng;
-use shared::content::{Content, HackId, Skill};
+use shared::content::{codebreak, Content, HackId, Skill};
 use shared::protocol::{ChatNetChannel, GameChannel, GameUpdate, SystemNotice};
 
 /// Network latency allowance on top of the official time limit.
 const SLACK_SECS: f64 = 1.0;
 /// How long you have to wait after tripping an alarm.
 const ALARM_COOLDOWN_SECS: i64 = 30;
-const CODE_ALPHABET: &[u8] = b"0123456789ABCDEF";
 
 #[derive(Debug, Clone)]
 pub enum HackAction {
     Start(HackId),
+    /// A guess at the code.
     Answer(String),
     Cancel,
+    /// The clock ran out.
+    TimeUp,
 }
 
 /// From gameplay (which owns the `GameAction` receiver and runs dialogue effects).
@@ -41,6 +45,7 @@ struct ActiveHack {
     hack: HackId,
     code: String,
     deadline: f64,
+    guesses_left: u32,
 }
 
 pub struct HackingPlugin;
@@ -68,15 +73,21 @@ fn cooldown_key(hack: &str) -> String {
     format!("hack:{hack}")
 }
 
+/// `length` different digits.
 fn random_code(length: usize) -> String {
+    let mut digits: Vec<char> = ('0'..='9').collect();
     let mut rng = rand::rng();
-    (0..length).map(|_| CODE_ALPHABET[rng.random_range(0..CODE_ALPHABET.len())] as char).collect()
+    for i in 0..length {
+        let j = rng.random_range(i..digits.len());
+        digits.swap(i, j);
+    }
+    digits[..length].iter().collect()
 }
 
 #[allow(clippy::too_many_arguments)]
 fn handle_requests(
     mut requests: MessageReader<HackRequest>,
-    mut players: Query<(&PlayerLink, &mut Progress, Option<&ActiveHack>)>,
+    mut players: Query<(&PlayerLink, &mut Progress, Option<&mut ActiveHack>)>,
     mut updates: Query<&mut MessageSender<GameUpdate>>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     content: Res<Content>,
@@ -86,7 +97,7 @@ fn handle_requests(
     let now = time.elapsed_secs_f64();
     let wall = crate::persistence::now_ms();
     for req in requests.read() {
-        let Ok((link, mut progress, active)) = players.get_mut(req.player) else { continue };
+        let Ok((link, mut progress, mut active)) = players.get_mut(req.player) else { continue };
         let link = link.0;
         match &req.action {
             HackAction::Start(id) => {
@@ -104,18 +115,35 @@ fn handle_requests(
                     say(&mut notices, link, SystemNotice::info(format!("Too hot right now. Try again in {secs} seconds.")));
                     continue;
                 }
-                let (length, show_secs) = def.difficulty(level);
-                let code = random_code(length);
-                let total = show_secs as f64 + def.seconds as f64;
-                commands.entity(req.player).insert(ActiveHack { hack: id.clone(), code: code.clone(), deadline: now + total + SLACK_SECS });
-                update(&mut updates, link, GameUpdate::HackChallenge { name: def.name.clone(), code, show_secs, seconds: def.seconds });
+                let (digits, guesses, seconds) = def.puzzle(level);
+                let code = random_code(digits);
+                commands.entity(req.player).insert(ActiveHack { hack: id.clone(), code, deadline: now + seconds as f64 + SLACK_SECS, guesses_left: guesses });
+                update(&mut updates, link, GameUpdate::HackChallenge { name: def.name.clone(), digits: digits as u8, guesses: guesses as u8, seconds });
             }
-            HackAction::Answer(answer) => {
-                let Some(hack) = active else { continue };
+            HackAction::Answer(_) | HackAction::TimeUp => {
+                let Some(hack) = active.as_mut() else { continue };
                 let Some(def) = content.hacks.get(&hack.hack) else { continue };
+                let late = now > hack.deadline;
+                let mut success = false;
+                if let (HackAction::Answer(guess), false) = (&req.action, late) {
+                    let guess = guess.trim();
+                    if !codebreak::valid(guess, hack.code.len()) {
+                        // Doesn't cost a guess: a typo isn't a try.
+                        say(&mut notices, link, SystemNotice::info(format!("The code is {} different digits.", hack.code.len())));
+                        continue;
+                    }
+                    let (exact, misplaced) = codebreak::score(&hack.code, guess);
+                    success = exact as usize == hack.code.len();
+                    if !success {
+                        hack.guesses_left = hack.guesses_left.saturating_sub(1);
+                        update(&mut updates, link, GameUpdate::HackFeedback { guess: guess.to_string(), exact, misplaced, left: hack.guesses_left as u8 });
+                        if hack.guesses_left > 0 {
+                            continue;
+                        }
+                    }
+                }
+                let out_of_time = late || matches!(req.action, HackAction::TimeUp);
                 commands.entity(req.player).remove::<ActiveHack>();
-                let right = answer.trim().eq_ignore_ascii_case(&hack.code);
-                let success = right && now <= hack.deadline;
                 if success {
                     let mut rng = rand::rng();
                     let cash = rng.random_range(def.cash.0..=def.cash.1);
@@ -129,7 +157,7 @@ fn handle_requests(
                 } else {
                     let events = progress.hack_alarm();
                     progress.start_cooldown(cooldown_key(&def.id), wall + ALARM_COOLDOWN_SECS * 1000, wall);
-                    let why = if right { "Too slow" } else { "Wrong code" };
+                    let why = if out_of_time { "Out of time" } else { "Out of guesses" };
                     say(&mut notices, link, SystemNotice::warn(format!("{why}! ALARM! City Services won't like that.")));
                     for text in events.iter().filter_map(|e| crate::gameplay::describe(e, &content)) {
                         say(&mut notices, link, SystemNotice::info(text));
@@ -156,7 +184,7 @@ fn time_out(
     let now = time.elapsed_secs_f64();
     for (player, _, hack) in &players {
         if now > hack.deadline {
-            requests.write(HackRequest { player, action: HackAction::Answer(String::new()) });
+            requests.write(HackRequest { player, action: HackAction::TimeUp });
         }
     }
 }

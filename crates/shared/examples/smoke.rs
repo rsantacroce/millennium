@@ -21,9 +21,10 @@
 //!   `!collect`, `!closemarket`
 //! - cars: `!cars` (list parked cars), `!enter` (nearest), `!exit`, `!drive X Z` (straight there, then
 //!   brake), `!race` (drive through the current race's checkpoints)
-//! - hacking: talk to a terminal and `!choose Hack`, then `!hack` (types the code back) or
-//!   `!hack wrong`
-//! - houses: talk to `house_door_N` and `!choose Go up`, then `!house N buy|enter`; at home `!use ITEM`
+//! - hacking: talk to a terminal and `!choose Hack`, then `!hack` once per guess (it tries the
+//!   first code that fits the answers so far; repeat until it's cracked), `!guess CODE`, or
+//!   `!hack cancel`
+//! - houses: talk to `house_door_N` and `!choose Go up`, then `!house N buy|enter|sell`; at home `!use ITEM`
 //!   puts furniture down, `!furniture SPOT use|pickup`, `!store ITEM`, `!retrieve SLOT`
 //! - `!wait SECONDS`, `!state` (print inventory, cash, quests, skills), `!where` (zone and position),
 //!   `!seen` (the other players we're being sent)
@@ -84,7 +85,8 @@ struct Script {
     race: Vec<Vec2>,
     racing: bool,
     /// The last hack code we were shown (`!hack` types it back).
-    hack_code: Option<String>,
+    /// A hack in progress: digits in the code, and the answers so far (guess, exact, misplaced).
+    hack: Option<(usize, Vec<(String, u8, u8)>)>,
     idle_after: f32,
     /// `!wander`: until when (seconds since startup), and a small random generator.
     wander_until: Option<f32>,
@@ -170,7 +172,7 @@ fn main() {
         mine: Vec::new(),
         race: Vec::new(),
         racing: false,
-        hack_code: None,
+        hack: None,
         idle_after: 3.0,
         wander_until: None,
         rng: std::process::id().wrapping_mul(2_654_435_761) | 1,
@@ -471,9 +473,15 @@ fn receive(
                 println!("RAID   {name}: wave {wave}/{waves}, {left} left, {}s to go", (ends_at_ms - shared::clock::now_ms()) / 1000)
             }
             GameUpdate::RaidEnded { won } => println!("RAID   ended, won={won}"),
-            GameUpdate::HackChallenge { name, code, show_secs, seconds } => {
-                println!("HACK   {name}: code {code} (shown {show_secs:.1}s, {seconds}s to answer)");
-                script.hack_code = Some(code);
+            GameUpdate::HackChallenge { name, digits, guesses, seconds } => {
+                println!("HACK   {name}: {digits} digits, {guesses} guesses, {seconds:.0}s");
+                script.hack = Some((digits as usize, Vec::new()));
+            }
+            GameUpdate::HackFeedback { guess, exact, misplaced, left } => {
+                println!("HACK   {guess}: {exact} right, {misplaced} misplaced ({left} guesses left)");
+                if let Some((_, tries)) = script.hack.as_mut() {
+                    tries.push((guess, exact, misplaced));
+                }
             }
             GameUpdate::HouseMenu { plot, name, owner, mine, price } => {
                 println!("HOUSE  #{plot} {name}: owner {owner:?}, mine={mine}, price ${price}");
@@ -484,7 +492,7 @@ fn receive(
             }
             GameUpdate::HackEnded { success } => {
                 println!("HACK   ended, success={success}");
-                script.hack_code = None;
+                script.hack = None;
             }
         }
     }
@@ -622,12 +630,20 @@ fn run_script(
             None => println!("       (no {item} in inventory)"),
         },
         ["!closeshop"] => send(GameAction::CloseShop),
-        ["!hack"] => match script.hack_code.clone() {
-            Some(code) => send(GameAction::HackAnswer { code }),
+        // One guess: the first code that fits every answer so far (repeat the step to crack it).
+        ["!hack"] => match &script.hack {
+            Some((digits, tries)) => match shared::content::codebreak::consistent_guess(*digits, tries) {
+                Some(code) => send(GameAction::HackAnswer { code }),
+                None => println!("       (no code fits the answers)"),
+            },
             None => println!("       (no hack in progress)"),
         },
         ["!house", plot, choice] => {
-            let choice = if *choice == "buy" { HouseChoice::Buy } else { HouseChoice::Enter };
+            let choice = match *choice {
+                "buy" => HouseChoice::Buy,
+                "sell" => HouseChoice::Sell,
+                _ => HouseChoice::Enter,
+            };
             send(GameAction::House { plot: plot.parse().unwrap(), choice });
         }
         ["!furniture", spot, choice] => {
@@ -639,7 +655,8 @@ fn run_script(
             None => println!("       (no {item} in inventory)"),
         },
         ["!retrieve", n] => send(GameAction::Retrieve { slot: n.parse().unwrap() }),
-        ["!hack", "wrong"] => send(GameAction::HackAnswer { code: "0000".into() }),
+        ["!hack", "cancel"] => send(GameAction::HackCancel),
+        ["!guess", code] => send(GameAction::HackAnswer { code: code.to_string() }),
         ["!takeoff", slot] => match shared::content::GearSlot::ALL.into_iter().find(|s| s.name().eq_ignore_ascii_case(slot)) {
             Some(slot) => send(GameAction::TakeOff { slot }),
             None => println!("       (slots: head, body, feet, accessory)"),

@@ -964,6 +964,14 @@ impl PlayerState {
         self.change_cash(-amount, &mut Vec::new())
     }
 
+    /// Money coming in from a sale (a house). Fails only if it would go over `MAX_CASH`.
+    pub fn earn(&mut self, amount: i64) -> Result<(), GameError> {
+        if amount <= 0 {
+            return err("Invalid amount.");
+        }
+        self.change_cash(amount, &mut Vec::new())
+    }
+
     /// Marketplace: adds each claim that fits (all-or-nothing per claim). Returns the claims taken.
     pub fn receive_claims<'a>(&mut self, claims: &'a [crate::market::Claim], content: &Content) -> Vec<&'a crate::market::Claim> {
         let mut taken = Vec::new();

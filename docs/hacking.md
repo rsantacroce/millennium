@@ -17,20 +17,28 @@ its known weakness and how to fix it later).
    | Harbor Office Terminal | Harbor Docks | 6 | $10–25 (Dockside rep −10) |
 
 2. Walk up, press **E** and choose **Hack it.**
-3. A green terminal window opens and flashes an **access code** (hex digits: `0-9`, `A-F`).
-   Memorize it before it turns into `????`.
-4. Type it into the box and press **Enter** before the timer runs out (**Esc** gives up).
-5. **Success:** cash, Hacking XP, sometimes loot, and reputation changes. Then that hack
-   *cools down* for you for a while ("Too hot right now").
-6. **Failure** (wrong code, or too slow): an **alarm**. City Services reputation −5, and a 30
-   second wait before you can try that hack again.
+3. A green terminal window opens: it wants an **access code** of 3 to 5 digits, **all
+   different** (harder hacks have longer codes).
+4. Type a guess and press **Enter**. The terminal answers with:
+   - `*` for each digit that's right and in the right place;
+   - `+` for each digit that's in the code, but somewhere else;
+   - `-` if none of your digits are in it.
+
+   For example, if the code is `382` and you guess `328`, you get `*++`: the 3 is in place, the
+   2 and the 8 are in the code but swapped. Use the answers to narrow it down. A guess that
+   isn't the right number of different digits doesn't count.
+5. Crack it before you run out of **guesses** or **time** (both are shown). **Esc** gives up.
+6. **Success:** cash, Hacking XP, sometimes loot, and reputation changes. Then that hack
+   *cools down* for you for a while ("Too hot right now"), even if you log out.
+7. **Failure** (out of guesses, or out of time): an **alarm**. City Services reputation −5, and
+   a 30 second wait before you can try that hack again.
 
 **Getting better at it:**
 
 - **The level that counts** is your Hacking level *plus gear and food bonuses*.
-- **Outlevelling a hack makes it easier.** Every 3 levels over its requirement removes a digit
-  (never fewer than 3), and the code stays on screen longer (1.2 s, plus 0.15 s per level over,
-  up to 4 s).
+- **Outlevelling a hack makes it easier:** every 3 levels over its requirement gives you one
+  more guess (up to 4 more). You start with the code's length plus 5 guesses, which is enough
+  for careful play: on average it takes about 5 or 6.
 - **Gear:**
   - Acoustic Coupler: +1, the reward for *Phreaking 101*
   - PalmPilot: +1, from Meridian Corp when Honored
@@ -50,8 +58,8 @@ Hacks are data. Adding one takes three pieces:
        id: "laundromat_coinbox",
        name: "Suds Laundromat Coin Box",
        level: 2,            // Hacking level needed (gear counts)
-       length: 5,           // code length at exactly that level (min 3)
-       seconds: 8.0,        // time to type it, after it's hidden
+       length: 5,           // how hard: 4-5 is a 3-digit code, 6-7 is 4 digits, 8+ is 5
+       seconds: 8.0,        // time allowed per guess
        cash: (2, 6),        // rolled on success
        xp: 35,              // Hacking XP
        loot: [("burned_cd", 0.2)],                // (item, chance)
@@ -83,50 +91,36 @@ saved with the kill counters, under the key `hack:<id>`.
 
 ## How it works
 
-Everything that matters happens on the server (`crates/server/src/hacking.rs`):
+Everything that matters happens on the server (`crates/server/src/hacking.rs`), and the rules
+are plain functions in `shared::content` (`HackDef::puzzle`, `codebreak`), unit-tested.
 
 1. **Starting:** the dialogue effect `Hack(id)` becomes a `HackRequest::Start`. The server
-   checks your effective Hacking level and your cooldown for that hack. It then picks a random
-   code, works out the length and show time (`HackDef::difficulty`), and remembers it with a
-   deadline (show time + typing time + 1 s for latency).
-2. **The client** (`crates/client/src/hack_ui.rs`) gets `GameUpdate::HackChallenge`. It shows
-   the code, hides it on time, focuses the input box and counts down. It sends what you type as
+   checks your effective Hacking level and your cooldown for that hack. It works out the puzzle
+   (`HackDef::puzzle`: digits, guesses, seconds), picks a random code of different digits and
+   **keeps it**, with a deadline (the time plus 1 s for latency).
+2. **The client** (`crates/client/src/hack_ui.rs`) gets `GameUpdate::HackChallenge { digits,
+   guesses, seconds }`: the size of the puzzle, never the code. It sends each guess as
    `GameAction::HackAnswer`, or `HackCancel` on Esc.
-3. **Checking:** the answer must match (case-insensitive) and arrive before the deadline. A
-   missing answer is treated as wrong once the deadline passes. On success,
-   `PlayerState::reward_hack` adds the cash, XP, reputation, loot and quest counter in one go.
-   On failure, `PlayerState::hack_alarm` costs City Services rep.
-4. **Cooldowns** are kept per player on the server (they reset when you log out).
+3. **Checking:** `codebreak::valid` rejects malformed guesses without using one up;
+   `codebreak::score` gives (exact, misplaced), sent back as `GameUpdate::HackFeedback`. All
+   digits exact is a success: `PlayerState::reward_hack` adds the cash, XP, reputation, loot and
+   quest counter in one go. Running out of guesses, or the deadline passing (`time_out`), is a
+   failure: `PlayerState::hack_alarm` costs City Services rep.
+4. **Cooldowns** are kept in `PlayerState::cooldowns` (saved with the character).
 
-## Known weakness: the code goes to the client
+## Why it can't be cheated
 
-To flash the code, the server has to send it. A modified client could read it from the network
-message and answer instantly, every time. Today that's an accepted trade-off:
+The code never leaves the server. A modified client sees exactly what a player sees: the
+answers to its guesses. So a bot has to break the code too, and it can't do better than a
+careful player: `codebreak::consistent_guess` (always try the first code that fits every answer
+so far) is what the test bot uses, and it needs about 5.5 guesses on average and 9 at worst
+(the content test checks every hack can be broken in its allowance). The server also still
+checks level, cooldown and time, so nobody can hack something above their level or skip the
+cooldown.
 
-- **Small payouts:** the cash per hack is small.
-- **Cooldowns limit how often** anyone can hack: a cheater gains time, not unlimited money.
-- **The server still checks** level, cooldown, timing and the code itself, so nobody can hack
-  something above their level or skip the cooldown.
+What a bot *can* still do is play tirelessly, which the cooldowns already limit, and type
+faster than a person, which matters little with these time limits. If that ever becomes a
+problem, the server could log guess timings and flag players for an admin.
 
-### Ways to make it cheat-proof (later)
-
-The general rule: the client must never receive the answer, only things that are useless
-without a human.
-
-- **Make the code an image.** Send the code drawn as distorted pixels (a tiny CAPTCHA) instead of
-  text. The client can't simply read it; a cheater would need OCR. Cheap to build, but it only
-  raises the bar.
-- **A puzzle where the answer isn't in the question.** For example, the server sends a scrambled
-  grid of wires and the player has to work out which one to cut. The client has everything
-  needed to solve it, but has to actually *solve* it: a bot could, but writing one is real work.
-- **Keep the secret on the server, send only hints.** Mastermind-style: the player guesses a
-  4-digit code, and the server answers each guess with "2 right, 1 in the wrong place". The code
-  never leaves the server, and the number of guesses is limited. Fully cheat-proof (a bot still
-  needs the same guesses a smart human does). Costs one round trip per guess, which is fine for
-  this.
-- **Detect bots:** log answer times. Humans take at least ~400 ms to type 4+ characters after the
-  code hides; instant, perfect answers every time get flagged for an admin to review.
-
-The Mastermind version is the best fit: it suits the "cracking a password" theme, it's honest,
-and it reuses the same `HackChallenge` / `HackAnswer` messages, with an extra
-`HackFeedback { exact, misplaced }` update.
+This replaced the first version (until Milestone 20), which flashed the code on screen to be
+typed back from memory. That sent the code to the client, where a modified client could read it.

@@ -265,6 +265,10 @@ impl SqliteStore {
                 .buy_house(character_id, plot, &state)
                 .await
                 .map(|result| Some(DbResult::HouseBought { link, plot, result })),
+            DbCommand::SellHouse { link, character_id, plot, state } => self
+                .sell_house(character_id, plot, &state)
+                .await
+                .map(|result| Some(DbResult::HouseSold { link, plot, result })),
             DbCommand::Flush(done) => {
                 let _ = done.send(());
                 Ok(None)
@@ -1229,6 +1233,22 @@ impl SqliteStore {
     }
 
     /// One transaction: the house must be free and the buyer must not own one already.
+    async fn sell_house(&self, character_id: i64, plot: u8, state: &PlayerState) -> Result<Result<(), String>, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let gone = sqlx::query("DELETE FROM houses WHERE plot = ? AND owner_id = ?")
+            .bind(plot as i32)
+            .bind(character_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        if gone != 1 {
+            return Ok(Err("That isn't your house.".into()));
+        }
+        write_state(&mut tx, character_id, state).await?;
+        tx.commit().await?;
+        Ok(Ok(()))
+    }
+
     async fn buy_house(&self, character_id: i64, plot: u8, state: &PlayerState) -> Result<Result<(), String>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let taken: Option<(i64,)> = sqlx::query_as("SELECT owner_id FROM houses WHERE plot = ? OR owner_id = ?")

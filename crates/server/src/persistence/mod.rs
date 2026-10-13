@@ -188,6 +188,9 @@ pub enum DbCommand {
     /// Buys `plot` (if nobody has, and the character has no house) and saves `state` (with
     /// the price paid) in the same transaction.
     BuyHouse { link: Entity, character_id: i64, plot: u8, state: PlayerState },
+    /// Sells `plot` (if the character owns it) and saves `state` (with the money received) in
+    /// the same transaction.
+    SellHouse { link: Entity, character_id: i64, plot: u8, state: PlayerState },
     // Shops.
     /// Saved stock and demand for every shop.
     LoadShops,
@@ -238,6 +241,7 @@ pub enum DbResult {
     Houses(Vec<HouseRecord>),
     Shops(Vec<ShopRow>),
     HouseBought { link: Entity, plot: u8, result: Result<(), String> },
+    HouseSold { link: Entity, plot: u8, result: Result<(), String> },
     /// A transferring player's state is saved (see `cluster`).
     TransferSaved { link: Entity },
 }

@@ -772,7 +772,7 @@
             ),
             (
                 id: "howto",
-                text: "Talk to a system and choose Hack. You get a code for a second, memorize it, type it in before the timer runs out. Higher Hacking, easier codes. Gear helps. Mess up and the alarm goes, and City Services don't like that.",
+                text: "Talk to a system and choose Hack. Then you guess the access code, every digit different. After each try the system leaks how many digits are right and in place, and how many are right but somewhere else. Use that. Higher Hacking buys you more tries, and gear helps. Run out and the alarm goes, and City Services don't like that.",
                 options: [(text: "Cool.", goto: None)],
             ),
         ],

@@ -303,6 +303,22 @@ macro_rules! store_tests {
     }
 
     #[tokio::test]
+    async fn houses_are_bought_and_sold() {
+        let Some(mut s) = store().await else { return };
+        let a = account(&mut s, "Hal").await;
+        let hal = character(&mut s, a, "Hal").await.unwrap();
+        let b = account(&mut s, "Ivy").await;
+        let ivy = character(&mut s, b, "Ivy").await.unwrap();
+        assert!(s.buy_house(hal, 1, &PlayerState::new(0)).await.unwrap().is_ok());
+        assert!(s.sell_house(ivy, 1, &PlayerState::new(999)).await.unwrap().is_err(), "not hers to sell");
+        assert!(s.sell_house(hal, 1, &PlayerState::new(300)).await.unwrap().is_ok());
+        assert!(s.load_houses().await.unwrap().is_empty());
+        assert_eq!(load(&mut s, a, hal).await.character.state.cash, 300, "paid in the same transaction");
+        assert!(s.sell_house(hal, 1, &PlayerState::new(600)).await.unwrap().is_err(), "can't sell it twice");
+        assert!(s.buy_house(ivy, 1, &PlayerState::new(0)).await.unwrap().is_ok(), "back on the market");
+    }
+
+    #[tokio::test]
     async fn deleting_an_account_tidies_up_after_it() {
         let Some(mut s) = store().await else { return };
         let a = account(&mut s, "Alice").await;

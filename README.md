@@ -42,7 +42,8 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   - **Mechanics:** rebuild car parts with a wrench.
   - **Driving.**
   - **Cooking:** meals heal and give timed buffs. Fishing (at Lake Wren) trains it too.
-  - **Hacking:** payphones, ATMs and terminals, through a code-recall mini-game.
+  - **Hacking:** payphones, ATMs and terminals, through a code-breaking mini-game (the code
+    never leaves the server, so it can't be cheated).
   - **Trading:** better prices and more e-Bid auctions.
 - **Cars:** fix up Old Earl's junker (quest **Earl's Junker**) and it's yours, or buy a minivan,
   pickup, turbo coupe or roadster from Fast Eddie on Route 9. Hank's Garage in Pinecrest paints
@@ -183,7 +184,8 @@ so hosted and dedicated games use exactly the same code. `cargo build -p client
   - e-Bid (at a terminal): `!search TEXT`, `!list ITEM QTY START BUYOUT|- HOURS`, `!bid N AMOUNT|min`,
     `!buyout N`, `!mine`, `!cancel N`, `!claims`, `!collect`, `!closemarket`
   - cars: `!cars`, `!enter`, `!exit`, `!drive X Z`, `!race`
-  - gear and hacking: `!equip ITEM` (weapons and gear), `!takeoff SLOT`, `!hack`, `!hack wrong`
+  - gear and hacking: `!equip ITEM` (weapons and gear), `!takeoff SLOT`, `!hack` (one guess:
+    the first code that fits the answers so far; repeat it), `!guess CODE`, `!hack cancel`
   - any chat input, including `/trade`, `/invite`, `/crew ...`
   
   It follows server transfers in a cluster, like the real client. Set `SMOKE_TRACE=1` to print
@@ -243,8 +245,9 @@ another slot to move or merge it there. At a shop that buys, a **Sell $N** butto
 **Repairs:** using a broken item starts a timed repair (you need the tool, a Screwdriver Set or
 a Wrench, and the skill level). Moving cancels it.
 
-**Hacking:** talk to a payphone, ATM or terminal and choose *Hack it*. Memorize the code while
-it shows, type it in and press Enter before the timer runs out (Esc gives up).
+**Hacking:** talk to a payphone, ATM or terminal and choose *Hack it*. Type a guess at the code
+(all digits different) and press Enter: `*` marks a digit in the right place, `+` a right digit
+in the wrong place. Crack it before the guesses or the time run out (Esc gives up).
 
 **Clothing and food:** *Use* a piece of clothing to wear it (the inventory lists what you're
 wearing, with *Off* buttons); the skills window shows gear and food bonuses as (+N). Active
@@ -540,6 +543,10 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
   party).
 - **Buying** is one transaction: the house row plus the character's state with the price paid
   (the same lock as an e-Bid payment).
+- **Selling** back (for $300) is the reverse, from your own front door: the row goes and the
+  money arrives in one transaction. The house must be empty first (furniture picked up, the
+  footlocker emptied) so nothing can be lost, and anyone visiting is put out on the front step.
+  Then you can buy another one (still one house at a time).
 - **Furniture and the footlocker** belong to the owner's `PlayerState` (saved with the
   character), so placing, picking up and storing are ordinary all-or-nothing rules. The server
   keeps furniture entities in the world matching the owner's state.
@@ -591,13 +598,18 @@ leaving their patch) and never fight back, so you corner one and tag it.
 
 (Player guide, how to add hacks, and the cheat-proofing options: [docs/hacking.md](docs/hacking.md).)
 
-Hackable things (`hacks.ron`) are NPC-like props with a "Hack it" dialogue option. The server
-picks a random code, the client flashes it, and you type it back before the timer runs out.
-The more you outlevel the hack, the shorter the code and the longer it shows. Success rolls
-cash, XP, loot and reputation and starts a per-player cooldown (`PlayerState::cooldowns`, saved,
-so logging out or a restart doesn't reset it). Failure trips an alarm. The code
-does travel to the client, so a modified client could auto-solve; payouts are small and capped
-by cooldowns.
+Hackable things (`hacks.ron`) are NPC-like props with a "Hack it" dialogue option. It's a
+code-breaking game (Bulls and Cows, `shared::content::codebreak`): the server picks a code of 3
+to 5 different digits and **keeps it**. The client gets only the size of the puzzle
+(`GameUpdate::HackChallenge`: digits, guesses, seconds); each guess comes back scored
+(`HackFeedback`: right and in place, right but elsewhere). Invalid guesses don't count. The more
+you outlevel the hack, the more guesses you get (`HackDef::puzzle`). Success rolls cash, XP,
+loot and reputation and starts a per-player cooldown (`PlayerState::cooldowns`, saved, so logging
+out or a restart doesn't reset it). Running out of guesses or time trips an alarm.
+
+Because the answer is never sent, a modified client can't read it: a bot has to break the code
+like a careful player, with no fewer guesses (a careful player needs about 5.5, at most 9; the
+puzzle allows the number of digits plus 5).
 
 ### Day and night
 

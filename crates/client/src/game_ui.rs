@@ -201,7 +201,7 @@ fn receive(
             GameUpdate::ActionEnded { .. } => action.0 = None,
             update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
             update @ (GameUpdate::Race { .. } | GameUpdate::RaceEnded { .. } | GameUpdate::Raid { .. } | GameUpdate::RaidEnded { .. }) => race.0.push(update),
-            update @ (GameUpdate::HackChallenge { .. } | GameUpdate::HackEnded { .. }) => hack.0.push(update),
+            update @ (GameUpdate::HackChallenge { .. } | GameUpdate::HackFeedback { .. } | GameUpdate::HackEnded { .. }) => hack.0.push(update),
             update @ (GameUpdate::HouseMenu { .. } | GameUpdate::OpenStorage) => house.0.push(update),
         }
     }

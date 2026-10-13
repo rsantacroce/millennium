@@ -68,7 +68,7 @@ pub enum GameAction {
     ExitCar,
     /// Take off what's worn in a gear slot (wearing is `UseItem`).
     TakeOff { slot: crate::content::GearSlot },
-    /// The code typed into a hack (see `GameUpdate::HackChallenge`).
+    /// A guess at a hack's code (see `GameUpdate::HackChallenge`).
     HackAnswer { code: String },
     HackCancel,
     /// At a house's front door (after `GameUpdate::HouseMenu`).
@@ -85,6 +85,8 @@ pub enum HouseChoice {
     Buy,
     /// Your own house, or ring the bell (you're let in if you're in the owner's party).
     Enter,
+    /// Sell your house back (it has to be empty: furniture picked up, footlocker emptied).
+    Sell,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,7 +262,12 @@ pub enum GameUpdate {
     Race { name: String, checkpoints: Vec<Vec2>, next: u8, seconds_left: f32 },
     RaceEnded { won: bool },
     /// A hack: memorize `code` (shown for `show_secs`), then type it within `seconds`.
-    HackChallenge { name: String, code: String, show_secs: f32, seconds: f32 },
+    /// A hack: crack a code of `digits` different digits in `guesses` guesses and `seconds`.
+    /// The code stays on the server (see `content::codebreak`).
+    HackChallenge { name: String, digits: u8, guesses: u8, seconds: f32 },
+    /// The answer to a guess: digits right and in place, digits in the code but elsewhere, and
+    /// guesses left.
+    HackFeedback { guess: String, exact: u8, misplaced: u8, left: u8 },
     HackEnded { success: bool },
     /// At a house's front door.
     HouseMenu { plot: u8, name: String, owner: Option<String>, mine: bool, price: i64 },

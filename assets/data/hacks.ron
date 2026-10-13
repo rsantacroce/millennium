@@ -1,6 +1,7 @@
-// Hackable things. You get a code flashed at you; type it back in time. Each hack needs a
-// Hacking level; outlevelling it makes the code shorter and shows it longer (see
-// HackDef::difficulty). Failing trips an alarm: City Services take note, and you have to wait.
+// Hackable things: crack a code of different digits, guided by the answer to each guess (see
+// HackDef::puzzle). `length` sets the code (4-5: 3 digits, 6-7: 4, 8+: 5), `seconds` is the time
+// per guess. Each hack needs a Hacking level; outlevelling it gives more guesses. Running out of
+// guesses or time trips an alarm: City Services take note, and you have to wait.
 [
     (
         id: "payphone",
