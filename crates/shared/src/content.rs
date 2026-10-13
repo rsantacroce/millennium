@@ -231,13 +231,20 @@ pub struct MobDef {
     #[serde(default)]
     pub rep: Vec<(FactionId, i32)>,
     pub appearance: Appearance,
-    /// Drawn as something other than a person (see the client's `avatars`): `bug`.
+    /// Drawn as something other than a person (see the client's `avatars`): `bug`, or an animal.
     #[serde(default)]
     pub model: Option<String>,
+    /// Runs from anyone who comes within `aggro_radius` instead of fighting (deer). Never hits
+    /// back; you catch up and "knock it out", which for a deer means tagging it.
+    #[serde(default)]
+    pub skittish: bool,
+    /// What you're told instead of "You knocked out a ..." (animals aren't rivals).
+    #[serde(default)]
+    pub ko_text: Option<String>,
 }
 
 /// Rival models other than a person.
-pub const MOB_MODELS: [&str; 1] = ["bug"];
+pub const MOB_MODELS: [&str; 4] = ["bug", "dog", "raccoon", "deer"];
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct MobSpawn {
@@ -253,6 +260,52 @@ pub struct MobSpawn {
     /// Only spawned while this world event runs (see `server::events`).
     #[serde(default)]
     pub event: Option<String>,
+    /// Part of a raid (`raids.ron`): spawned by the raid, in this wave (1, 2, ...).
+    #[serde(default)]
+    pub raid: Option<RaidId>,
+    #[serde(default)]
+    pub wave: u8,
+}
+
+pub type RaidId = String;
+
+/// A group job: a party of `min_party` or more goes into the raid's own zone together and
+/// fights `waves` waves (`MobSpawn::raid`) before the clock runs out. See `server::raids`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct RaidDef {
+    pub id: RaidId,
+    pub name: String,
+    /// Where it happens: a zone only raids use.
+    pub zone: u16,
+    /// Where the party appears in it...
+    pub entry: (f32, f32),
+    /// ...and where they come out afterwards.
+    pub exit_zone: u16,
+    pub exit: (f32, f32),
+    pub min_party: usize,
+    pub waves: u8,
+    pub minutes: f32,
+    /// Per player, after a win (saved, see `PlayerState::cooldowns`).
+    pub cooldown_minutes: f32,
+    /// Said to the party as each wave starts (one per wave).
+    pub wave_text: Vec<String>,
+    /// For everyone who's still in at the end.
+    pub rewards: Rewards,
+}
+
+impl RaidDef {
+    pub fn zone_id(&self) -> ZoneId {
+        ZoneId(self.zone)
+    }
+    pub fn exit_zone_id(&self) -> ZoneId {
+        ZoneId(self.exit_zone)
+    }
+    pub fn entry_pos(&self) -> Vec2 {
+        Vec2::new(self.entry.0, self.entry.1)
+    }
+    pub fn exit_pos(&self) -> Vec2 {
+        Vec2::new(self.exit.0, self.exit.1)
+    }
 }
 
 impl MobSpawn {
@@ -390,6 +443,8 @@ pub enum Condition {
     Rep(FactionId, i32),
     /// Pulled off this hack at least this many times.
     Hacked(HackId, u32),
+    /// Won this raid at least this many times.
+    Raided(RaidId, u32),
     Not(Box<Condition>),
 }
 
@@ -419,6 +474,8 @@ pub enum Effect {
     House(u8),
     /// A job for the running world event (`EVENT_TASKS`); the server scores it.
     EventTask(String),
+    /// Starts a raid (`raids.ron`) for your party; the server checks who's coming.
+    StartRaid(RaidId),
 }
 
 /// World events (see `server::events`).
@@ -622,6 +679,7 @@ pub struct Content {
     pub spawns: Vec<MobSpawn>,
     pub factions: HashMap<FactionId, FactionDef>,
     pub hacks: HashMap<HackId, HackDef>,
+    pub raids: HashMap<RaidId, RaidDef>,
     /// What new characters start with.
     pub starting_cash: i64,
 }
@@ -635,6 +693,7 @@ const RECIPES: &str = include_str!("../../../assets/data/recipes.ron");
 const MOBS: &str = include_str!("../../../assets/data/mobs.ron");
 const FACTIONS: &str = include_str!("../../../assets/data/factions.ron");
 const HACKS: &str = include_str!("../../../assets/data/hacks.ron");
+const RAIDS: &str = include_str!("../../../assets/data/raids.ron");
 
 fn parse<T: for<'de> Deserialize<'de>>(name: &str, text: &str) -> Result<T, String> {
     ron::from_str(text).map_err(|e| format!("assets/data/{name}: {e}"))
@@ -656,7 +715,9 @@ impl Content {
         let mobs: MobFile = parse("mobs.ron", MOBS)?;
         let factions: Vec<FactionDef> = parse("factions.ron", FACTIONS)?;
         let hacks: Vec<HackDef> = parse("hacks.ron", HACKS)?;
+        let raids: Vec<RaidDef> = parse("raids.ron", RAIDS)?;
         Ok(Self {
+            raids: raids.into_iter().map(|r| (r.id.clone(), r)).collect(),
             hacks: hacks.into_iter().map(|h| (h.id.clone(), h)).collect(),
             factions: factions.into_iter().map(|f| (f.id.clone(), f)).collect(),
             items: items.into_iter().map(|i| (i.id.clone(), i)).collect(),
@@ -710,6 +771,15 @@ impl Content {
         for spawn in &self.spawns {
             if spawn.event.as_ref().is_some_and(|e| !EVENTS.contains(&e.as_str())) {
                 errors.push(format!("spawn of `{}`: unknown event", spawn.mob));
+            }
+            if let Some(r) = &spawn.raid {
+                match self.raids.get(r) {
+                    None => errors.push(format!("spawn of `{}`: unknown raid `{r}`", spawn.mob)),
+                    Some(def) if def.zone != spawn.zone || spawn.wave == 0 || spawn.wave > def.waves => {
+                        errors.push(format!("spawn of `{}`: not in raid `{r}`'s zone, or no such wave", spawn.mob));
+                    }
+                    _ => {}
+                }
             }
         }
         for mob in self.mobs.values() {
@@ -765,6 +835,28 @@ impl Content {
                 errors.push(format!("{ctx}: unknown quest `{id}`"));
             }
         };
+        for r in self.raids.values() {
+            let ctx = format!("raid `{}`", r.id);
+            for wave in 1..=r.waves {
+                if !self.spawns.iter().any(|s| s.raid.as_ref() == Some(&r.id) && s.wave == wave) {
+                    errors.push(format!("{ctx}: wave {wave} has nobody in it"));
+                }
+            }
+            if r.wave_text.len() != r.waves as usize || r.min_party == 0 || r.minutes <= 0.0 {
+                errors.push(format!("{ctx}: needs one wave_text per wave, a party and a time limit"));
+            }
+            if self.spawns.iter().any(|s| s.zone == r.zone && s.raid.as_ref() != Some(&r.id)) || self.npcs.iter().any(|n| n.zone == r.zone) {
+                errors.push(format!("{ctx}: its zone is for the raid alone"));
+            }
+            for (i, _) in &r.rewards.items {
+                item(&mut errors, &ctx, i);
+            }
+            for (f, _) in &r.rewards.rep {
+                if !self.factions.contains_key(f) {
+                    errors.push(format!("{ctx}: unknown faction `{f}`"));
+                }
+            }
+        }
         fn conditions<'a>(c: &'a Condition, out: &mut Vec<&'a Condition>) {
             if let Condition::Not(inner) = c {
                 conditions(inner, out);
@@ -790,6 +882,7 @@ impl Content {
                     Condition::Kills(m, _) if !self.mobs.contains_key(m) => errors.push(format!("{ctx}: unknown mob `{m}`")),
                     Condition::Rep(f, _) if !self.factions.contains_key(f) => errors.push(format!("{ctx}: unknown faction `{f}`")),
                     Condition::Hacked(h, _) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
+                    Condition::Raided(r, _) if !self.raids.contains_key(r) => errors.push(format!("{ctx}: unknown raid `{r}`")),
                     _ => {}
                 }
             }
@@ -842,6 +935,7 @@ impl Content {
                             }
                             Effect::Hack(h) if !self.hacks.contains_key(h) => errors.push(format!("{ctx}: unknown hack `{h}`")),
                             Effect::EventTask(t) if !EVENT_TASKS.contains(&t.as_str()) => errors.push(format!("{ctx}: unknown event task `{t}`")),
+                            Effect::StartRaid(r) if !self.raids.contains_key(r) => errors.push(format!("{ctx}: unknown raid `{r}`")),
                             Effect::House(p) if crate::zone::house(*p).is_none() => errors.push(format!("{ctx}: no house {p}")),
                             Effect::Rep(f, _) if !self.factions.contains_key(f) => {
                                 errors.push(format!("{ctx}: unknown faction `{f}`"))

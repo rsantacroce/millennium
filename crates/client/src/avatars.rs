@@ -221,6 +221,84 @@ fn spawn_prop(commands: &mut Commands, parent: Entity, prop: &str, meshes: &mut 
     }
 }
 
+/// What a four-legged animal looks like (see `spawn_animal`).
+struct Beast {
+    /// Body (x, y, z) and how high its middle is.
+    body: Vec3,
+    height: f32,
+    leg: f32,
+    coat: Color,
+    /// Muzzle, belly or spots.
+    trim: Color,
+    head: f32,
+    /// How far up the head sits on its neck.
+    neck: f32,
+}
+
+/// Dogs, raccoons and deer: a box body on four legs that swing with the walk cycle
+/// (`Limb`s, like a person's), a head out front (-Z), and a few extras per kind.
+fn spawn_animal(commands: &mut Commands, parent: Entity, kind: &str, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+    let beast = match kind {
+        "dog" => Beast { body: Vec3::new(0.32, 0.3, 0.8), height: 0.55, leg: 0.42, coat: Color::srgb(0.45, 0.32, 0.2), trim: Color::srgb(0.85, 0.78, 0.65), head: 0.26, neck: 0.08 },
+        "raccoon" => Beast { body: Vec3::new(0.3, 0.26, 0.55), height: 0.32, leg: 0.2, coat: Color::srgb(0.42, 0.42, 0.44), trim: Color::srgb(0.08, 0.08, 0.09), head: 0.22, neck: 0.0 },
+        _ => Beast { body: Vec3::new(0.38, 0.42, 1.1), height: 1.0, leg: 0.85, coat: Color::srgb(0.6, 0.42, 0.25), trim: Color::srgb(0.92, 0.88, 0.8), head: 0.24, neck: 0.45 },
+    };
+    let mat = |materials: &mut Assets<StandardMaterial>, c: Color| materials.add(StandardMaterial { base_color: c, perceptual_roughness: 0.9, ..default() });
+    let (coat, trim) = (mat(materials, beast.coat), mat(materials, beast.trim));
+    let dark = mat(materials, Color::srgb(0.05, 0.04, 0.04));
+    let body = commands.spawn((Transform::default(), Visibility::default(), ChildOf(parent))).id();
+    let mut part = |commands: &mut Commands, mesh: Mesh, material: &Handle<StandardMaterial>, at: Transform, to: Entity| {
+        commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), at, ChildOf(to)));
+    };
+    let (b, h) = (beast.body, beast.height);
+    part(commands, Cuboid::new(b.x, b.y, b.z).into(), &coat, Transform::from_xyz(0.0, h, 0.0), body);
+    // Legs: front-left and back-right step together, like a trot.
+    for (x, z, swing) in [(-1.0, -1.0, 1.0), (1.0, -1.0, -1.0), (-1.0, 1.0, -1.0), (1.0, 1.0, 1.0)] {
+        let hip = commands
+            .spawn((Limb { avatar: parent, swing, arm: false }, Transform::from_xyz(x * b.x * 0.32, h - b.y * 0.4, z * b.z * 0.38), Visibility::default(), ChildOf(body)))
+            .id();
+        part(commands, Cuboid::new(0.08, beast.leg, 0.08).into(), &coat, Transform::from_xyz(0.0, -beast.leg / 2.0, 0.0), hip);
+        part(commands, Cuboid::new(0.09, 0.05, 0.11).into(), &dark, Transform::from_xyz(0.0, -beast.leg, -0.01), hip);
+    }
+    let head_at = Vec3::new(0.0, h + b.y * 0.55 + beast.neck, -b.z / 2.0 - beast.head * 0.35 + beast.neck * 0.3);
+    part(commands, Cuboid::new(beast.head, beast.head, beast.head * 1.1).into(), &coat, Transform::from_translation(head_at), body);
+    part(commands, Cuboid::new(beast.head * 0.55, beast.head * 0.5, beast.head * 0.6).into(), &trim, Transform::from_translation(head_at + Vec3::new(0.0, -0.04, -beast.head * 0.75)), body);
+    part(commands, Cuboid::new(0.05, 0.05, 0.03).into(), &dark, Transform::from_translation(head_at + Vec3::new(0.0, 0.0, -beast.head * 1.06)), body);
+    for side in [-1.0, 1.0] {
+        part(commands, Cuboid::new(0.04, 0.04, 0.02).into(), &dark, Transform::from_translation(head_at + Vec3::new(side * beast.head * 0.25, beast.head * 0.18, -beast.head * 0.56)), body);
+    }
+    match kind {
+        "dog" => {
+            for side in [-1.0, 1.0] {
+                part(commands, Cuboid::new(0.07, 0.12, 0.04).into(), &trim, Transform::from_translation(head_at + Vec3::new(side * 0.09, 0.15, 0.04)), body);
+            }
+            part(commands, Cuboid::new(0.05, 0.05, 0.3).into(), &coat, Transform::from_xyz(0.0, h + 0.18, b.z / 2.0 + 0.1).with_rotation(Quat::from_rotation_x(0.6)), body);
+            part(commands, Cuboid::new(b.x * 0.8, 0.04, b.z * 0.7).into(), &trim, Transform::from_xyz(0.0, h - b.y / 2.0, 0.0), body);
+        }
+        "raccoon" => {
+            // The bandit mask, round ears and a fat ringed tail.
+            part(commands, Cuboid::new(beast.head * 1.04, 0.07, 0.04).into(), &trim, Transform::from_translation(head_at + Vec3::new(0.0, 0.02, -beast.head * 0.56)), body);
+            for side in [-1.0, 1.0] {
+                part(commands, Cuboid::new(0.07, 0.07, 0.03).into(), &coat, Transform::from_translation(head_at + Vec3::new(side * 0.08, 0.14, 0.02)), body);
+            }
+            for (i, color) in [&coat, &trim, &coat, &trim].into_iter().enumerate() {
+                part(commands, Cuboid::new(0.12, 0.12, 0.1).into(), color, Transform::from_xyz(0.0, h + 0.05 + i as f32 * 0.02, b.z / 2.0 + 0.05 + i as f32 * 0.1), body);
+            }
+        }
+        _ => {
+            // A deer: a long neck, a white tail and antlers.
+            part(commands, Cuboid::new(0.14, beast.neck + 0.2, 0.16).into(), &coat, Transform::from_xyz(0.0, h + b.y * 0.3 + beast.neck / 2.0, -b.z / 2.0 + 0.08).with_rotation(Quat::from_rotation_x(-0.3)), body);
+            part(commands, Cuboid::new(0.1, 0.14, 0.05).into(), &trim, Transform::from_xyz(0.0, h + 0.12, b.z / 2.0 + 0.02), body);
+            let antler = mat(materials, Color::srgb(0.85, 0.8, 0.68));
+            for side in [-1.0, 1.0] {
+                let base = head_at + Vec3::new(side * 0.08, beast.head * 0.5, 0.05);
+                part(commands, Cuboid::new(0.03, 0.26, 0.03).into(), &antler, Transform::from_translation(base + Vec3::new(0.0, 0.13, 0.0)).with_rotation(Quat::from_rotation_z(side * -0.4)), body);
+                part(commands, Cuboid::new(0.03, 0.14, 0.03).into(), &antler, Transform::from_translation(base + Vec3::new(side * 0.08, 0.22, -0.06)).with_rotation(Quat::from_rotation_x(-0.6)), body);
+            }
+        }
+    }
+}
+
 /// A big flat dot only the minimap camera can see (render layer 1).
 /// A Y2K Bug: a glossy black beetle with glowing red eyes, six legs and a green "circuit" stripe.
 /// (Not an `AvatarBody`, so outfit changes never turn it back into a person.)
@@ -337,6 +415,7 @@ fn spawn_mob_visuals(
         commands.entity(entity).insert((Avatar, Transform::from_xyz(pos.x, 0.0, pos.y), Visibility::default()));
         match content.mobs.get(&tag.kind).and_then(|d| d.model.as_deref()) {
             Some("bug") => spawn_bug(&mut commands, entity, &mut meshes, &mut materials),
+            Some(kind @ ("dog" | "raccoon" | "deer")) => spawn_animal(&mut commands, entity, kind, &mut meshes, &mut materials),
             _ => spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials),
         }
         minimap_dot(&mut commands, entity, Color::srgb(0.9, 0.1, 0.1), &mut meshes, &mut materials);

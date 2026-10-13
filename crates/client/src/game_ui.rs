@@ -200,7 +200,7 @@ fn receive(
             GameUpdate::ActionStarted { label, seconds } => action.0 = Some((label, seconds, time.elapsed_secs())),
             GameUpdate::ActionEnded { .. } => action.0 = None,
             update @ (GameUpdate::Float { .. } | GameUpdate::CombatEnded | GameUpdate::KnockedOut) => combat.0.push(update),
-            update @ (GameUpdate::Race { .. } | GameUpdate::RaceEnded { .. }) => race.0.push(update),
+            update @ (GameUpdate::Race { .. } | GameUpdate::RaceEnded { .. } | GameUpdate::Raid { .. } | GameUpdate::RaidEnded { .. }) => race.0.push(update),
             update @ (GameUpdate::HackChallenge { .. } | GameUpdate::HackEnded { .. }) => hack.0.push(update),
             update @ (GameUpdate::HouseMenu { .. } | GameUpdate::OpenStorage) => house.0.push(update),
         }

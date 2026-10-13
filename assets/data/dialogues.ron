@@ -168,11 +168,18 @@
         id: "rizzo",
         start: "hello",
         nodes: [
+            (
+                id: "smugglers",
+                text: "Smugglers. Captain Vance's lot. They run knock-off pagers through my warehouse and my crew takes the heat. Bring some friends who can throw a punch (Fitness 5), and you've got ten minutes before Vance's boat leaves.",
+                options: [(text: "We'll handle it.", goto: None)],
+            ),
             (id: "ray_delivery", text: "Ray's radios! About time. Here, I signed. Tell that big lug the coffee's on me next time he's in town.", options: [(text: "Will do.", goto: None)]),
             (
                 id: "hello",
                 text: "Watch your step, kid. The docks ain't Maple Street.",
                 options: [
+                    (text: "What's going on in Warehouse 7?", goto: Some("smugglers")),
+                    (text: "We'll clear out Warehouse 7. (A party of 3 or more)", when: [SkillLevel(Fitness, 5)], effects: [StartRaid("harbor_smugglers")], goto: None),
                     (text: "Delivery from Big Ray.", when: [QuestAt("long_haul", 2), HasItem("cb_crate", 1)], effects: [TakeItem("cb_crate", 1), GiveItem("delivery_receipt", 1), SetQuestStage("long_haul", 3)], goto: Some("ray_delivery")),
                     (text: "Anything I can help with?", when: [QuestNotStarted("rat_problem")], goto: Some("problem")),
                     (text: "Still working on those Dock Rats.", when: [QuestAt("rat_problem", 0)], goto: Some("reminder")),
@@ -293,9 +300,17 @@
         start: "hello",
         nodes: [
             (
+                id: "dogs_offer",
+                text: "Three strays moved into the yard. Can't blame 'em, it's warm by the boiler. But they won't let me near my parts. Run 'em off? Don't hurt 'em much.",
+                options: [(text: "I'll shoo them.", effects: [StartQuest("junkyard_dogs"), ResetKills("junkyard_dog")], goto: None), (text: "I'm a cat person.", goto: None)],
+            ),
+            (id: "dogs_done", text: "Quiet at last. Here, take these kits. You look bitten.", options: [(text: "Thanks, Earl.", goto: None)]),
+            (
                 id: "hello",
                 text: "Careful in there. Those Scrappers would strip the fillings out of your teeth.",
                 options: [
+                    (text: "What's all the barking?", when: [QuestNotStarted("junkyard_dogs")], goto: Some("dogs_offer")),
+                    (text: "The yard's clear. No more dogs.", when: [QuestAt("junkyard_dogs", 1)], effects: [CompleteQuest("junkyard_dogs")], goto: Some("dogs_done")),
                     (text: "Need a hand?", when: [QuestNotStarted("scrap_run")], goto: Some("problem")),
                     (text: "Still gathering scrap.", when: [QuestAt("scrap_run", 0)], goto: Some("reminder")),
                     (
@@ -899,6 +914,12 @@
         start: "hello",
         nodes: [
             (
+                id: "deer_offer",
+                text: "Herd count's due and my knee's shot. The deer spook if you so much as look at them, but they won't leave their patch of woods. Walk one into a corner and clip a tag on. Three should do.",
+                options: [(text: "Three deer. Got it.", effects: [StartQuest("deer_count"), ResetKills("deer")], goto: None), (text: "Not today.", goto: None)],
+            ),
+            (id: "deer_done", text: "Good numbers. The herd's healthy, no thanks to those poachers. Here's something for your trouble.", options: [(text: "Thanks, Dale.", goto: None)]),
+            (
                 id: "trail_offer",
                 text: "Litterbugs. Campers who leave their soda cans in the lake. Three of them, at least, need to be shown the exit.",
                 options: [(text: "I'll show them.", effects: [ResetKills("litterbug"), StartQuest("trail_mix")], goto: None), (text: "Not today.", goto: None)],
@@ -908,6 +929,8 @@
                 id: "hello",
                 text: "Welcome to Hollow Pines. Take only pictures, leave only footprints. And watch out for poachers, they've been setting traps all over the woods.",
                 options: [
+                    (text: "Need help with the wildlife?", when: [QuestNotStarted("deer_count")], goto: Some("deer_offer")),
+                    (text: "Three deer, tagged and counted.", when: [QuestAt("deer_count", 1)], effects: [CompleteQuest("deer_count")], goto: Some("deer_done")),
                     (text: "Anything else?", when: [QuestDone("leave_no_trace"), QuestNotStarted("trail_mix")], goto: Some("trail_offer")),
                     (text: "The campsites are clean.", when: [QuestAt("trail_mix", 1)], effects: [CompleteQuest("trail_mix")], goto: Some("trail_done")),
                     (text: "Want me to deal with them?", when: [QuestNotStarted("leave_no_trace")], goto: Some("offer")),
@@ -1361,6 +1384,53 @@
                 text: "\"...Mama Jo's got cherry pie, and if you're hungry, and you are, the steak. This is Big Ray, eastbound and down...\"",
                 options: [(text: "Keep listening.", goto: Some("hello")), (text: "Switch it off.", goto: None)],
             ),
+        ],
+    ),
+    // --- Milestone 16: raids.
+    (
+        id: "cipher",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Don't look at me. Look at the building. Meridian keeps a vault in the sub-basement, and what's in it is going to make Y2K look like a power cut.",
+                options: [
+                    (text: "What's in the vault?", goto: Some("vault")),
+                    (text: "We're ready to go in. (A party of 3 or more)", when: [SkillLevel(Hacking, 5)], effects: [StartRaid("meridian_vault")], goto: None),
+                    (text: "We're ready to go in.", when: [Not(SkillLevel(Hacking, 5))], goto: Some("no_hacker")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "vault",
+                text: "The Y2K fund. Meridian's been billing the city for 'compliance work' nobody did. Get down there with a crew, get past security and Chief Brackett, and Zer0 Day will make sure the papers hear about it. Ten minutes before the cops show up.",
+                options: [(text: "Got it.", goto: None)],
+            ),
+            (
+                id: "no_hacker",
+                text: "With what, a crowbar? Somebody has to get through the service door. Come back when you can hack (Hacking 5).",
+                options: [(text: "Fine.", goto: None)],
+            ),
+        ],
+    ),
+    // --- Milestone 17: animals.
+    (
+        id: "tyler",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Mister! There's a MONSTER in the boathouse. It ate all our marshmallows. Billy saw its eyes. They glow.",
+                options: [
+                    (text: "I'll take a look.", when: [QuestNotStarted("lake_monster")], effects: [StartQuest("lake_monster"), ResetKills("boathouse_raccoon"), ResetKills("big_bandit")], goto: Some("brave")),
+                    (text: "Your monster's a raccoon. A big fat one.", when: [QuestAt("lake_monster", 2)], effects: [CompleteQuest("lake_monster")], goto: Some("done")),
+                    (text: "Still looking.", when: [Not(QuestNotStarted("lake_monster")), Not(QuestDone("lake_monster")), Not(QuestAt("lake_monster", 2))], goto: Some("hurry")),
+                    (text: "Monsters aren't real.", goto: None),
+                ],
+            ),
+            (id: "brave", text: "You're so brave. I'll watch from here. Way over here.", options: [(text: "Stay put.", goto: None)]),
+            (id: "hurry", text: "Did you see it? Is it huge? It's huge, isn't it.", options: [(text: "Working on it.", goto: None)]),
+            (id: "done", text: "A RACCOON? Billy's gonna be so mad he was scared. Here, these are my dad's minnows. Don't tell him.", options: [(text: "Our secret.", goto: None)]),
         ],
     ),
 ]

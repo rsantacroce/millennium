@@ -322,7 +322,8 @@ pub fn describe(event: &GameEvent, content: &Content) -> Option<String> {
         | GameEvent::RaceStarted(_)
         | GameEvent::HackStarted(_)
         | GameEvent::HouseDoor(_)
-        | GameEvent::EventTask(_) => return None,
+        | GameEvent::EventTask(_)
+        | GameEvent::RaidStarted(_) => return None,
         GameEvent::Equipped(item) if is_gear(item) => format!("You put on the {}.", content.item_name(item)),
         GameEvent::Unequipped(item) if is_gear(item) => format!("You take off the {}.", content.item_name(item)),
         GameEvent::Equipped(item) => format!("You're now holding the {}.", content.item_name(item)),
@@ -398,6 +399,7 @@ fn handle_actions(
     mut hacks: MessageWriter<HackRequest>,
     mut houses: MessageWriter<HouseRequest>,
     mut event_tasks: MessageWriter<crate::events::EventTaskDone>,
+    mut raids: MessageWriter<crate::raids::RaidRequest>,
     mut market: ResMut<ShopMarket>,
     mut commands: Commands,
 ) {
@@ -505,6 +507,9 @@ fn handle_actions(
                         }
                         GameEvent::EventTask(task) => {
                             event_tasks.write(crate::events::EventTaskDone { player, link, npc: active.npc.clone(), task: task.clone() });
+                        }
+                        GameEvent::RaidStarted(raid) => {
+                            raids.write(crate::raids::RaidRequest { player, raid: raid.clone() });
                         }
                         _ => {}
                     }

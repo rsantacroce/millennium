@@ -74,6 +74,16 @@ pub fn hack_counter(hack: &str) -> String {
     format!("hack:{hack}")
 }
 
+/// Raid wins are counted the same way.
+pub fn raid_counter(raid: &str) -> String {
+    format!("raid:{raid}")
+}
+
+/// A raid's entry in `PlayerState::cooldowns`.
+pub fn raid_cooldown(raid: &str) -> String {
+    format!("raid:{raid}")
+}
+
 /// A temporary skill boost (from food). The server drops it once it runs out.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ActiveBuff {
@@ -108,6 +118,8 @@ pub enum GameEvent {
     HouseDoor(u8),
     /// A world event job (`Effect::EventTask`), for the server to score.
     EventTask(String),
+    /// The server checks the party and starts the raid (see `server::raids`).
+    RaidStarted(String),
     /// The server creates the car (it lives in its own table, not in `PlayerState`).
     CarGranted(String),
     RaceStarted(String),
@@ -234,6 +246,7 @@ impl PlayerState {
             Condition::Kills(mob, n) => self.kills.get(mob).copied().unwrap_or(0) >= *n,
             Condition::Rep(faction, min) => self.rep_with(faction) >= *min,
             Condition::Hacked(hack, n) => self.kills.get(&hack_counter(hack)).copied().unwrap_or(0) >= *n,
+            Condition::Raided(raid, n) => self.kills.get(&raid_counter(raid)).copied().unwrap_or(0) >= *n,
             Condition::Not(inner) => !self.check(inner),
         }
     }
@@ -383,6 +396,32 @@ impl PlayerState {
     }
 
     /// Getting caught.
+    /// A raid won: its rewards, a win on the counter and the cooldown. Items that don't fit in
+    /// the bag are skipped (and not in the events), like hack loot.
+    pub fn reward_raid(&mut self, raid: &crate::content::RaidDef, now_ms: i64, content: &Content) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        *self.kills.entry(raid_counter(&raid.id)).or_insert(0) += 1;
+        self.start_cooldown(raid_cooldown(&raid.id), now_ms + (raid.cooldown_minutes * 60_000.0) as i64, now_ms);
+        if raid.rewards.cash > 0 && self.change_cash(raid.rewards.cash, &mut events).is_err() {
+            events.retain(|e| !matches!(e, GameEvent::Cash(_)));
+        }
+        for (faction, delta) in &raid.rewards.rep {
+            self.change_rep(faction, *delta, &mut events);
+        }
+        for (skill, xp) in &raid.rewards.xp {
+            self.add_xp(*skill, *xp, &mut events);
+        }
+        for (item, qty) in &raid.rewards.items {
+            let mut copy = self.clone();
+            let mut item_events = Vec::new();
+            if copy.add_item(item, *qty, content, &mut item_events).is_ok() {
+                *self = copy;
+                events.extend(item_events);
+            }
+        }
+        events
+    }
+
     pub fn hack_alarm(&mut self) -> Vec<GameEvent> {
         let mut events = Vec::new();
         self.change_rep("city", -5, &mut events);
@@ -480,6 +519,7 @@ impl PlayerState {
             Effect::EventTask(task) => events.push(GameEvent::EventTask(task.clone())),
             Effect::GiveCar(model) => events.push(GameEvent::CarGranted(model.clone())),
             Effect::StartRace(race) => events.push(GameEvent::RaceStarted(race.clone())),
+            Effect::StartRaid(raid) => events.push(GameEvent::RaidStarted(raid.clone())),
         }
         Ok(())
     }
@@ -1191,6 +1231,29 @@ mod tests {
         assert_eq!(s.cash - before, pawn.buy_price_for(walkman, 3).unwrap() as i64);
         assert!(s.xp(Skill::Trading) > 0);
         assert_eq!(s.max_listings(&c), crate::market::MAX_LISTINGS_PER_PLAYER + 1);
+    }
+
+    #[test]
+    fn raids_reward_count_and_cool_down() {
+        let c = content();
+        let raid = c.raids.get("meridian_vault").unwrap();
+        let mut s = PlayerState::new(0);
+        assert!(!s.check(&Condition::Raided(raid.id.clone(), 1)));
+        let events = s.reward_raid(raid, 1_000, &c);
+        assert_eq!(s.cash, raid.rewards.cash);
+        assert!(events.contains(&GameEvent::Gained("security_blazer".into(), 1)));
+        assert!(s.check(&Condition::Raided(raid.id.clone(), 1)));
+        let left = s.cooldown_left_ms(&raid_cooldown(&raid.id), 2_000).unwrap();
+        assert_eq!(left, (raid.cooldown_minutes * 60_000.0) as i64 - 1_000);
+        assert!(s.cooldown_left_ms(&raid_cooldown(&raid.id), 10_000_000).is_none(), "and then it's over");
+        // A full bag skips the loot but still pays.
+        let mut full = PlayerState::new(0);
+        for slot in full.inventory.iter_mut() {
+            *slot = Some(ItemStack { item: "pager".into(), qty: 1 });
+        }
+        let events = full.reward_raid(raid, 0, &c);
+        assert!(!events.iter().any(|e| matches!(e, GameEvent::Gained(..))));
+        assert_eq!(full.cash, raid.rewards.cash);
     }
 
     #[test]

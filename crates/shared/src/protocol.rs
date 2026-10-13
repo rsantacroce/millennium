@@ -266,6 +266,9 @@ pub enum GameUpdate {
     HouseMenu { plot: u8, name: String, owner: Option<String>, mine: bool, price: i64 },
     /// The footlocker was opened (its contents are in `State`).
     OpenStorage,
+    /// A raid in progress: wave `wave` of `waves`, `left` rivals still standing in it.
+    Raid { name: String, wave: u8, waves: u8, left: u32, ends_at_ms: i64 },
+    RaidEnded { won: bool },
 }
 
 /// Recent chat sent once, right after login.

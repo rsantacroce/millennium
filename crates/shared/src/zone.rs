@@ -30,6 +30,9 @@ impl ZoneId {
     pub const PARK: ZoneId = ZoneId(9);
     pub const LAKE: ZoneId = ZoneId(10);
     pub const TRUCK_STOP: ZoneId = ZoneId(11);
+    /// Raid zones (see `raids.ron`): only a raiding party is ever in them.
+    pub const VAULT: ZoneId = ZoneId(12);
+    pub const WAREHOUSE: ZoneId = ZoneId(13);
 
     /// The inside of house `plot` (1..=5): see [`HOUSES`].
     pub fn house(plot: u8) -> ZoneId {
@@ -111,7 +114,7 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops(), route_9(), pinecrest(), hollow_pines(), lake_wren(), truck_stop()];
+        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops(), route_9(), pinecrest(), hollow_pines(), lake_wren(), truck_stop(), meridian_vault(), warehouse_7()];
         let houses = HOUSES.iter().map(house_interior);
         Self { zones: zones.into_iter().chain(houses).map(|z| (z.id, z)).collect() }
     }
@@ -477,6 +480,74 @@ pub fn truck_stop() -> ZoneLayout {
         outskirts: [0.55, 0.50, 0.36],
         walkable: vec![],
         indoor: false,
+    }
+}
+
+/// "Meridian Sub-Basement": under the Meridian Office Block, a raid zone. Server racks down a
+/// long room to the vault door at the far (north) end; the service stairs lead back out.
+pub fn meridian_vault() -> ZoneLayout {
+    let rack = |cx, cz| prop("Server Rack", rect(cx, cz, 1.2, 5.0), 2.2, [0.12, 0.13, 0.16]);
+    let mut obstacles = vec![
+        building("Vault Door", rect(0.0, -17.0, 10.0, 2.0), 4.0, [0.62, 0.62, 0.58]),
+        prop("Security Desk", rect(-12.0, 10.0, 5.0, 1.4), 1.1, [0.40, 0.28, 0.20]),
+        prop("Tape Library", rect(14.0, -10.0, 4.0, 2.0), 2.4, [0.30, 0.32, 0.36]),
+        prop("UPS Cabinet", rect(-15.0, -11.0, 2.0, 2.0), 1.8, [0.80, 0.78, 0.70]),
+    ];
+    for x in [-10.0, -5.0, 5.0, 10.0] {
+        obstacles.push(rack(x, -3.0));
+    }
+    ZoneLayout {
+        id: ZoneId::VAULT,
+        name: "Meridian Sub-Basement",
+        bounds: Rect::new(-18.0, -18.0, 18.0, 18.0),
+        spawn: Vec2::new(0.0, 12.0),
+        streets: vec![],
+        obstacles,
+        portals: vec![Portal {
+            name: "Service Stairs",
+            rect: Rect::new(-1.5, 16.0, 1.5, 18.0),
+            to: ZoneId::DOWNTOWN,
+            arrive: Vec2::new(-36.0, 26.0),
+            road: false,
+        }],
+        ground: [0.45, 0.47, 0.50],
+        outskirts: [0.10, 0.10, 0.12],
+        walkable: vec![],
+        indoor: true,
+    }
+}
+
+/// "Warehouse 7": inside the smugglers' warehouse at the docks, a raid zone. Crates and pallets,
+/// a forklift, and the captain's office at the back.
+pub fn warehouse_7() -> ZoneLayout {
+    let crates = |cx, cz, w, d| prop("Crates", rect(cx, cz, w, d), 2.0, [0.55, 0.42, 0.25]);
+    ZoneLayout {
+        id: ZoneId::WAREHOUSE,
+        name: "Warehouse 7",
+        bounds: Rect::new(-26.0, -14.0, 26.0, 14.0),
+        spawn: Vec2::new(-20.0, 0.0),
+        streets: vec![],
+        obstacles: vec![
+            building("Captain's Office", rect(20.0, -9.0, 10.0, 8.0), 4.0, [0.35, 0.30, 0.28]),
+            crates(-10.0, -8.0, 4.0, 3.0),
+            crates(-10.0, 8.0, 4.0, 3.0),
+            crates(0.0, -4.0, 3.0, 3.0),
+            crates(4.0, 7.0, 6.0, 2.0),
+            crates(12.0, 2.0, 2.0, 4.0),
+            prop("Forklift", rect(-2.0, 10.0, 2.0, 3.0), 2.2, [0.90, 0.70, 0.10]),
+            prop("Pallet Jack", rect(8.0, -9.0, 1.0, 2.0), 1.0, [0.80, 0.20, 0.15]),
+        ],
+        portals: vec![Portal {
+            name: "Loading Door",
+            rect: Rect::new(-26.0, -2.0, -24.0, 2.0),
+            to: ZoneId::DOCKS,
+            arrive: Vec2::new(-8.0, -13.0),
+            road: false,
+        }],
+        ground: [0.40, 0.38, 0.35],
+        outskirts: [0.10, 0.10, 0.10],
+        walkable: vec![],
+        indoor: true,
     }
 }
 

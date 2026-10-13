@@ -39,7 +39,7 @@ pub const REPLICATION_INTERVAL: Duration = Duration::from_millis(50);
 pub const INTERPOLATION_RATIO: f32 = 2.4;
 
 /// Bumped whenever the wire protocol changes; netcode rejects mismatched clients.
-pub const PROTOCOL_ID: u64 = 2000_0004;
+pub const PROTOCOL_ID: u64 = 2000_0005;
 
 /// Default UDP port of the game server.
 pub const DEFAULT_SERVER_PORT: u16 = 5888;

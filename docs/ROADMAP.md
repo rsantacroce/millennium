@@ -27,6 +27,7 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 | 13 | The Y2K New Year's Eve world event |
 | 14 | Food buffs, hack cooldowns and shop stock are saved: logouts, server changes and restarts no longer reset them |
 | 15 | Lake Wren and the Mile 88 Truck Stop, fishing, and the Route 9 road trip chain |
+| 16 | Raids (the Meridian Vault, the Harbor Smugglers) and animals (dogs, raccoons, deer) |
 
 ## Next: feel and usability
 
@@ -58,8 +59,8 @@ What a new player notices first.
 
 - [x] A Y2K New Year's Eve world event (countdown, the "bug" causes chaos, everyone pitches in): `/mod event y2k`, see the README
 - [x] Another town or two along Route 9 (a lake town, a truck stop), a longer road trip chain: Lake Wren (fishing), the Mile 88 Truck Stop, **Route 9 Revisited** then **The Long Haul**
-- [ ] Group challenges: a raid-style job for a full party (the Meridian vault, the harbor smugglers)
-- [ ] Animals and non-human creatures (dogs, raccoons, deer; mobs are all people today)
+- [x] Group challenges: a raid-style job for a full party (the Meridian vault, the harbor smugglers): parties of 3-5, three waves and a boss, a one-hour cooldown
+- [x] Animals and non-human creatures (dogs, raccoons, deer; mobs are all people today): Junkyard Dogs, The Lake Wren Monster, Deer Count
 - [ ] More cars (and car customization: paint, parts), more gear, more furniture
 - [ ] More faction storylines, including choices that cost you reputation with someone else
 

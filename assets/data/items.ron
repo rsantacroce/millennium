@@ -528,4 +528,21 @@
         value: 22,
         gear: Some((slot: Body, color: Some(7), skills: [(Cooking, 1)])),
     ),
+    // --- Raid rewards (Milestone 16).
+    (
+        id: "security_blazer", tags: ["clothes"],
+        name: "Meridian Security Blazer",
+        description: "Navy, brass buttons, and a badge you probably shouldn't wear. 4 armor, +15 health, +1 Fitness.",
+        value: 60,
+        gear: Some((slot: Body, color: Some(0), armor: 4, max_hp: 15, skills: [(Fitness, 1)])),
+    ),
+    (
+        id: "captains_peacoat", tags: ["clothes"],
+        name: "Captain's Peacoat",
+        description: "Heavy wool, salt-stained, with a pocket for a flask. 4 armor, +10 health, +1 Trading.",
+        value: 60,
+        gear: Some((slot: Body, color: Some(1), armor: 4, max_hp: 10, skills: [(Trading, 1)])),
+    ),
+    // --- Animals (Milestone 17).
+    (id: "bottle_caps", tags: ["junk"], name: "Bottle Caps", description: "Shiny. Raccoons collect them. Nobody else does.", value: 1, max_stack: 20),
 ]

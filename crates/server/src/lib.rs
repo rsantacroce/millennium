@@ -26,6 +26,7 @@ mod net;
 mod persistence;
 #[cfg(feature = "profile")]
 mod profile;
+mod raids;
 mod session;
 mod social;
 mod vehicles;
@@ -116,7 +117,7 @@ pub fn build_app(config: ServerConfig, mode: RunMode) -> Result<App, String> {
         housing::HousingPlugin,
     ));
     // Tuples top out at 15 plugins.
-    app.add_plugins((moderation::ModerationPlugin, metrics::MetricsPlugin, events::EventsPlugin));
+    app.add_plugins((moderation::ModerationPlugin, metrics::MetricsPlugin, events::EventsPlugin, raids::RaidsPlugin));
     if !app.world().resource::<ServerConfig>().multi_threaded {
         single_threaded(&mut app);
     }

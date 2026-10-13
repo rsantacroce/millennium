@@ -249,4 +249,14 @@
         id: "cb_base", name: "CB Base Station", zone: 11, position: (24.0, -24.0), facing: 0.0,
         prop: Some("cb_radio"), dialogue: "cb_base",
     ),
+    // --- Milestone 16: raids.
+    (
+        id: "cipher", name: "Cipher", zone: 1, position: (-40.0, 27.4), facing: 0.0,
+        appearance: (body: 0, skin: 3, jacket: 1, pants: 1, cap: 1), dialogue: "cipher",
+    ),
+    // --- Milestone 17: animals.
+    (
+        id: "tyler", name: "Tyler", zone: 10, position: (28.0, 1.0), facing: 90.0,
+        appearance: (body: 0, skin: 2, jacket: 8, pants: 0, cap: 3), dialogue: "tyler",
+    ),
 ]

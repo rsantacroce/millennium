@@ -1,0 +1,42 @@
+// Raids (Milestone 16): group jobs for a party. The party goes into the raid's own zone together
+// and fights its waves (the spawns in mobs.ron with `raid` and `wave`) before the clock runs out.
+// Everyone still inside at the end shares the win; a win puts the raid on a cooldown for them.
+// See server/src/raids.rs.
+[
+    (
+        id: "meridian_vault",
+        name: "The Meridian Vault",
+        zone: 12,
+        entry: (0.0, 12.0),
+        exit_zone: 1,
+        exit: (-36.0, 26.0),
+        min_party: 3,
+        waves: 3,
+        minutes: 10.0,
+        cooldown_minutes: 60.0,
+        wave_text: [
+            "You're in. Meridian Security comes running down the stairs behind you!",
+            "Alarms! More guards pour out from between the server racks.",
+            "Chief Brackett steps out of the vault: \"Nobody touches the Y2K fund.\"",
+        ],
+        rewards: (cash: 220, xp: [(Fitness, 350), (Hacking, 150)], items: [("security_blazer", 1)], rep: [("zeros", 80), ("meridian", -60)]),
+    ),
+    (
+        id: "harbor_smugglers",
+        name: "The Harbor Smugglers",
+        zone: 13,
+        entry: (-20.0, 0.0),
+        exit_zone: 2,
+        exit: (-8.0, -13.0),
+        min_party: 3,
+        waves: 3,
+        minutes: 10.0,
+        cooldown_minutes: 60.0,
+        wave_text: [
+            "The loading door rattles shut behind you. Smugglers look up from the crates.",
+            "Somebody whistles, and the muscle comes out from behind the pallets.",
+            "Captain Vance kicks open the office door: \"Nobody leaves Warehouse 7.\"",
+        ],
+        rewards: (cash: 200, xp: [(Fitness, 350), (Trading, 100)], items: [("captains_peacoat", 1)], rep: [("dockside", 80), ("city", 40)]),
+    ),
+]

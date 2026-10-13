@@ -48,6 +48,11 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
 - **e-Bid:** an auction house at Dot's internet café and Wendy's Gadget Shack. List items with an
   optional buyout, bid, and collect your winnings, sales and refunds from a claims box, even
   when the other player is offline.
+- **Raids:** group jobs for a party of 3 to 5: **The Meridian Vault** (Cipher, downtown) and **The
+  Harbor Smugglers** (Foreman Rizzo). Three waves and a boss in ten minutes, in a zone of their
+  own; a win pays everyone inside and puts the job on a one-hour cooldown.
+- **Animals:** junkyard dogs at the factory, raccoons in the alleys at night and in the Lake Wren
+  boathouse, and deer to tag in Hollow Pines (they run; you catch up).
 - **Combat:** Dock Rats, Wharf Hounds and Big Sully at the docks. Tab or click to target,
   auto-attack, power swing, weapons (baseball bat, tire iron), first aid kits, loot. Getting
   knocked out just sends you back to the Metro. A second quest, **Rat Problem**.
@@ -537,6 +542,33 @@ out. They're saved with the character and keep counting down while you're logged
 Bait is the input and the rod the tool: nightcrawlers catch perch (Cooking 1), minnows catch
 walleye (Cooking 4). Like any recipe it takes a few seconds standing still, which is what keeps
 cheap bait from being a money loop.
+
+### Raids
+
+(`assets/data/raids.ron`, `server/src/raids.rs`.) A raid is a zone of its own (the Meridian
+Sub-Basement, zone 12; Warehouse 7, zone 13), a party size, waves of spawns tagged with the raid
+and a wave number in `mobs.ron`, a time limit, rewards and a cooldown.
+
+- **Starting:** a dialogue option with `StartRaid(id)`. The server checks that the party is big
+  enough, that everyone is within 25 m, out of their cars and off the cooldown, and that nobody
+  else is running that raid. Then the whole party is moved in.
+- **Waves:** the next wave spawns once the last one is down. Raid rivals never respawn on their
+  own (`combat` skips them); the party sees "wave 2/3, 4 left, 7:12" on the HUD
+  (`GameUpdate::Raid`).
+- **The end:** when the last wave falls, everyone still inside gets the rewards
+  (`PlayerState::reward_raid`), a win on the `raid:<id>` counter (for `Condition::Raided`) and the
+  cooldown, saved like hack cooldowns. Out of time, or everybody left: it fails. Either way the
+  remaining rivals go, and everyone inside is moved out a few seconds later.
+- **Logging out mid-raid:** you come back outside (`evict_strays`).
+- **Clusters:** the server that owns the raid's zone runs it, so it should also own the zone the
+  raid starts from (the example configs pair the vault with downtown, Warehouse 7 with the docks).
+
+### Animals
+
+Animals are mobs with a `model` (`dog`, `raccoon`, `deer`; the client builds them from boxes, with
+legs that swing with the walk cycle) and a `ko_text` instead of "You knocked out a ...". Deer are
+`skittish`: they run from anyone within their `aggro_radius` (at 70% of walking speed, without
+leaving their patch) and never fight back, so you corner one and tag it.
 
 ### Hacking
 

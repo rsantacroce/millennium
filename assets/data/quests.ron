@@ -288,4 +288,41 @@
         ],
         rewards: (cash: 15, xp: [(Cooking, 120)], items: [("nightcrawlers", 10), ("minnows", 5)], rep: [("city", 15)]),
     ),
+    // --- Milestone 17: animals.
+    (
+        id: "junkyard_dogs",
+        name: "Junkyard Dogs",
+        stages: [
+            (
+                log: "Three Junkyard Dogs have moved into the factory yard and won't let Old Earl near his parts. Run them off.",
+                advance_when: [Kills("junkyard_dog", 3)],
+                hint: Some("They bite, but they're small: {Target} to pick one, {Attack} to fight. A First Aid Kit helps."),
+            ),
+            (log: "Tell Old Earl, by the factory gate, that the yard is clear."),
+        ],
+        rewards: (cash: 35, xp: [(Fitness, 120)], items: [("first_aid_kit", 2)]),
+    ),
+    (
+        id: "lake_monster",
+        name: "The Lake Wren Monster",
+        stages: [
+            (log: "Tyler swears a monster lives in the Lake Wren boathouse and eats their marshmallows. See what's in there: chase off 3 of whatever they are.", advance_when: [Kills("boathouse_raccoon", 3)]),
+            (log: "Raccoons! And the biggest one, Big Bandit, is still out by the water. Run him off too.", advance_when: [Kills("big_bandit", 1)]),
+            (log: "Tell Tyler what the monster really is."),
+        ],
+        rewards: (cash: 30, xp: [(Fitness, 120)], items: [("minnows", 5)], rep: [("city", 20)]),
+    ),
+    (
+        id: "deer_count",
+        name: "Deer Count",
+        stages: [
+            (
+                log: "Ranger Dale needs 3 deer tagged for the herd count in Hollow Pines. They spook easily.",
+                advance_when: [Kills("deer", 3)],
+                hint: Some("Deer run from you but tire out at the edge of their patch: follow one into a corner, then {Attack} to clip a tag on."),
+            ),
+            (log: "Tell Ranger Dale at the ranger station that the count's done."),
+        ],
+        rewards: (cash: 40, xp: [(Fitness, 150)], rep: [("city", 40)]),
+    ),
 ]

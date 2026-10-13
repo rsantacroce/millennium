@@ -15,10 +15,10 @@ url = "postgres://millennium:millennium@localhost:5433/millennium"
 
 [cluster]
 name = "zone-b"
-zones = [2, 4, 7, 8, 9, 10, 11]  # the Docks, the Factory, Route 9, Pinecrest, Hollow Pines, Lake Wren and the truck stop
+zones = [2, 4, 7, 8, 9, 10, 11, 13]  # the Docks (and Warehouse 7), the Factory, Route 9, Pinecrest, Hollow Pines, Lake Wren, the truck stop
 hub = "127.0.0.1:5900"
 secret = "change-me"
 
 [[cluster.servers]]
 addr = "127.0.0.1:5888"
-zones = [1, 3, 5, 6, 101, 102, 103, 104, 105]
+zones = [1, 3, 5, 6, 12, 101, 102, 103, 104, 105]

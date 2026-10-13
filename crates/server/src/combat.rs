@@ -33,6 +33,10 @@ const PARTY_SHARE_RANGE: f32 = 30.0;
 const RANGE_SLACK: f32 = 0.6;
 /// Mobs stop this close to their target.
 const MOB_REACH: f32 = 1.6;
+/// Skittish animals run at this fraction of walking speed (so you can catch up)...
+const FLEE_SPEED_FACTOR: f32 = 0.7;
+/// ...and calm down once whoever scared them is this many times their `aggro_radius` away.
+const CALM_FACTOR: f32 = 1.8;
 
 /// On players: combat state.
 #[derive(Component, Debug, Default)]
@@ -62,6 +66,8 @@ impl Fighter {
 enum Mind {
     Idle,
     Chasing(Entity),
+    /// Running away from someone (skittish animals).
+    Fleeing(Entity),
     Returning,
 }
 
@@ -114,9 +120,10 @@ impl Plugin for CombatPlugin {
     }
 }
 
-fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms: &ZoneRooms, spawn: usize) {
+/// Spawns `content.spawns[spawn]` (raids call this for their waves).
+pub(crate) fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms: &ZoneRooms, spawn: usize) -> Option<Entity> {
     let s = &content.spawns[spawn];
-    let Some(def) = content.mobs.get(&s.mob) else { return };
+    let def = content.mobs.get(&s.mob)?;
     mobs.next_id += 1;
     let id = mobs.next_id;
     let entity = commands
@@ -147,14 +154,24 @@ fn spawn_mob(commands: &mut Commands, mobs: &mut Mobs, content: &Content, rooms:
         ))
         .id();
     mobs.by_id.insert(id, entity);
+    Some(entity)
+}
+
+/// Takes a mob out of the world for good (a raid that's over), without a respawn.
+pub(crate) fn remove_mob(commands: &mut Commands, mobs: &mut Mobs, entity: Entity, tag: &MobTag) {
+    mobs.by_id.remove(&tag.id);
+    commands.entity(entity).despawn();
 }
 
 fn spawn_all_mobs(mut commands: Commands, mut mobs: ResMut<Mobs>, content: Res<Content>, rooms: Res<ZoneRooms>, cluster: Res<Cluster>) {
     // In a cluster, each server runs the mobs of its own zones.
     // Night-only spawns are handled by `mob_hours`.
-    // Event spawns too: they come with their event.
+    // Event spawns too: they come with their event. Raid spawns come with their raid.
     let ours: Vec<usize> = (0..content.spawns.len())
-        .filter(|i| cluster.owns(content.spawns[*i].zone_id()) && content.spawns[*i].hours.is_none() && content.spawns[*i].event.is_none())
+        .filter(|i| {
+            let s = &content.spawns[*i];
+            cluster.owns(s.zone_id()) && s.hours.is_none() && s.event.is_none() && s.raid.is_none()
+        })
         .collect();
     for i in &ours {
         spawn_mob(&mut commands, &mut mobs, &content, &rooms, *i);
@@ -203,14 +220,16 @@ fn mob_hours(
     *next = now + 3.0;
     let hour = shared::clock::hour(crate::persistence::now_ms());
     for (i, spawn) in content.spawns.iter().enumerate() {
-        if (spawn.hours.is_none() && spawn.event.is_none()) || !cluster.owns(spawn.zone_id()) {
+        if (spawn.hours.is_none() && spawn.event.is_none()) || spawn.raid.is_some() || !cluster.owns(spawn.zone_id()) {
             continue;
         }
         let wanted = spawn.hours.is_none_or(|h| shared::clock::within(h, hour)) && events.spawn_active(spawn);
         let alive = brains.iter().find(|(_, _, b)| b.spawn == i);
         let pending = mobs.respawns.iter().any(|(s, _)| *s == i);
         match (wanted, alive) {
-            (true, None) if !pending => spawn_mob(&mut commands, &mut mobs, &content, &rooms, i),
+            (true, None) if !pending => {
+                spawn_mob(&mut commands, &mut mobs, &content, &rooms, i);
+            }
             (false, Some((e, tag, _))) => {
                 mobs.by_id.remove(&tag.id);
                 commands.entity(e).despawn();
@@ -276,12 +295,17 @@ fn player_attacks(
         float(&mut updates, link.0, CombatTarget::Mob(id), text, FloatKind::Hit);
 
         brain.last_attacker = Some(player);
-        if brain.mind != Mind::Chasing(player) && !matches!(brain.mind, Mind::Chasing(_)) {
+        if content.mobs.get(&tag.kind).is_some_and(|d| d.skittish) {
+            brain.mind = Mind::Fleeing(player);
+        } else if brain.mind != Mind::Chasing(player) && !matches!(brain.mind, Mind::Chasing(_)) {
             brain.mind = Mind::Chasing(player);
         }
         if health.current == 0 {
-            let respawn = content.mobs.get(&tag.kind).map_or(30.0, |d| d.respawn_secs as f64);
-            mobs.respawns.push((brain.spawn, now + respawn));
+            // Raid rivals stay down: the raid decides what comes next.
+            if content.spawns.get(brain.spawn).is_none_or(|s| s.raid.is_none()) {
+                let respawn = content.mobs.get(&tag.kind).map_or(30.0, |d| d.respawn_secs as f64);
+                mobs.respawns.push((brain.spawn, now + respawn));
+            }
             mobs.by_id.remove(&id);
             commands.entity(mob_entity).despawn();
             kills.write(MobKnockedOut { killer: player, mob: tag.kind.clone(), at: CombatTarget::Mob(id) });
@@ -330,7 +354,8 @@ fn apply_kills(
             float(&mut updates, link.0, kill.at, text, FloatKind::Gain);
         }
         if let Ok(mut tx) = notices.get_mut(link.0) {
-            tx.send::<ChatNetChannel>(SystemNotice::info(format!("You knocked out a {}.", def.name)));
+            let text = def.ko_text.clone().unwrap_or_else(|| format!("You knocked out a {}.", def.name));
+            tx.send::<ChatNetChannel>(SystemNotice::info(text));
             for e in &events {
                 match e {
                     GameEvent::LevelUp(skill, level) => tx.send::<ChatNetChannel>(SystemNotice::info(format!("*** {} level {level}! ***", skill.name()))),
@@ -377,6 +402,24 @@ fn mob_ai(
 
         // Decide.
         match brain.mind {
+            Mind::Idle if def.skittish => {
+                // Cars scare deer too.
+                let nearest = players
+                    .iter()
+                    .filter(|(_, _, p, z, h, ..)| *z == zone && h.current > 0 && p.0.distance(pos.0) <= def.aggro_radius)
+                    .min_by(|a, b| a.2.0.distance(pos.0).total_cmp(&b.2.0.distance(pos.0)));
+                if let Some((player, ..)) = nearest {
+                    brain.mind = Mind::Fleeing(player);
+                    brain.path.clear();
+                }
+            }
+            Mind::Fleeing(player) => {
+                let calm = players.get(player).map_or(true, |(_, _, p, z, ..)| z != zone || p.0.distance(pos.0) > def.aggro_radius * CALM_FACTOR);
+                if calm {
+                    brain.mind = Mind::Idle;
+                    brain.wander_to = None;
+                }
+            }
             Mind::Idle if def.aggro_radius > 0.0 => {
                 let nearest = players
                     .iter()
@@ -410,6 +453,16 @@ fn mob_ai(
                 }
                 brain.wander_to
             }
+            Mind::Fleeing(player) => {
+                let Ok((_, _, from, ..)) = players.get(player) else { continue };
+                // Straight away from them, but not past the edge of its patch (it slides round).
+                let away = (pos.0 - from.0).normalize_or(Vec2::X);
+                let mut goal = pos.0 + away * 3.0;
+                if goal.distance(brain.home) > def.leash {
+                    goal = brain.home + (goal - brain.home).normalize_or_zero() * def.leash;
+                }
+                Some(goal)
+            }
             Mind::Returning => {
                 if pos.0.distance(brain.home) < 0.5 {
                     brain.mind = Mind::Idle;
@@ -442,7 +495,11 @@ fn mob_ai(
 
         // Move.
         let Some(goal) = goal else { continue };
-        let speed = if brain.mind == Mind::Idle { 0.4 } else { MOB_SPEED_FACTOR };
+        let speed = match brain.mind {
+            Mind::Idle => 0.4,
+            Mind::Fleeing(_) => FLEE_SPEED_FACTOR,
+            _ => MOB_SPEED_FACTOR,
+        };
         if pos.0.distance(goal) < 0.3 {
             brain.wander_to = None;
             continue;

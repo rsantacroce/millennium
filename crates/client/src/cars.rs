@@ -26,6 +26,9 @@ pub struct RaceInbox(pub Vec<GameUpdate>);
 #[derive(Resource, Default)]
 struct RaceView {
     race: Option<(String, Vec<Vec2>, usize, f32)>,
+    /// A raid in progress (it shares the line at the top of the screen): name, wave, waves,
+    /// rivals left, when time runs out (Unix ms).
+    raid: Option<(String, u8, u8, u32, i64)>,
     /// "You won!" / "Out of time", shown for a few seconds.
     banner: Option<(String, f32)>,
 }
@@ -293,6 +296,18 @@ fn receive_race(mut inbox: ResMut<RaceInbox>, mut view: ResMut<RaceView>, time: 
                 view.banner = Some((text.to_string(), now + 3.0));
                 sfx.write(PlaySfx(if won { Sfx::Quest } else { Sfx::KnockedOut }));
             }
+            GameUpdate::Raid { name, wave, waves, left, ends_at_ms } => {
+                if view.raid.as_ref().is_some_and(|r| r.1 != wave) {
+                    sfx.write(PlaySfx(Sfx::Coin));
+                }
+                view.raid = Some((name, wave, waves, left, ends_at_ms));
+            }
+            GameUpdate::RaidEnded { won } => {
+                view.raid = None;
+                let text = if won { "JOB DONE!" } else { "OUT OF TIME" };
+                view.banner = Some((text.to_string(), now + 4.0));
+                sfx.write(PlaySfx(if won { Sfx::Quest } else { Sfx::KnockedOut }));
+            }
             _ => {}
         }
     }
@@ -301,14 +316,19 @@ fn receive_race(mut inbox: ResMut<RaceInbox>, mut view: ResMut<RaceView>, time: 
     }
 }
 
-/// "Maple & 5th Sprint  2/4  34.2 s" across the top of the screen.
+/// "Maple & 5th Sprint  2/4  34.2 s" (or "The Meridian Vault  wave 2/3  4 left  7:12") across
+/// the top of the screen.
 fn race_hud(mut commands: Commands, view: Res<RaceView>, time: Res<Time>, mut hud: Query<(Entity, &mut Text), With<RaceHud>>) {
-    let text = match (&view.race, &view.banner) {
-        (Some((name, cps, next, deadline)), _) => {
+    let text = match (&view.race, &view.raid, &view.banner) {
+        (Some((name, cps, next, deadline)), ..) => {
             Some(format!("{name}   checkpoint {}/{}   {:.1} s", next + 1, cps.len(), (deadline - time.elapsed_secs()).max(0.0)))
         }
-        (None, Some((banner, _))) => Some(banner.clone()),
-        (None, None) => None,
+        (None, Some((name, wave, waves, left, ends_at_ms)), _) => {
+            let secs = ((ends_at_ms - shared::clock::now_ms()).max(0) + 999) / 1000;
+            Some(format!("{name}   wave {wave}/{waves}   {left} left   {}:{:02}", secs / 60, secs % 60))
+        }
+        (None, None, Some((banner, _))) => Some(banner.clone()),
+        (None, None, None) => None,
     };
     match (text, hud.single_mut()) {
         (Some(t), Ok((_, mut text))) => {

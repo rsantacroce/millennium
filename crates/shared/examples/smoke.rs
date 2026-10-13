@@ -467,6 +467,10 @@ fn receive(
                 script.race = checkpoints[next as usize..].to_vec();
             }
             GameUpdate::RaceEnded { won } => println!("RACE   ended, won={won}"),
+            GameUpdate::Raid { name, wave, waves, left, ends_at_ms } => {
+                println!("RAID   {name}: wave {wave}/{waves}, {left} left, {}s to go", (ends_at_ms - shared::clock::now_ms()) / 1000)
+            }
+            GameUpdate::RaidEnded { won } => println!("RAID   ended, won={won}"),
             GameUpdate::HackChallenge { name, code, show_secs, seconds } => {
                 println!("HACK   {name}: code {code} (shown {show_secs:.1}s, {seconds}s to answer)");
                 script.hack_code = Some(code);
