@@ -121,7 +121,7 @@ fn spawn_window(commands: &mut Commands, name: &str, digits: u8) {
         Interaction::default(),
         children![
             (Text::new(format!("> CONNECT {}", name.to_uppercase())), mono(theme::FONT_SMALL), TextColor(GREEN)),
-            (Text::new(format!("ACCESS CODE: {} DIFFERENT DIGITS\n* = right digit, right place   + = right digit, wrong place", digits)), mono(12.0), TextColor(GREEN)),
+            (Text::new(format!("ACCESS CODE: {} DIFFERENT DIGITS\n* = right digit, right place\n+ = right digit, wrong place", digits)), mono(12.0), TextColor(GREEN)),
             (CodeText, Text::new(""), mono(18.0), TextColor(GREEN)),
             (TimerText, Text::new(""), mono(theme::FONT_SMALL), TextColor(GREEN)),
             (

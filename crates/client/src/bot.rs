@@ -2,7 +2,7 @@
 //!
 //! - `--bot`: wanders around the block and chats (to test with a second, human-driven client).
 //! - `--step ...` (repeatable): runs a script, one step at a time, through the *real* UI paths:
-//!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`,
+//!   `!goto X Z` (click-to-move there), `!walkto NPC` (like clicking an NPC), `!talk NPC`, `!guess CODE` (a hack),
 //!   `!choose TEXT`, `!fight MOB`, `!open inventory|quests|skills`, `!select SLOT`, `!use SLOT`, `!house N buy|enter`,
 //!   `!market browse|sell|mine|claims` (switch e-Bid tab), `!car` (get in/out of your car, like G),
 //!   `!shot FILE.png` (screenshot rendered by Bevy, works with the screen locked), `!wait SECS`,
@@ -200,6 +200,7 @@ fn run_script(
             }
         }
         ["!talk", npc] => act(GameAction::Interact { npc: npc.to_string() }),
+        ["!guess", code] => act(GameAction::HackAnswer { code: code.to_string() }),
         ["!fight", kind] => {
             let here = me.single().map(|(p, _)| p.0).unwrap_or_default();
             let nearest = mobs.iter().filter(|(_, t, _)| t.kind == *kind).min_by(|a, b| a.2.0.distance(here).total_cmp(&b.2.0.distance(here)));
