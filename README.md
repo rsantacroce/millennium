@@ -15,14 +15,16 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   suburbs of *Maple Heights* (diner, grocery) and the *rooftops* above Maple & 5th, linked by
   the subway and a fire escape.
 - **The region:** drive out on *Route 9* (gas station, a highway race) to the small town of
-  *Pinecrest* and *Hollow Pines State Park*. Buses run back for anyone on foot.
+  *Pinecrest*, *Hollow Pines State Park*, the lake town of *Lake Wren* (fishing off the pier) and
+  the *Mile 88 Truck Stop* past Pinecrest. Buses run back for anyone on foot.
 - **Day and night:** a 40-minute day. Streetlamps and lit windows at night; some people (and
   some trouble) only come out after dark.
 - Click to walk anywhere, or use WASD. Shops and trees fade out when they'd hide you, and the game
   synthesizes its own sound effects (including a dial-up modem on login) and its own music: a
   loop for each part of town, a night mix, a car radio, and the pirate station on the roofs.
 - **NPCs and quests:** dialogue trees, a quest log, and quests from **56k Dreams** to the
-  **Black ICE** hack and a road trip to Pinecrest.
+  **Black ICE** hack and a road trip chain down Route 9 (**Route 9 Revisited**, then
+  **The Long Haul**).
 - **Economy:** a 20-slot inventory, cash, shops (some buy your stuff back, faction shops give
   discounts and lock their best items behind reputation).
 - **Clothing:** caps, jackets, shoes and accessories with armor, health and skill bonuses,
@@ -37,7 +39,7 @@ cafés and burned CDs. Written in Rust with [Bevy](https://bevyengine.org) and
   - **Fitness:** fighting.
   - **Mechanics:** rebuild car parts with a wrench.
   - **Driving.**
-  - **Cooking:** meals heal and give timed buffs.
+  - **Cooking:** meals heal and give timed buffs. Fishing (at Lake Wren) trains it too.
   - **Hacking:** payphones, ATMs and terminals, through a code-recall mini-game.
   - **Trading:** better prices and more e-Bid auctions.
 - **Cars:** fix up Old Earl's junker (quest **Earl's Junker**) and it's yours. Drive it around
@@ -530,6 +532,12 @@ Recipes can use several ingredients (`extra` in `recipes.ron`). Food can heal an
 stack, and live in `PlayerState` with a wall-clock end time. The server drops them when they run
 out. They're saved with the character and keep counting down while you're logged out.
 
+**Fishing** is a recipe with a place: `near: Some("fishing")` means it only starts within
+`NEAR_RANGE` (4 m) of an interactive prop of that kind (the Fishing Spot on the Lake Wren pier).
+Bait is the input and the rod the tool: nightcrawlers catch perch (Cooking 1), minnows catch
+walleye (Cooking 4). Like any recipe it takes a few seconds standing still, which is what keeps
+cheap bait from being a money loop.
+
 ### Hacking
 
 (Player guide, how to add hacks, and the cheat-proofing options: [docs/hacking.md](docs/hacking.md).)
@@ -708,7 +716,7 @@ Notes that run past the end wrap to the start, so the loops are seamless. Render
 | Galleria Mall (all day) / Smooth 98.7 | bossa-nova muzak |
 | Docks and factory | drones and clanks |
 | Maple Heights | strummed guitar pop |
-| Route 9, Pinecrest, the park | finger-picked folk |
+| Route 9, Pinecrest, the park, Lake Wren, the truck stop | finger-picked folk |
 | Z-100 Hits (car radio) | Eurodance |
 | Radio Free Maple: near the rooftop antenna, or on the radio | jungle and static |
 
@@ -799,4 +807,25 @@ cargo run -p shared --example smoke -- --name Neo --interval 0.5 \
   --step "!goto -14 6.5" --step "!talk kim" --step "!choose Let me see" --step "!buy screwdriver_set 1" --step "!closeshop" \
   --step "!use broken_modem" --step "!wait 4" \
   --step "!goto -15 -5.2" --step "!talk dot" --step "!choose Here's" --step "!choose Thanks" --step "!state"
+```
+
+Plays **Route 9 Revisited** and **Gone Fishing** (needs `[chat] admins = ["Tripper"]` for the car
+and cash). Each `!drive` stops when it changes zone:
+
+```sh
+cargo run -p shared --example smoke -- --name Tripper --interval 0.6 \
+  --step "/givecash 300" --step "/givecar hatchback" --step "!goto 14 7.6" --step "!talk kat" --step "!choose A zine" --step "!choose Road trip" \
+  --step "!goto -6.5 -6" --step "!enter" --step "!drive -6 0" --step "!drive -52 0" \
+  --step "!drive 8 2" --step "!exit" --step "!goto 5 10" --step "!talk rhonda" --step "!choose Kat sent" --step "!choose Thanks" \
+  --step "!goto 8 2" --step "!enter" --step "!drive -60 0" --step "!drive -60 34" \
+  --step "!drive 0 -4" --step "!exit" --step "!goto -14 0" --step "!talk gus" --step "!choose Need a hand" --step "!choose Three perch. Got it" \
+  --step "!talk gus" --step "!choose Let me see" --step "!buy fishing_rod 1" --step "!buy nightcrawlers 6" --step "!closeshop" \
+  --step "!goto 0 29" --step "!use nightcrawlers" --step "!wait 6" --step "!use nightcrawlers" --step "!wait 6" \
+  --step "!use nightcrawlers" --step "!wait 6" --step "!use nightcrawlers" --step "!wait 6" \
+  --step "!goto -14 0" --step "!talk gus" --step "!choose Kat sent" --step "!choose Here's a perch" --step "!choose Thanks" \
+  --step "!talk gus" --step "!choose Three perch, fresh" --step "!choose Tight" \
+  --step "!goto 1 -4" --step "!enter" --step "!drive 0 -52" --step "!drive -60 0" --step "!drive -125 0" --step "!drive -50 0" \
+  --step "!drive -18 24" --step "!exit" --step "!goto -18 29.4" --step "!talk mama_jo" --step "!choose I'll see" --step "!buy cherry_pie 1" --step "!closeshop" \
+  --step "!talk mama_jo" --step "!choose Kat's doing" --step "!choose I bought" --step "!choose Yes" \
+  --step "!goto -7 -9" --step "!wait 2" --step "!goto 14 7.6" --step "!talk kat" --step "!choose Postcard" --step "!choose Rock" --step "!state"
 ```

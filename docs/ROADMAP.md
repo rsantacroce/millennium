@@ -26,6 +26,7 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 | 12 | Fewer bytes per player: far players at 10 Hz, positions in 4 bytes (8.4 KB/s per player at 200 bots) |
 | 13 | The Y2K New Year's Eve world event |
 | 14 | Food buffs, hack cooldowns and shop stock are saved: logouts, server changes and restarts no longer reset them |
+| 15 | Lake Wren and the Mile 88 Truck Stop, fishing, and the Route 9 road trip chain |
 
 ## Next: feel and usability
 
@@ -56,7 +57,7 @@ What a new player notices first.
 ## Next: content
 
 - [x] A Y2K New Year's Eve world event (countdown, the "bug" causes chaos, everyone pitches in): `/mod event y2k`, see the README
-- [ ] Another town or two along Route 9 (a lake town, a truck stop), a longer road trip chain
+- [x] Another town or two along Route 9 (a lake town, a truck stop), a longer road trip chain: Lake Wren (fishing), the Mile 88 Truck Stop, **Route 9 Revisited** then **The Long Haul**
 - [ ] Group challenges: a raid-style job for a full party (the Meridian vault, the harbor smugglers)
 - [ ] Animals and non-human creatures (dogs, raccoons, deer; mobs are all people today)
 - [ ] More cars (and car customization: paint, parts), more gear, more furniture

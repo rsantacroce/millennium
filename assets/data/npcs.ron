@@ -216,4 +216,37 @@
         id: "y2k_commuter_5", name: "Stranded Commuter", zone: 5, position: (-30.0, 6.0), facing: 0.0,
         appearance: (body: 1, skin: 4, jacket: 3, pants: 1, cap: 2), dialogue: "y2k_commuter", event: Some("y2k"),
     ),
+    // --- Milestone 15: Lake Wren, the Mile 88 Truck Stop and the road trip.
+    (
+        id: "kat", name: "Kat", zone: 1, position: (14.0, 8.2), facing: 0.0,
+        appearance: (body: 0, skin: 1, jacket: 6, pants: 1, cap: 10), dialogue: "kat",
+    ),
+    (
+        id: "gus", name: "Gus", zone: 10, position: (-14.0, -1.2), facing: 180.0,
+        appearance: (body: 2, skin: 0, jacket: 7, pants: 0, cap: 4), dialogue: "gus",
+    ),
+    (
+        id: "marlene", name: "Marlene", zone: 10, position: (17.0, -2.2), facing: 180.0,
+        appearance: (body: 1, skin: 2, jacket: 4, pants: 1, cap: 10), dialogue: "marlene",
+    ),
+    (
+        id: "fishing_pier", name: "Fishing Spot", zone: 10, position: (0.0, 30.0), facing: 180.0,
+        prop: Some("fishing"), dialogue: "fishing_spot",
+    ),
+    (
+        id: "mama_jo", name: "Mama Jo", zone: 11, position: (-18.0, 30.2), facing: 0.0,
+        appearance: (body: 2, skin: 4, jacket: 2, pants: 0, cap: 10), dialogue: "mama_jo",
+    ),
+    (
+        id: "wanda", name: "Wanda", zone: 11, position: (16.0, 30.2), facing: 0.0,
+        appearance: (body: 1, skin: 1, jacket: 5, pants: 0, cap: 1), dialogue: "wanda",
+    ),
+    (
+        id: "big_ray", name: "Big Ray", zone: 11, position: (-20.0, 18.0), facing: 90.0,
+        appearance: (body: 2, skin: 3, jacket: 4, pants: 0, cap: 5), dialogue: "big_ray",
+    ),
+    (
+        id: "cb_base", name: "CB Base Station", zone: 11, position: (24.0, -24.0), facing: 0.0,
+        prop: Some("cb_radio"), dialogue: "cb_base",
+    ),
 ]

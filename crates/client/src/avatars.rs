@@ -197,6 +197,25 @@ fn spawn_prop(commands: &mut Commands, parent: Entity, prop: &str, meshes: &mut 
             part(Cuboid::new(0.5, 0.45, 0.45).into(), &beige, Vec3::new(0.0, 0.98, 0.05));
             part(Cuboid::new(0.38, 0.3, 0.02).into(), &screen, Vec3::new(0.0, 1.0, -0.18));
         }
+        "fishing" => {
+            // A bait bucket and a rod propped on a post at the end of the pier.
+            let wood = mat(Color::srgb(0.45, 0.32, 0.2), 0.0);
+            part(Cylinder::new(0.1, 1.0).into(), &wood, Vec3::new(0.0, 0.5, 0.0));
+            part(Cylinder::new(0.2, 0.3).into(), &mat(Color::srgb(0.9, 0.5, 0.1), 0.0), Vec3::new(0.35, 0.15, 0.0));
+            commands.spawn((
+                Mesh3d(meshes.add(Cylinder::new(0.02, 2.4))),
+                MeshMaterial3d(dark.clone()),
+                Transform::from_xyz(0.0, 1.4, -0.6).with_rotation(Quat::from_rotation_x(-0.7)),
+                ChildOf(parent),
+            ));
+        }
+        "cb_radio" => {
+            // A CB base station on a stand, with a whip antenna.
+            part(Cylinder::new(0.05, 1.0).into(), &metal, Vec3::new(0.0, 0.5, 0.0));
+            part(Cuboid::new(0.6, 0.22, 0.4).into(), &dark, Vec3::new(0.0, 1.1, 0.0));
+            part(Cuboid::new(0.3, 0.08, 0.02).into(), &mat(Color::srgb(1.0, 0.6, 0.1), 1.5), Vec3::new(0.0, 1.12, -0.21));
+            part(Cylinder::new(0.01, 1.2).into(), &metal, Vec3::new(0.22, 1.8, 0.1));
+        }
         // "none": the thing is already part of the scenery (the payphone booth).
         _ => {}
     }

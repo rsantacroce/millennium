@@ -28,6 +28,8 @@ impl ZoneId {
     pub const ROUTE_9: ZoneId = ZoneId(7);
     pub const PINECREST: ZoneId = ZoneId(8);
     pub const PARK: ZoneId = ZoneId(9);
+    pub const LAKE: ZoneId = ZoneId(10);
+    pub const TRUCK_STOP: ZoneId = ZoneId(11);
 
     /// The inside of house `plot` (1..=5): see [`HOUSES`].
     pub fn house(plot: u8) -> ZoneId {
@@ -109,7 +111,7 @@ pub struct ZoneRegistry {
 
 impl Default for ZoneRegistry {
     fn default() -> Self {
-        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops(), route_9(), pinecrest(), hollow_pines()];
+        let zones = [downtown_block(), harbor_docks(), galleria_mall(), abandoned_factory(), maple_heights(), rooftops(), route_9(), pinecrest(), hollow_pines(), lake_wren(), truck_stop()];
         let houses = HOUSES.iter().map(house_interior);
         Self { zones: zones.into_iter().chain(houses).map(|z| (z.id, z)).collect() }
     }
@@ -279,7 +281,8 @@ pub fn rooftops() -> ZoneLayout {
 }
 
 /// "Route 9": the highway out of town. Drivers come on from Maple St; Pinecrest is at the west
-/// end and the state park up the turnoff. A bus stop at the gas station for anyone on foot.
+/// end, the state park up the north turnoff and Lake Wren down the south one. A bus stop at the
+/// gas station for anyone on foot.
 pub fn route_9() -> ZoneLayout {
     let pine = |cx, cz| prop("Pine Tree", rect(cx, cz, 1.6, 1.6), 8.0, [0.16, 0.36, 0.20]);
     let mut obstacles = vec![
@@ -302,12 +305,13 @@ pub fn route_9() -> ZoneLayout {
         name: "Route 9",
         bounds: Rect::new(-120.0, -30.0, 120.0, 30.0),
         spawn: Vec2::new(14.0, 7.0),
-        streets: vec![rect(0.0, 0.0, 240.0, 10.0), rect(40.0, -17.5, 8.0, 25.0)],
+        streets: vec![rect(0.0, 0.0, 240.0, 10.0), rect(40.0, -17.5, 8.0, 25.0), rect(-60.0, 17.5, 8.0, 25.0)],
         obstacles,
         portals: vec![
             Portal { name: "Highway: Downtown", rect: Rect::new(116.0, -5.0, 120.0, 5.0), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, 2.0), road: true },
             Portal { name: "Highway: Pinecrest", rect: Rect::new(-120.0, -5.0, -116.0, 5.0), to: ZoneId::PINECREST, arrive: Vec2::new(36.0, 0.0), road: true },
             Portal { name: "Highway: Hollow Pines", rect: Rect::new(36.0, -30.0, 44.0, -26.0), to: ZoneId::PARK, arrive: Vec2::new(0.0, 32.0), road: true },
+            Portal { name: "Highway: Lake Wren", rect: Rect::new(-64.0, 26.0, -56.0, 30.0), to: ZoneId::LAKE, arrive: Vec2::new(0.0, -40.0), road: true },
             Portal { name: "Bus Stop: Downtown", rect: Rect::new(18.0, 6.5, 20.0, 8.5), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, -8.0), road: false },
         ],
         ground: [0.55, 0.52, 0.42],
@@ -342,6 +346,8 @@ pub fn pinecrest() -> ZoneLayout {
         ],
         portals: vec![
             Portal { name: "Highway: Route 9", rect: Rect::new(41.0, -4.5, 45.0, 4.5), to: ZoneId::ROUTE_9, arrive: Vec2::new(-110.0, 0.0), road: true },
+            // Past the town, the road goes on to the truck stop.
+            Portal { name: "Highway: Mile 88 Truck Stop", rect: Rect::new(-45.0, -4.5, -41.0, 4.5), to: ZoneId::TRUCK_STOP, arrive: Vec2::new(40.0, 0.0), road: true },
             Portal { name: "Bus Stop: Downtown", rect: Rect::new(-41.0, 6.0, -39.0, 8.0), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, -8.0), road: false },
         ],
         ground: [0.58, 0.60, 0.48],
@@ -388,6 +394,87 @@ pub fn hollow_pines() -> ZoneLayout {
         ],
         ground: [0.36, 0.46, 0.28],
         outskirts: [0.20, 0.32, 0.18],
+        walkable: vec![],
+        indoor: false,
+    }
+}
+
+/// "Lake Wren": a lake town down Route 9's south turnoff. Cabins, the bait shop, Loon's Lodge and
+/// a pier out into the water (the lake is three blocks of water with the pier between them).
+pub fn lake_wren() -> ZoneLayout {
+    let pine = |cx, cz| prop("Pine Tree", rect(cx, cz, 1.6, 1.6), 8.5, [0.15, 0.34, 0.19]);
+    let cabin = |cx, cz, color| building("Cabin", rect(cx, cz, 8.0, 7.0), 4.5, color);
+    let water = [0.22, 0.42, 0.62];
+    ZoneLayout {
+        id: ZoneId::LAKE,
+        name: "Lake Wren",
+        bounds: Rect::new(-50.0, -50.0, 50.0, 50.0),
+        spawn: Vec2::new(8.0, -34.0),
+        // Lakeshore Road down from the highway, and Shore Drive along the water.
+        streets: vec![rect(0.0, -20.0, 8.0, 60.0), rect(0.0, 6.0, 100.0, 8.0)],
+        obstacles: vec![
+            prop("Wren Lake", rect(-25.75, 32.0, 48.5, 36.0), 0.2, water),
+            prop("Wren Lake", rect(25.75, 32.0, 48.5, 36.0), 0.2, water),
+            prop("Wren Lake", rect(0.0, 41.0, 3.0, 18.0), 0.2, water),
+            building("Bait & Tackle", rect(-14.0, -6.0, 10.0, 8.0), 4.0, [0.35, 0.50, 0.40]),
+            building("Loon's Lodge", rect(17.0, -8.0, 16.0, 10.0), 6.0, [0.50, 0.33, 0.22]),
+            building("Marina Office", rect(-34.0, -6.0, 10.0, 8.0), 4.0, [0.85, 0.85, 0.80]),
+            building("Boathouse", rect(38.0, -4.0, 12.0, 8.0), 5.0, [0.55, 0.25, 0.20]),
+            cabin(-20.0, -30.0, [0.55, 0.40, 0.28]),
+            cabin(-34.0, -22.0, [0.45, 0.35, 0.25]),
+            cabin(18.0, -32.0, [0.60, 0.45, 0.30]),
+            cabin(34.0, -24.0, [0.50, 0.38, 0.26]),
+            prop("Canoe Rack", rect(-30.0, 12.0, 4.0, 1.2), 1.2, [0.80, 0.30, 0.15]),
+            prop("Picnic Table", rect(22.0, 12.0, 2.0, 1.2), 0.8, [0.55, 0.40, 0.25]),
+            prop("Mooring Post", rect(2.4, 24.0, 0.4, 0.4), 1.0, [0.40, 0.30, 0.20]),
+            pine(-44.0, -42.0),
+            pine(-8.0, -44.0),
+            pine(12.0, -46.0),
+            pine(44.0, -40.0),
+            pine(-44.0, -10.0),
+            pine(28.0, -44.0),
+        ],
+        portals: vec![
+            Portal { name: "Highway: Route 9", rect: Rect::new(-4.0, -50.0, 4.0, -46.0), to: ZoneId::ROUTE_9, arrive: Vec2::new(-60.0, 20.0), road: true },
+            Portal { name: "Bus Stop: Downtown", rect: Rect::new(6.0, -42.0, 8.0, -40.0), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, -8.0), road: false },
+        ],
+        ground: [0.48, 0.58, 0.38],
+        outskirts: [0.28, 0.42, 0.26],
+        walkable: vec![],
+        indoor: false,
+    }
+}
+
+/// "Mile 88 Truck Stop": past Pinecrest, where the long-haul truckers stop. A diner, a garage,
+/// a motel, a CB tower and a giant fiberglass trucker.
+pub fn truck_stop() -> ZoneLayout {
+    let trailer = |cx, cz, color| prop("Semi Trailer", rect(cx, cz, 14.0, 3.0), 3.8, color);
+    ZoneLayout {
+        id: ZoneId::TRUCK_STOP,
+        name: "Mile 88 Truck Stop",
+        bounds: Rect::new(-50.0, -40.0, 50.0, 40.0),
+        spawn: Vec2::new(2.0, -9.0),
+        // The highway, and the big lot in front of the diner.
+        streets: vec![rect(0.0, 0.0, 100.0, 10.0), rect(0.0, 18.0, 70.0, 26.0)],
+        obstacles: vec![
+            building("Mama Jo's Diner", rect(-18.0, 35.0, 20.0, 8.0), 5.0, [0.85, 0.75, 0.30]),
+            building("Diesel Bay", rect(16.0, 35.0, 18.0, 8.0), 7.0, [0.45, 0.48, 0.52]),
+            building("Starlite Motor Inn", rect(-24.0, -22.0, 26.0, 10.0), 6.0, [0.30, 0.45, 0.65]),
+            building("Truckers' Lounge", rect(16.0, -16.0, 12.0, 8.0), 4.5, [0.60, 0.30, 0.25]),
+            prop("Diesel Pumps", rect(0.0, 12.0, 14.0, 1.4), 1.8, [0.85, 0.85, 0.80]),
+            trailer(-30.0, 14.0, [0.90, 0.90, 0.92]),
+            trailer(-30.0, 22.0, [0.70, 0.20, 0.15]),
+            trailer(30.0, 18.0, [0.20, 0.35, 0.65]),
+            prop("CB Tower", rect(30.0, -28.0, 1.5, 1.5), 18.0, [0.75, 0.25, 0.20]),
+            prop("Giant Trucker Statue", rect(0.0, -20.0, 2.0, 2.0), 7.0, [0.90, 0.60, 0.30]),
+            prop("Road Closed Barrier", rect(-48.5, 0.0, 1.0, 10.0), 1.2, [0.95, 0.55, 0.10]),
+        ],
+        portals: vec![
+            Portal { name: "Highway: Pinecrest", rect: Rect::new(46.0, -5.0, 50.0, 5.0), to: ZoneId::PINECREST, arrive: Vec2::new(-36.0, 0.0), road: true },
+            Portal { name: "Bus Stop: Downtown", rect: Rect::new(-8.0, -10.0, -6.0, -8.0), to: ZoneId::DOWNTOWN, arrive: Vec2::new(-40.0, -8.0), road: false },
+        ],
+        ground: [0.62, 0.58, 0.46],
+        outskirts: [0.55, 0.50, 0.36],
         walkable: vec![],
         indoor: false,
     }

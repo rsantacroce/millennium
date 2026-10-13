@@ -299,7 +299,7 @@ pub struct NpcDef {
 }
 
 /// Props an "NPC" can be drawn as.
-pub const PROPS: [&str; 5] = ["none", "atm", "arcade", "panel", "terminal"];
+pub const PROPS: [&str; 7] = ["none", "atm", "arcade", "panel", "terminal", "fishing", "cb_radio"];
 
 pub type HackId = String;
 
@@ -594,6 +594,19 @@ pub struct RecipeDef {
     pub seconds: f32,
     /// "Repairing", shown on the progress bar.
     pub verb: String,
+    /// Only works standing next to an interactive prop of this kind (fishing: `fishing`).
+    #[serde(default)]
+    pub near: Option<String>,
+}
+
+/// How close you must stand to a recipe's `near` prop.
+pub const NEAR_RANGE: f32 = 4.0;
+
+impl Content {
+    /// Is there a prop of this kind within `NEAR_RANGE` of `pos` in `zone`?
+    pub fn prop_near(&self, prop: &str, zone: ZoneId, pos: Vec2) -> bool {
+        self.npcs.iter().any(|n| n.prop.as_deref() == Some(prop) && n.zone_id() == zone && n.pos().distance(pos) <= NEAR_RANGE)
+    }
 }
 
 /// All content, indexed by id.
@@ -923,6 +936,9 @@ impl Content {
             item(&mut errors, &ctx, &r.output);
             if let Some(t) = &r.tool {
                 item(&mut errors, &ctx, t);
+            }
+            if r.near.as_ref().is_some_and(|p| !self.npcs.iter().any(|n| n.prop.as_ref() == Some(p))) {
+                errors.push(format!("{ctx}: no `{}` prop anywhere", r.near.as_deref().unwrap_or_default()));
             }
         }
         errors

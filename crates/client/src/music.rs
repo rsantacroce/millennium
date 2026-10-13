@@ -89,7 +89,7 @@ fn wanted(zone: ZoneId, pos: Vec2, hour: f32, station: Option<usize>) -> Option<
         _ if night => Track::Night,
         ZoneId::DOWNTOWN | ZoneId::ROOFTOPS => Track::Downtown,
         ZoneId::SUBURBS => Track::Suburbs,
-        ZoneId::ROUTE_9 | ZoneId::PINECREST | ZoneId::PARK => Track::Country,
+        ZoneId::ROUTE_9 | ZoneId::PINECREST | ZoneId::PARK | ZoneId::LAKE | ZoneId::TRUCK_STOP => Track::Country,
         // House interiors and anything new: something calm.
         _ => Track::Night,
     })

@@ -137,4 +137,35 @@
         faction: Some("city"),
         requires: [("hiking_boots", 100), ("reflective_vest", 300), ("police_scanner", 600)],
     ),
+    (
+        id: "bait_and_tackle",
+        name: "Bait & Tackle",
+        sells: [("fishing_rod", 12), ("nightcrawlers", 1), ("minnows", 2), ("fishing_vest", 30), ("bucket_hat", 10), ("soda", 1)],
+        // Buys the catch.
+        buy_rate: 0.5,
+        buys: ["food"],
+    ),
+    (
+        id: "loons_lodge",
+        name: "Loon's Lodge",
+        sells: [("fried_perch", 8), ("walleye_dinner", 14), ("diner_coffee", 7), ("soda", 2)],
+        buy_rate: 0.6,
+        buys: ["food"],
+    ),
+    (
+        id: "mama_jos",
+        name: "Mama Jo's Diner",
+        sells: [("cherry_pie", 5), ("chicken_fried_steak", 8), ("diner_coffee", 6), ("trucker_cap", 15)],
+        buy_rate: 0.5,
+        buys: ["food"],
+    ),
+    (
+        id: "diesel_bay",
+        name: "Diesel Bay",
+        sells: [("seized_alternator", 6), ("wrench", 12), ("spark_plug", 8), ("car_battery", 21), ("cb_handset", 45)],
+        // A truck garage: pays well for working parts.
+        buy_rate: 0.7,
+        buys: ["car_part"],
+        stock: [("seized_alternator", 2, 240.0), ("car_battery", 2, 180.0)],
+    ),
 ]

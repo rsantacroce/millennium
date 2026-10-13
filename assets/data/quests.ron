@@ -236,4 +236,56 @@
         ],
         rewards: (cash: 80, xp: [(Driving, 150)], items: [], rep: [("meridian", 150)]),
     ),
+    // --- Milestone 15: the road trip chain (Kat's zine, then Big Ray's load) and Lake Wren.
+    (
+        id: "road_trip",
+        name: "Route 9 Revisited",
+        stages: [
+            (
+                log: "Kat is making a zine about Route 9. First stop: a postcard from Rhonda at the Gas-N-Go.",
+                advance_when: [HasItem("gas_n_go_postcard", 1)],
+                hint: Some("Route 9 is the highway off the west end of Maple St: you'll need a car. Rhonda runs the Gas-N-Go."),
+            ),
+            (
+                log: "Get one of Gus's carved loons at Bait & Tackle in Lake Wren (the south turnoff off Route 9).",
+                advance_when: [HasItem("carved_loon", 1)],
+                hint: Some("Gus trades loons for fish. Rods and worms are on his shelf; fish from the end of the pier: use the Nightcrawlers from {Inventory} at the Fishing Spot."),
+            ),
+            (
+                log: "Get Mama Jo to sign a menu at the Mile 88 Truck Stop (drive on past Pinecrest).",
+                advance_when: [HasItem("signed_menu", 1)],
+                hint: Some("Mama Jo doesn't sign anything for people who haven't had the pie."),
+            ),
+            (log: "Bring the postcard, the loon and the signed menu to Kat outside Spin City Records, downtown."),
+        ],
+        rewards: (cash: 120, xp: [(Driving, 250)], items: [("denim_jacket", 1)], rep: [("city", 40)]),
+    ),
+    (
+        id: "long_haul",
+        name: "The Long Haul",
+        stages: [
+            (
+                log: "Big Ray's rig at the Mile 88 Truck Stop needs a working Alternator. Fix a seized one (Mechanics 3, a wrench: Wanda at Diesel Bay sells both).",
+                advance_when: [HasItem("alternator", 1)],
+                hint: Some("Use the Seized Alternator from {Inventory} with a Wrench in your bag. Stand still till it's done."),
+            ),
+            (log: "Give the alternator to Wanda at Diesel Bay."),
+            (log: "Take the crate of CB radios to Foreman Rizzo at the Harbor Docks."),
+            (log: "Take Rizzo's signed receipt back to Big Ray at the Mile 88 Truck Stop."),
+        ],
+        rewards: (cash: 150, xp: [(Driving, 200), (Mechanics, 80)], items: [("cb_handset", 1)], rep: [("dockside", 40)]),
+    ),
+    (
+        id: "gone_fishing",
+        name: "Gone Fishing",
+        stages: [
+            (
+                log: "Gus at Bait & Tackle in Lake Wren wants 3 Lake Perch for the Lodge's fish fry.",
+                advance_when: [HasItem("lake_perch", 3)],
+                hint: Some("Buy a Fishing Rod and Nightcrawlers from Gus, walk to the Fishing Spot at the end of the pier and use the Nightcrawlers from {Inventory}. Stand still while you fish."),
+            ),
+            (log: "Bring the 3 Lake Perch to Gus at Bait & Tackle."),
+        ],
+        rewards: (cash: 15, xp: [(Cooking, 120)], items: [("nightcrawlers", 10), ("minnows", 5)], rep: [("city", 15)]),
+    ),
 ]

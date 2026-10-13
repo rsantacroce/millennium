@@ -11,4 +11,9 @@
     (id: "cheeseburger", skill: Cooking, level: 3, input: "ground_beef", extra: [("bread", 1), ("cheese", 1)], tool: Some("frying_pan"), output: "cheeseburger", xp: 45, seconds: 4.0, verb: "Flipping a burger"),
     (id: "fix_camcorder", skill: Electronics, level: 7, input: "broken_camcorder", tool: Some("screwdriver_set"), output: "camcorder", xp: 70, seconds: 5.0, verb: "Cleaning tape heads"),
     (id: "hot_cocoa", skill: Cooking, level: 1, input: "cocoa_mix", tool: Some("frying_pan"), output: "hot_cocoa", xp: 15, seconds: 2.0, verb: "Heating cocoa"),
+    // Fishing (Milestone 15): bait, a rod in your bag, and a fishing spot.
+    (id: "fish_perch", skill: Cooking, level: 1, input: "nightcrawlers", tool: Some("fishing_rod"), output: "lake_perch", xp: 12, seconds: 5.0, verb: "Fishing", near: Some("fishing")),
+    (id: "fish_walleye", skill: Cooking, level: 4, input: "minnows", tool: Some("fishing_rod"), output: "walleye", xp: 30, seconds: 7.0, verb: "Fishing the deep water", near: Some("fishing")),
+    (id: "fried_perch", skill: Cooking, level: 1, input: "lake_perch", tool: Some("frying_pan"), output: "fried_perch", xp: 20, seconds: 3.0, verb: "Frying perch"),
+    (id: "walleye_dinner", skill: Cooking, level: 4, input: "walleye", extra: [("bread", 1)], tool: Some("frying_pan"), output: "walleye_dinner", xp: 45, seconds: 4.0, verb: "Cooking a shore lunch"),
 ]

@@ -584,6 +584,10 @@ fn handle_actions(
                     continue;
                 }
                 match progress.use_item(slot as usize, &content) {
+                    Ok(UseOutcome::StartRecipe(recipe)) if recipe.near.as_ref().is_some_and(|p| !content.prop_near(p, *zone, pos.0)) => {
+                        let place = if recipe.near.as_deref() == Some("fishing") { "a fishing spot" } else { "the right spot" };
+                        out.notice(link, SystemNotice::info(format!("You need to be at {place} for that.")));
+                    }
                     Ok(UseOutcome::StartRecipe(recipe)) => {
                         out.update(link, GameUpdate::ActionStarted { label: recipe.verb.clone(), seconds: recipe.seconds });
                         commands.entity(player).insert(Channeling { recipe, started: time.elapsed_secs_f64(), origin: pos.0 });

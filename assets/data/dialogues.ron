@@ -168,10 +168,12 @@
         id: "rizzo",
         start: "hello",
         nodes: [
+            (id: "ray_delivery", text: "Ray's radios! About time. Here, I signed. Tell that big lug the coffee's on me next time he's in town.", options: [(text: "Will do.", goto: None)]),
             (
                 id: "hello",
                 text: "Watch your step, kid. The docks ain't Maple Street.",
                 options: [
+                    (text: "Delivery from Big Ray.", when: [QuestAt("long_haul", 2), HasItem("cb_crate", 1)], effects: [TakeItem("cb_crate", 1), GiveItem("delivery_receipt", 1), SetQuestStage("long_haul", 3)], goto: Some("ray_delivery")),
                     (text: "Anything I can help with?", when: [QuestNotStarted("rat_problem")], goto: Some("problem")),
                     (text: "Still working on those Dock Rats.", when: [QuestAt("rat_problem", 0)], goto: Some("reminder")),
                     (
@@ -783,11 +785,13 @@
                 options: [(text: "Three coffees, coming up.", effects: [StartQuest("running_on_empty")], goto: None), (text: "I don't drink coffee.", goto: None)],
             ),
             (id: "coffee_done", text: "You're a lifesaver. Here, Mo left this cap. He won't miss it.", options: [(text: "Thanks, Rhonda.", goto: None)]),
+            (id: "postcard", text: "For Kat's zine? On the house. Tell her it's spelled with the hyphens.", options: [(text: "Thanks, Rhonda.", goto: None)]),
             (
                 id: "hello",
                 text: "Gas-N-Go, last stop for coffee till Pinecrest. Pump's broken, before you ask.",
                 options: [
                     (text: "Anything I can help with?", when: [QuestNotStarted("running_on_empty")], goto: Some("coffee_offer")),
+                    (text: "Kat sent me for a postcard.", when: [QuestAt("road_trip", 0)], effects: [GiveItem("gas_n_go_postcard", 1)], goto: Some("postcard")),
                     (text: "Here's your coffee.", when: [QuestAt("running_on_empty", 1), HasItem("diner_coffee", 3)], effects: [TakeItem("diner_coffee", 3), CompleteQuest("running_on_empty")], goto: Some("coffee_done")),
                     (text: "What've you got?", effects: [OpenShop("gas_n_go")], goto: None),
                     (text: "Where does this road go?", goto: Some("road")),
@@ -796,7 +800,7 @@
             ),
             (
                 id: "road",
-                text: "West is Pinecrest, nice little town, nothing happens there. The turnoff north goes up to Hollow Pines State Park. East takes you back into the city. Bus stops right outside if you're on foot.",
+                text: "West is Pinecrest, nice little town, nothing happens there, and past it the Mile 88 truck stop. The turnoff north goes up to Hollow Pines State Park, the one south down to Lake Wren. East takes you back into the city. Bus stops right outside if you're on foot.",
                 options: [(text: "Thanks.", goto: None)],
             ),
         ],
@@ -1145,6 +1149,217 @@
                 id: "thanks",
                 text: "Oh, you're a lifesaver. Happy New Year!",
                 options: [(text: "Happy 2000!", goto: None)],
+            ),
+        ],
+    ),
+    // --- Milestone 15.
+    (
+        id: "kat",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Spin City got the new Wilco on vinyl. Not that I can afford it. Every cent's going into my zine.",
+                options: [
+                    (text: "A zine about what?", when: [QuestNotStarted("road_trip")], goto: Some("pitch")),
+                    (text: "What do you need again?", when: [Not(QuestNotStarted("road_trip")), Not(QuestDone("road_trip")), Not(QuestAt("road_trip", 3))], goto: Some("remind")),
+                    (
+                        text: "Postcard, loon, menu. All yours.",
+                        when: [QuestAt("road_trip", 3), HasItem("gas_n_go_postcard", 1), HasItem("carved_loon", 1), HasItem("signed_menu", 1)],
+                        effects: [TakeItem("gas_n_go_postcard", 1), TakeItem("carved_loon", 1), TakeItem("signed_menu", 1), CompleteQuest("road_trip")],
+                        goto: Some("thanks"),
+                    ),
+                    (text: "How's the zine?", when: [QuestDone("road_trip")], goto: Some("after")),
+                    (text: "See you.", goto: None),
+                ],
+            ),
+            (
+                id: "pitch",
+                text: "Route 9 Revisited: every weird stop between here and the state line. Problem: no car. You've got wheels, right? Bring me a postcard from the Gas-N-Go, one of Gus's carved loons from Lake Wren and a signed menu from Mama Jo's at the Mile 88 truck stop.",
+                options: [(text: "Road trip. I'm in.", effects: [StartQuest("road_trip")], goto: None), (text: "Gas is expensive.", goto: None)],
+            ),
+            (
+                id: "remind",
+                text: "A postcard from the Gas-N-Go, a carved loon from Gus in Lake Wren (south off Route 9) and Mama Jo's signed menu. The truck stop's past Pinecrest. In that order, the way the road goes.",
+                options: [(text: "On it.", goto: None)],
+            ),
+            (
+                id: "thanks",
+                text: "These are perfect. The loon's going on the cover. Here: half my record money, and my old jacket. It's been down that road more times than me. Oh, and the trucker at Mile 88, Big Ray? He's always looking for drivers.",
+                options: [(text: "Rock on.", goto: None)],
+            ),
+            (id: "after", text: "Issue one's at the copy shop. Forty copies, thirty-nine to go.", options: [(text: "I'll take one.", goto: None)]),
+        ],
+    ),
+    (
+        id: "gus",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Bait & Tackle. Worms, minnows, rods, and the truth about the one that got away.",
+                options: [
+                    (text: "Kat sent me for one of your loons.", when: [QuestAt("road_trip", 1)], goto: Some("loon")),
+                    (text: "Need a hand?", when: [QuestNotStarted("gone_fishing")], goto: Some("offer")),
+                    (text: "Three perch, fresh.", when: [QuestAt("gone_fishing", 1), HasItem("lake_perch", 3)], effects: [TakeItem("lake_perch", 3), CompleteQuest("gone_fishing")], goto: Some("done")),
+                    (text: "Let me see the shelves.", effects: [OpenShop("bait_and_tackle")], goto: None),
+                    (text: "How do I fish?", goto: Some("howto")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "loon",
+                text: "Kat! Good kid. Tell you what: catch me a perch and the loon's yours. The pier's at the end of Lakeshore Road.",
+                options: [
+                    (text: "Here's a perch.", when: [HasItem("lake_perch", 1)], effects: [TakeItem("lake_perch", 1), GiveItem("carved_loon", 1)], goto: Some("loon_done")),
+                    (text: "I'll be back.", goto: None),
+                ],
+            ),
+            (id: "loon_done", text: "Not bad for a city kid. Here's your loon. Don't let her paint it.", options: [(text: "Thanks, Gus.", goto: None)]),
+            (
+                id: "offer",
+                text: "Cooler's empty and the Lodge wants perch for the fish fry. Bring me three and I'll set you up with bait.",
+                options: [(text: "Three perch. Got it.", effects: [StartQuest("gone_fishing")], goto: None), (text: "Not today.", goto: None)],
+            ),
+            (id: "done", text: "Now that's a mess of perch. Take some worms and minnows, you've earned them.", options: [(text: "Tight lines.", goto: None)]),
+            (
+                id: "howto",
+                text: "Rod in your bag, bait in your bag. Stand at the end of the pier and use the bait. Then hold still. Nightcrawlers for perch. Once you can cook a bit (Cooking 4), minnows get you walleye.",
+                options: [(text: "Thanks.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "marlene",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Loon's Lodge. Fish fry Fridays, karaoke Saturdays, regret Sundays.",
+                options: [
+                    (text: "What's cooking?", effects: [OpenShop("loons_lodge")], goto: None),
+                    (text: "What is there to do around here?", goto: Some("town")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "town",
+                text: "Fish, mostly. Rent a cabin, pretend you're Thoreau. Gus sells the bait. And the kids swear there's something living in the boathouse. Probably just the kids.",
+                options: [(text: "Probably.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "fishing_spot",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "The end of the pier. Water laps at the posts, and something big rolls out past the reeds.",
+                options: [(text: "How do I fish here?", goto: Some("howto")), (text: "Leave.", goto: None)],
+            ),
+            (
+                id: "howto",
+                text: "With a fishing rod in your bag, use bait right here: nightcrawlers for perch, minnows for walleye (Cooking 4). Hold still till something bites.",
+                options: [(text: "Got it.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "mama_jo",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Mama Jo's. Pie's fresh, coffee's hot, and truckers get a refill before they ask.",
+                options: [
+                    (text: "Kat's doing a zine. Would you sign a menu?", when: [QuestAt("road_trip", 2)], goto: Some("menu")),
+                    (text: "I'll see a menu.", effects: [OpenShop("mama_jos")], goto: None),
+                    (text: "What's good?", goto: Some("good")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "menu",
+                text: "A zine! Sugar, nobody gets my signature till they've had the pie.",
+                options: [
+                    (text: "I bought a slice. Box it up for Kat?", when: [HasItem("cherry_pie", 1)], effects: [TakeItem("cherry_pie", 1), GiveItem("signed_menu", 1)], goto: Some("menu_done")),
+                    (text: "I'll get a slice.", goto: None),
+                ],
+            ),
+            (id: "menu_done", text: "There. \"Drive safe, sugar.\" You tell her the pie goes on the cover, or I'll want my signature back.", options: [(text: "Yes ma'am.", goto: None)]),
+            (id: "good", text: "Cherry pie. The chicken-fried steak if you're hungry. Coffee if you're driving, and you're driving.", options: [(text: "Sounds good.", goto: None)]),
+        ],
+    ),
+    (
+        id: "wanda",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Diesel Bay. Trucks, mostly. I'll look at your hatchback if you say please.",
+                options: [
+                    (text: "Here's an alternator for Ray's rig.", when: [QuestAt("long_haul", 1), HasItem("alternator", 1)], effects: [TakeItem("alternator", 1), GiveItem("cb_crate", 1), SetQuestStage("long_haul", 2)], goto: Some("fixed")),
+                    (text: "Parts?", effects: [OpenShop("diesel_bay")], goto: None),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "fixed",
+                text: "That'll do it. Ray says you're running his radios into the city. Here's the crate. Don't drop it.",
+                options: [(text: "Careful as anything.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "big_ray",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Big Ray. Eighteen wheels, forty tons and a CB handle I can't say in front of Mama Jo.",
+                options: [
+                    (text: "Need a driver?", when: [QuestNotStarted("long_haul"), QuestDone("road_trip")], goto: Some("offer")),
+                    (text: "Need a driver?", when: [QuestNotStarted("long_haul"), Not(QuestDone("road_trip"))], goto: Some("not_yet")),
+                    (text: "Rizzo signed for the radios.", when: [QuestAt("long_haul", 3), HasItem("delivery_receipt", 1)], effects: [TakeItem("delivery_receipt", 1), CompleteQuest("long_haul")], goto: Some("done")),
+                    (text: "Bye.", goto: None),
+                ],
+            ),
+            (
+                id: "not_yet",
+                text: "Not from somebody who hasn't been down this road. Drive Route 9 proper, every stop, then come talk to me.",
+                options: [(text: "Fair enough.", goto: None)],
+            ),
+            (
+                id: "offer",
+                text: "Kat's zine, huh? Then you know the road. My alternator's shot and I've got a load of radios due at the harbor. Get Wanda a working alternator for my rig, then run half my load into the city. Pays good.",
+                options: [(text: "Ten-four.", effects: [StartQuest("long_haul")], goto: None), (text: "Not today.", goto: None)],
+            ),
+            (
+                id: "done",
+                text: "Ten-four, good buddy. You drive like you mean it. Here's your cut, and a handset so you can hear the road.",
+                options: [(text: "Keep on truckin'.", goto: None)],
+            ),
+        ],
+    ),
+    (
+        id: "cb_base",
+        start: "hello",
+        nodes: [
+            (
+                id: "hello",
+                text: "Static, then a voice: \"...breaker one-nine, got a smokey in a plain wrapper at Mile 80, westbound. Keep it under the double nickel...\"",
+                options: [(text: "Keep listening.", goto: Some("two")), (text: "Switch it off.", goto: None)],
+            ),
+            (
+                id: "two",
+                text: "\"...anybody seen the lights in that Pinecrest bell tower? Ten-four, I seen 'em. Ghosts don't run on batteries, good buddy...\"",
+                options: [(text: "Keep listening.", goto: Some("three")), (text: "Switch it off.", goto: None)],
+            ),
+            (
+                id: "three",
+                text: "\"...Mama Jo's got cherry pie, and if you're hungry, and you are, the steak. This is Big Ray, eastbound and down...\"",
+                options: [(text: "Keep listening.", goto: Some("hello")), (text: "Switch it off.", goto: None)],
             ),
         ],
     ),
