@@ -244,7 +244,7 @@ struct Beast {
 
 /// Dogs, raccoons and deer: a box body on four legs that swing with the walk cycle
 /// (`Limb`s, like a person's), a head out front (-Z), and a few extras per kind.
-fn spawn_animal(commands: &mut Commands, parent: Entity, kind: &str, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
+fn spawn_animal(commands: &mut Commands, parent: Entity, kind: &str, scale: f32, meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) {
     let beast = match kind {
         "dog" => Beast { body: Vec3::new(0.32, 0.3, 0.8), height: 0.55, leg: 0.42, coat: Color::srgb(0.45, 0.32, 0.2), trim: Color::srgb(0.85, 0.78, 0.65), head: 0.26, neck: 0.08 },
         "raccoon" => Beast { body: Vec3::new(0.3, 0.26, 0.55), height: 0.32, leg: 0.2, coat: Color::srgb(0.42, 0.42, 0.44), trim: Color::srgb(0.08, 0.08, 0.09), head: 0.22, neck: 0.0 },
@@ -253,7 +253,7 @@ fn spawn_animal(commands: &mut Commands, parent: Entity, kind: &str, meshes: &mu
     let mat = |materials: &mut Assets<StandardMaterial>, c: Color| materials.add(StandardMaterial { base_color: c, perceptual_roughness: 0.9, ..default() });
     let (coat, trim) = (mat(materials, beast.coat), mat(materials, beast.trim));
     let dark = mat(materials, Color::srgb(0.05, 0.04, 0.04));
-    let body = commands.spawn((Transform::default(), Visibility::default(), ChildOf(parent))).id();
+    let body = commands.spawn((Transform::from_scale(Vec3::splat(scale)), Visibility::default(), ChildOf(parent))).id();
     let mut part = |commands: &mut Commands, mesh: Mesh, material: &Handle<StandardMaterial>, at: Transform, to: Entity| {
         commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone()), at, ChildOf(to)));
     };
@@ -422,12 +422,17 @@ fn spawn_mob_visuals(
         commands.entity(entity).insert((Avatar, Transform::from_xyz(pos.x, 0.0, pos.y), Visibility::default()));
         match content.mobs.get(&tag.kind).and_then(|d| d.model.as_deref()) {
             Some("bug") => spawn_bug(&mut commands, entity, &mut meshes, &mut materials),
-            Some(kind @ ("dog" | "raccoon" | "deer")) => spawn_animal(&mut commands, entity, kind, &mut meshes, &mut materials),
+            Some(kind @ ("dog" | "raccoon" | "deer")) => {
+                let scale = content.mobs.get(&tag.kind).map_or(1.0, |d| d.scale);
+                spawn_animal(&mut commands, entity, kind, scale, &mut meshes, &mut materials);
+            }
             _ => spawn_body(&mut commands, entity, &appearance.copied().unwrap_or_default(), &mut meshes, &mut materials),
         }
         minimap_dot(&mut commands, entity, Color::srgb(0.9, 0.1, 0.1), &mut meshes, &mut materials);
         let level = content.mobs.get(&tag.kind).map_or(1, |d| d.level);
-        name_tag(&mut commands, entity, &format!("{} ({level})", name.0), Color::srgb(1.0, 0.4, 0.35));
+        // Deer and the like never fight: no rival red for them.
+        let color = if content.mobs.get(&tag.kind).is_some_and(|d| d.skittish) { Color::srgb(0.95, 0.85, 0.6) } else { Color::srgb(1.0, 0.4, 0.35) };
+        name_tag(&mut commands, entity, &format!("{} ({level})", name.0), color);
     }
 }
 

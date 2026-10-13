@@ -121,12 +121,14 @@ fn spawn_parked(commands: &mut Commands, rooms: &ZoneRooms, parked: &mut ParkedC
     parked.0.insert(car.id, entity);
 }
 
-/// A free spot for a car near `pos` (spiralling outwards), clear of buildings and people.
-fn free_spot(pos: Vec2, zone: &shared::zone::ZoneLayout, people: &[Vec2]) -> Vec2 {
+/// A free spot for a car near `pos` (spiralling outwards), clear of buildings, people (players
+/// and NPCs) and other parked cars.
+fn free_spot(pos: Vec2, zone: &shared::zone::ZoneLayout, people: &[Vec2], cars: &[Vec2]) -> Vec2 {
     let ok = |p: Vec2| {
         !vehicle::blocked(p, zone)
             && zone.bounds.inflate(-vehicle::CAR_RADIUS).contains(p)
             && people.iter().all(|o| o.distance(p) > vehicle::CAR_RADIUS + 1.0)
+            && cars.iter().all(|c| c.distance(p) > vehicle::CAR_RADIUS * 2.0 + 0.6)
     };
     for ring in 1..=8 {
         let r = ring as f32 * 1.5;
@@ -194,7 +196,10 @@ fn handle_requests(
             }
             CarAction::Grant(model) => {
                 let Some(layout) = zones.get(*zone) else { continue };
-                let spot = free_spot(pos.0, layout, &people);
+                let npcs = content.npcs.iter().filter(|n| n.zone_id() == *zone).map(|n| n.pos());
+                let people: Vec<Vec2> = people.iter().copied().chain(npcs).collect();
+                let parked: Vec<Vec2> = cars.iter().filter(|(.., z)| *z == zone).map(|(_, _, p, _)| p.0).collect();
+                let spot = free_spot(pos.0, layout, &people, &parked);
                 db.send(DbCommand::CreateCar {
                     link: req.link,
                     character_id: ids.character_id,

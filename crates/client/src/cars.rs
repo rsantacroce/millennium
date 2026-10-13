@@ -407,7 +407,8 @@ fn race_hud(mut commands: Commands, view: Res<RaceView>, time: Res<Time>, mut hu
             commands.spawn((
                 RaceHud,
                 DespawnOnExit(AppState::InGame),
-                Node { position_type: PositionType::Absolute, top: Val::Px(48.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
+                // Below the help text in the top left corner, which a long line would run into.
+                Node { position_type: PositionType::Absolute, top: Val::Px(150.0), width: Val::Percent(100.0), justify_content: JustifyContent::Center, ..default() },
                 Text::new(t),
                 theme::text_font(22.0).with_font_weight(FontWeight::BOLD),
                 TextColor(Color::srgb(1.0, 0.85, 0.2)),

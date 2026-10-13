@@ -274,7 +274,11 @@ fn build_zone(commands: &mut Commands, zone: &ZoneLayout, meshes: &mut Assets<Me
             commands,
             (Mesh3d(meshes.add(Plane3d::default().mesh().size(s.x, s.y))), MeshMaterial3d(asphalt.clone()), Transform::from_xyz(c.x, 0.01, c.y)),
         );
-        // Dashed center line along the long axis, skipping where streets cross.
+        // Dashed center line along the long axis, skipping where streets cross. Anything wider
+        // than a road (a parking lot, the mall's concourse) has none.
+        if s.x.min(s.y) > 12.0 {
+            continue;
+        }
         let along_x = s.x > s.y;
         let len = s.x.max(s.y);
         let mut t = -len / 2.0 + 2.0;

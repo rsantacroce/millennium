@@ -293,10 +293,8 @@ pub fn route_9() -> ZoneLayout {
         prop("Gas Pumps", rect(-2.0, 9.0, 6.0, 1.2), 1.6, [0.85, 0.85, 0.80]),
         prop("Billboard", rect(-60.0, -14.0, 8.0, 0.5), 6.0, [0.95, 0.90, 0.35]),
         prop("Billboard", rect(80.0, 14.0, 8.0, 0.5), 6.0, [0.30, 0.60, 0.90]),
-        // Fast Eddie's Used Cars: a sign and a couple of cars on the lot.
+        // Fast Eddie's Used Cars: the sign at the back of the lot.
         prop("Fast Eddie's Used Cars", rect(56.0, 17.0, 7.0, 0.4), 4.0, [0.95, 0.75, 0.15]),
-        prop("Car For Sale", rect(52.0, 12.5, 2.0, 4.0), 1.4, [0.22, 0.38, 0.28]),
-        prop("Car For Sale", rect(60.0, 12.5, 2.0, 4.0), 1.4, [0.80, 0.10, 0.12]),
     ];
     for i in -5..=5 {
         let x = i as f32 * 20.0 + 6.0;
@@ -468,7 +466,10 @@ pub fn truck_stop() -> ZoneLayout {
             building("Diesel Bay", rect(16.0, 35.0, 18.0, 8.0), 7.0, [0.45, 0.48, 0.52]),
             building("Starlite Motor Inn", rect(-24.0, -22.0, 26.0, 10.0), 6.0, [0.30, 0.45, 0.65]),
             building("Truckers' Lounge", rect(16.0, -16.0, 12.0, 8.0), 4.5, [0.60, 0.30, 0.25]),
-            prop("Diesel Pumps", rect(0.0, 12.0, 14.0, 1.4), 1.8, [0.85, 0.85, 0.80]),
+            prop("Diesel Pump", rect(-6.0, 12.0, 1.0, 0.8), 1.8, [0.90, 0.20, 0.15]),
+            prop("Diesel Pump", rect(-2.0, 12.0, 1.0, 0.8), 1.8, [0.90, 0.20, 0.15]),
+            prop("Diesel Pump", rect(2.0, 12.0, 1.0, 0.8), 1.8, [0.90, 0.20, 0.15]),
+            prop("Diesel Pump", rect(6.0, 12.0, 1.0, 0.8), 1.8, [0.90, 0.20, 0.15]),
             trailer(-30.0, 14.0, [0.90, 0.90, 0.92]),
             trailer(-30.0, 22.0, [0.70, 0.20, 0.15]),
             trailer(30.0, 18.0, [0.20, 0.35, 0.65]),

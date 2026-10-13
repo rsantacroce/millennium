@@ -329,6 +329,7 @@
             loot: [("bottle_caps", 0.5), ("burned_cd", 0.15)],
             appearance: (body: 0, skin: 0, jacket: 0, pants: 0, cap: 10),
             model: Some("raccoon"),
+            scale: 1.3,
             ko_text: Some("The raccoon chitters at you and waddles off into the dark."),
         ),
         (
@@ -347,6 +348,7 @@
             loot: [("bottle_caps", 0.5), ("nightcrawlers", 0.3)],
             appearance: (body: 0, skin: 0, jacket: 0, pants: 0, cap: 10),
             model: Some("raccoon"),
+            scale: 1.3,
             ko_text: Some("The raccoon drops a marshmallow and scurries under the dock."),
         ),
         (
@@ -365,6 +367,7 @@
             loot: [("bottle_caps", 1.0), ("pocketplay", 0.1)],
             appearance: (body: 0, skin: 0, jacket: 0, pants: 0, cap: 10),
             model: Some("raccoon"),
+            scale: 2.0,
             ko_text: Some("Big Bandit, the Lake Wren monster, waddles off with what's left of the marshmallows."),
         ),
         (

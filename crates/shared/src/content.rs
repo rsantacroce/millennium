@@ -242,6 +242,13 @@ pub struct MobDef {
     /// What you're told instead of "You knocked out a ..." (animals aren't rivals).
     #[serde(default)]
     pub ko_text: Option<String>,
+    /// How big a non-person `model` is drawn (Big Bandit is a big raccoon).
+    #[serde(default = "one_f32")]
+    pub scale: f32,
+}
+
+fn one_f32() -> f32 {
+    1.0
 }
 
 /// Rival models other than a person.
@@ -1045,7 +1052,7 @@ impl Content {
                     errors.push(format!("mob `{id}`: loot chance {chance} out of range"));
                 }
             }
-            if m.min_damage > m.max_damage || m.cash.0 > m.cash.1 || m.max_hp == 0 {
+            if m.min_damage > m.max_damage || m.cash.0 > m.cash.1 || m.max_hp == 0 || !(0.25..=4.0).contains(&m.scale) {
                 errors.push(format!("mob `{id}`: bad stats"));
             }
         }
