@@ -479,7 +479,7 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
 - **Parties** belong to the hub in a cluster, so they survive changing servers. Members'
   zone and health are reported every second, and party chat is relayed to the other servers.
 - **Not cross-server:** trades (both players have to be standing next to each other anyway).
-  Food buffs wear off when you change servers.
+  Food buffs and cooldowns are saved with the character, so they come along.
 
 ### Gear, factions and Trading
 
@@ -497,6 +497,8 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
 - **What shops buy:** every item has a category, and each shop buys only the kinds it deals
   in. The pawn shop takes anything, at the lowest rate. A shop never pays under $1.
 - **Limited stock:** cheap repair inputs (broken gadgets, rusty carburetors) restock over time.
+  Stock and demand are saved (`shop_stock`, once a minute and at shutdown), so a restart doesn't
+  refill the shelves. Each server only writes the shops it has changed.
 - **Demand:** a shop pays 8% less for an item each time anyone sells it one (down to 35%),
   recovering one sale's worth every 45 s. All of this lives on the server, and the shop window
   shows stock left and today's price.
@@ -526,7 +528,7 @@ cargo run -p client -- --server 127.0.0.1:5888    # log in on either server
 Recipes can use several ingredients (`extra` in `recipes.ron`). Food can heal and start a
 *buff*: temporary bonus levels in a skill. Buffs count like gear bonuses, refresh rather than
 stack, and live in `PlayerState` with a wall-clock end time. The server drops them when they run
-out, and they aren't saved (logging out ends them).
+out. They're saved with the character and keep counting down while you're logged out.
 
 ### Hacking
 
@@ -535,7 +537,8 @@ out, and they aren't saved (logging out ends them).
 Hackable things (`hacks.ron`) are NPC-like props with a "Hack it" dialogue option. The server
 picks a random code, the client flashes it, and you type it back before the timer runs out.
 The more you outlevel the hack, the shorter the code and the longer it shows. Success rolls
-cash, XP, loot and reputation and starts a per-player cooldown. Failure trips an alarm. The code
+cash, XP, loot and reputation and starts a per-player cooldown (`PlayerState::cooldowns`, saved,
+so logging out or a restart doesn't reset it). Failure trips an alarm. The code
 does travel to the client, so a modified client could auto-solve; payouts are small and capped
 by cooldowns.
 

@@ -186,6 +186,12 @@ pub enum DbCommand {
     /// Buys `plot` (if nobody has, and the character has no house) and saves `state` (with
     /// the price paid) in the same transaction.
     BuyHouse { link: Entity, character_id: i64, plot: u8, state: PlayerState },
+    // Shops.
+    /// Saved stock and demand for every shop.
+    LoadShops,
+    /// Upserts these rows (only the ones this server has touched, so zone servers sharing a
+    /// database don't overwrite each other).
+    SaveShops(Vec<ShopRow>),
     /// One car, for a driver arriving from another server.
     LoadCar { player: Entity, car: i64 },
     /// Replies with this result once every earlier command has been processed (e.g. "the
@@ -228,9 +234,22 @@ pub enum DbResult {
     CarCreated { link: Entity, car: CarRecord },
     CarLoaded { player: Entity, car: Option<CarRecord> },
     Houses(Vec<HouseRecord>),
+    Shops(Vec<ShopRow>),
     HouseBought { link: Entity, plot: u8, result: Result<(), String> },
     /// A transferring player's state is saved (see `cluster`).
     TransferSaved { link: Entity },
+}
+
+/// A shop item's stock and demand, as saved. `None` = not tracked (unlimited stock, or no
+/// recent sales). Times are Unix ms.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShopRow {
+    pub shop: String,
+    pub item: String,
+    /// (units left, when the next one comes in)
+    pub stock: Option<(u32, i64)>,
+    /// (recent sales, when last updated)
+    pub demand: Option<(f32, i64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -279,6 +298,20 @@ fn restore_storage(state: &mut PlayerState, rows: Vec<(i32, String, i64)>) {
             *s = Some(shared::game::ItemStack { item, qty: qty as u32 });
         }
     }
+}
+
+/// Puts saved buffs and cooldowns back (both are Unix-ms deadlines, so time spent logged out
+/// counts).
+fn restore_timers(state: &mut PlayerState, buffs: Vec<(String, String, i32, i64)>, cooldowns: Vec<(String, i64)>) {
+    let now = now_ms();
+    state.buffs = buffs
+        .into_iter()
+        .filter(|(.., until)| *until > now)
+        .filter_map(|(source, skill, levels, until_ms)| {
+            Some(shared::game::ActiveBuff { source, skill: Skill::from_key(&skill)?, levels: levels.max(0) as u32, until_ms })
+        })
+        .collect();
+    state.cooldowns = cooldowns.into_iter().filter(|(_, until)| *until > now).collect();
 }
 
 /// A listing row as both stores read it.

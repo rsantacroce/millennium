@@ -354,6 +354,10 @@ fn receive(
 ) {
     if let Ok(Some(mut rx)) = world_events.single_mut() {
         for e in rx.receive() {
+            if e.name.is_empty() {
+                println!("EVENT  none");
+                continue;
+            }
             println!("EVENT  {} {:?} {}/{} ({}s left)", e.name, e.phase, e.progress, e.goal, (e.ends_at_ms - shared::clock::now_ms()) / 1000);
         }
     }
@@ -509,7 +513,13 @@ fn print_state(state: &PlayerState, content: &Content) {
         .collect();
     let skills: Vec<String> = state.skills.keys().map(|s| format!("{} {} ({} xp)", s.name(), state.level(*s), state.xp(*s))).collect();
     let gear: Vec<String> = state.gear.iter().map(|(slot, item)| format!("{}: {}", slot.name(), content.item_name(item))).collect();
-    println!("STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?} | wearing: {gear:?}", state.cash);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    let buffs: Vec<String> = state.buffs.iter().map(|b| format!("{} +{} ({}s)", b.skill.name(), b.levels, (b.until_ms - now) / 1000)).collect();
+    let cooldowns: Vec<String> = state.cooldowns.iter().filter(|(_, t)| **t > now).map(|(k, t)| format!("{k} ({}s)", (t - now) / 1000)).collect();
+    println!(
+        "STATE  ${} | items: {items:?} | quests: {quests:?} | skills: {skills:?} | wearing: {gear:?} | buffs: {buffs:?} | cooldowns: {cooldowns:?}",
+        state.cash
+    );
 }
 
 fn run_script(

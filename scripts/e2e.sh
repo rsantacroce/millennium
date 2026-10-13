@@ -5,10 +5,11 @@
 #   DATABASE_URL=sqlite:///tmp/e2e.db scripts/e2e.sh
 #
 # 1. Starts the server on DATABASE_URL (migrations run on an empty database).
-# 2. A brand-new player plays the tutorial (Welcome to the City) with the smoke tool.
+# 2. A brand-new player plays the tutorial (Welcome to the City) with the smoke tool, then drinks
+#    a diner coffee (a 10-minute buff) and buys two of the pawn shop's three walkmen.
 # 3. The server is killed with SIGKILL: no shutdown, no final save.
 # 4. A new server starts on the same database; the player logs back in, and everything the
-#    tutorial gave them must still be there.
+#    tutorial gave them must still be there, and so must the buff and the shop's low stock.
 # 5. A backup is restored into a new database (SQLite: the copy the server makes at startup;
 #    Postgres: backup-postgres.sh and restore-postgres.sh), and the player must find it all there.
 #
@@ -37,6 +38,8 @@ tls_dir = "$work/tls"
 [database]
 url = "$DATABASE_URL"
 backup_dir = "$work/backups"
+[chat]
+admins = ["Tester"]
 EOF
 
 # start_server [database url]: the URL overrides the config (the server reads DATABASE_URL).
@@ -65,6 +68,12 @@ play --step "!goto -7.5 -6" --step "!talk pruitt" --step "!choose First" --step 
      --step "!goto -7.5 -6" --step "!talk pruitt" --step "!choose Here" --step "!wait 2" --step "!state" > "$work/before.txt"
 grep -a "STATE" "$work/before.txt" | tail -1
 grep -aq 'welcome=done' "$work/before.txt" || { cat "$work/before.txt"; echo "the tutorial didn't complete" >&2; exit 1; }
+# Sal sells walkmen 3 at a time (one more every 90 s). The checks below run well within 180 s.
+play --step "/give diner_coffee 1" --step "!wait 1" --step "!use diner_coffee" \
+     --step "!goto -31 -5.5" --step "!talk sal" --step "!choose Show" --step "!buy broken_walkman 2" --step "!closeshop" \
+     --step "!wait 2" --step "!state" > "$work/shopping.txt"
+grep -a "STATE" "$work/shopping.txt" | tail -1
+grep -a "STATE" "$work/shopping.txt" | tail -1 | grep -q 'Driving +1' || { cat "$work/shopping.txt"; echo "no coffee buff" >&2; exit 1; }
 
 echo "== 3. kill -9 the server"
 kill -9 "$pid"
@@ -78,11 +87,19 @@ check_state() {
   local state
   state=$(grep -a "STATE" "$1" | tail -1)
   echo "$state"
-  for expect in 'welcome=done' '\$34' 'First Aid Kit x1'; do
+  for expect in 'welcome=done' '\$18' 'First Aid Kit x1' 'Broken Walkman x1", "Broken Walkman x1' 'Driving +1'; do
     grep -q "$expect" <<<"$state" || { cat "$1"; echo "lost $2: $expect" >&2; exit 1; }
   done
+  # Sal hasn't restocked to three (a restart used to restock everything).
+  local shop
+  shop=$(grep -a "SHOP   stock" "$1" | tail -1)
+  echo "$shop"
+  grep -q '"broken_walkman", [012])' <<<"$shop" || { cat "$1"; echo "the pawn shop restocked $2" >&2; exit 1; }
 }
-play --step "!wait 1" --step "!state" > "$work/after.txt"
+look() {
+  play --step "!wait 1" --step "!state" --step "!goto -31 -5.5" --step "!talk sal" --step "!choose Show" --step "!wait 1" --step "!closeshop"
+}
+look > "$work/after.txt"
 check_state "$work/after.txt" "after the crash"
 
 echo "== 5. restore a backup into a new database"
@@ -102,7 +119,7 @@ case $DATABASE_URL in
     ;;
 esac
 start_server "$restored"
-play --step "!wait 1" --step "!state" > "$work/restored.txt"
+look > "$work/restored.txt"
 check_state "$work/restored.txt" "in the restored backup"
 
-echo "== passed on $(cut -d: -f1 <<<"$DATABASE_URL"): the tutorial's results survived kill -9, and a restored backup"
+echo "== passed on $(cut -d: -f1 <<<"$DATABASE_URL"): the tutorial's results, a buff and shop stock survived kill -9, and a restored backup"

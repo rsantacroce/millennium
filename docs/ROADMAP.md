@@ -20,6 +20,12 @@ What's left is polish, running it for real, more content, and some bigger ideas 
 | 6 | Economy pass (shop categories, stock, demand, money-loop checks), houses and furniture, nine new quests, configurable day length |
 | 7 | Walk/drive animations, settings and key bindings, map and quest tracker, tooltips, a tutorial, synthesized music and a car radio |
 | 8 | CI (with Postgres), automatic backups and restore tests, a Docker image, systemd units and a deployment guide |
+| 9 | Metrics and a status page, a load test, moderation tools (reports, kicks, bans, an admin window), account recovery and deletion |
+| 10 | Fixes from the GUI check of the new windows |
+| 11 | No more frame spikes (single-threaded schedules), interest management (players only see who's within 40-46 m) |
+| 12 | Fewer bytes per player: far players at 10 Hz, positions in 4 bytes (8.4 KB/s per player at 200 bots) |
+| 13 | The Y2K New Year's Eve world event |
+| 14 | Food buffs, hack cooldowns and shop stock are saved: logouts, server changes and restarts no longer reset them |
 
 ## Next: feel and usability
 
@@ -60,9 +66,9 @@ What a new player notices first.
 
 - [ ] Houses can't be sold, and there's only one house per character
 - [ ] Trades only work between players on the same server (they stand next to each other anyway)
-- [ ] Food buffs end when you log out or change servers
+- [x] Food buffs end when you log out or change servers (saved since Milestone 14; they keep counting down while you're away)
 - [ ] Hacking can be auto-solved by a modified client (see `docs/hacking.md` for the cheat-proof design)
-- [ ] Hack cooldowns and shop stock reset when a server restarts
+- [x] Hack cooldowns and shop stock reset when a server restarts (saved since Milestone 14)
 
 ## To explore later: blockchain and a peer-to-peer version
 

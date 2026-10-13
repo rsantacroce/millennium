@@ -67,6 +67,9 @@ impl Plugin for GameplayPlugin {
         app.init_resource::<ShiftWorkers>()
             .init_resource::<ShopMarket>()
             .add_systems(Update, shop_info.after(handle_actions))
+            .add_systems(Startup, |db: Res<crate::persistence::Db>| db.send(crate::persistence::DbCommand::LoadShops))
+            .add_systems(Update, (load_shops, save_shops))
+            .add_systems(Last, save_shops_on_shutdown.before(crate::session::save_on_shutdown))
             .add_systems(Startup, spawn_npcs)
             .add_systems(Update, shift_change)
             .add_systems(Update, (handle_actions, walk_away_closes, tick_channels, expire_buffs).chain());
@@ -75,7 +78,8 @@ impl Plugin for GameplayPlugin {
 
 /// NPCs are ordinary replicated entities in their zone's room.
 /// Shop stock and demand, shared by every player (see `shared::content::demand_factor`).
-/// Kept in memory: a restart restocks everything.
+/// Times are Unix seconds, and the numbers are saved (`shop_stock`), so a restart doesn't
+/// restock everything.
 #[derive(Resource, Default)]
 pub struct ShopMarket {
     /// (shop, item) -> (left, when the next one comes in)
@@ -84,6 +88,15 @@ pub struct ShopMarket {
     demand: HashMap<(String, String), (f32, f64)>,
     /// Shops whose numbers changed: their open windows get a `ShopInfo`.
     dirty: std::collections::HashSet<String>,
+    /// Entries this server has changed (the only ones it saves).
+    touched: std::collections::HashSet<(String, String)>,
+    /// Something changed since the last save.
+    unsaved: bool,
+}
+
+/// Now, in Unix seconds (shop times).
+fn wall_secs() -> f64 {
+    crate::persistence::now_ms() as f64 / 1000.0
 }
 
 impl ShopMarket {
@@ -103,10 +116,13 @@ impl ShopMarket {
     }
 
     fn take(&mut self, shop: &str, item: &str, qty: u32) {
-        if let Some(entry) = self.stock.get_mut(&(shop.to_string(), item.to_string())) {
+        let key = (shop.to_string(), item.to_string());
+        if let Some(entry) = self.stock.get_mut(&key) {
             entry.0 = entry.0.saturating_sub(qty);
         }
         self.dirty.insert(shop.to_string());
+        self.touched.insert(key);
+        self.unsaved = true;
     }
 
     /// The demand factor for selling `item` to `shop` now.
@@ -119,9 +135,42 @@ impl ShopMarket {
 
     fn sold(&mut self, shop: &str, item: &str, qty: u32, now: f64) {
         self.demand(shop, item, now);
-        let entry = self.demand.entry((shop.to_string(), item.to_string())).or_insert((0.0, now));
+        let key = (shop.to_string(), item.to_string());
+        let entry = self.demand.entry(key.clone()).or_insert((0.0, now));
         entry.0 += qty as f32;
         self.dirty.insert(shop.to_string());
+        self.touched.insert(key);
+        self.unsaved = true;
+    }
+
+    /// Rows to save: everything this server has changed.
+    fn rows(&self) -> Vec<crate::persistence::ShopRow> {
+        let ms = |t: f64| (t * 1000.0) as i64;
+        self.touched
+            .iter()
+            .map(|key| crate::persistence::ShopRow {
+                shop: key.0.clone(),
+                item: key.1.clone(),
+                stock: self.stock.get(key).map(|(left, next)| (*left, ms(*next))),
+                demand: self.demand.get(key).map(|(sales, at)| (*sales, ms(*at))),
+            })
+            .collect()
+    }
+
+    /// Saved numbers, from `LoadShops`. Anything already changed here wins.
+    fn restore(&mut self, rows: &[crate::persistence::ShopRow]) {
+        for r in rows {
+            let key = (r.shop.clone(), r.item.clone());
+            if self.touched.contains(&key) {
+                continue;
+            }
+            if let Some((left, next)) = r.stock {
+                self.stock.insert(key.clone(), (left, next as f64 / 1000.0));
+            }
+            if let Some((sales, at)) = r.demand {
+                self.demand.insert(key, (sales, at as f64 / 1000.0));
+            }
+        }
     }
 
     fn info(&mut self, shop: &shared::content::ShopDef, now: f64) -> GameUpdate {
@@ -144,9 +193,8 @@ fn shop_info(
     opened: Query<(), Added<ActiveShop>>,
     mut out: Outbox,
     content: Res<Content>,
-    time: Res<Time<Real>>,
 ) {
-    let now = time.elapsed_secs_f64();
+    let now = wall_secs();
     let dirty: Vec<String> = market.dirty.drain().collect();
     for (player, link, active) in &viewers {
         let fresh = opened.contains(player);
@@ -157,6 +205,33 @@ fn shop_info(
             let info = market.info(def, now);
             out.update(link.0, info);
         }
+    }
+}
+
+fn load_shops(mut events: MessageReader<crate::persistence::DbEvent>, mut market: ResMut<ShopMarket>) {
+    for crate::persistence::DbEvent(result) in events.read() {
+        if let crate::persistence::DbResult::Shops(rows) = result {
+            market.restore(rows);
+            info!("{} saved shop stock row(s)", rows.len());
+        }
+    }
+}
+
+/// Saves changed shop numbers once a minute.
+fn save_shops(mut market: ResMut<ShopMarket>, db: Res<crate::persistence::Db>, time: Res<Time<Real>>, mut next: Local<f64>) {
+    let now = time.elapsed_secs_f64();
+    if now < *next || !market.unsaved {
+        return;
+    }
+    *next = now + 60.0;
+    market.unsaved = false;
+    db.send(crate::persistence::DbCommand::SaveShops(market.rows()));
+}
+
+/// Before `session::save_on_shutdown` waits for the database to finish.
+fn save_shops_on_shutdown(mut exit: MessageReader<AppExit>, market: Res<ShopMarket>, db: Res<crate::persistence::Db>) {
+    if exit.read().next().is_some() && !market.touched.is_empty() {
+        db.send(crate::persistence::DbCommand::SaveShops(market.rows()));
     }
 }
 
@@ -450,7 +525,7 @@ fn handle_actions(
                     continue;
                 };
                 let shop_def = &content.shops[&active.shop];
-                let now = time.elapsed_secs_f64();
+                let now = wall_secs();
                 if let Some(left) = market.left(shop_def, &item, now)
                     && left < qty
                 {
@@ -478,7 +553,7 @@ fn handle_actions(
                 };
                 let shop_def = &content.shops[&active.shop];
                 let item = progress.inventory.get(slot as usize).cloned().flatten();
-                let now = time.elapsed_secs_f64();
+                let now = wall_secs();
                 let demand = item.as_ref().map_or(1.0, |s| market.demand(&shop_def.id, &s.item, now));
                 match progress.sell(shop_def, slot as usize, qty, demand, &content) {
                     Ok(events) => {

@@ -516,7 +516,7 @@ fn sync_progress(
 
 /// On `AppExit` (Ctrl-C on a dedicated server, or the host quitting): save everyone who's online
 /// and wait for the database to finish before the process goes away.
-fn save_on_shutdown(
+pub fn save_on_shutdown(
     mut exit: MessageReader<AppExit>,
     players: Query<(&CharacterIds, &Position, &ZoneId, &Progress, Has<MarketPending>), Without<Transferring>>,
     online: Res<OnlinePlayers>,

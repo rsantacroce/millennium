@@ -49,9 +49,12 @@ pub struct PlayerState {
     /// Reputation per faction. Missing = 0 (Neutral).
     #[serde(default)]
     pub rep: BTreeMap<FactionId, i32>,
-    /// Food buffs. Not saved: they wear off at logout.
+    /// Food buffs. Saved: they keep running (in real time) while you're logged out.
     #[serde(default)]
     pub buffs: Vec<ActiveBuff>,
+    /// When each cooldown (a hack, a group job) is over, in Unix ms. Saved.
+    #[serde(default)]
+    pub cooldowns: BTreeMap<String, i64>,
     /// Furniture placed in your house, by slot (see `zone::FURNITURE_SLOTS`).
     #[serde(default)]
     pub furniture: BTreeMap<u8, ItemId>,
@@ -185,6 +188,7 @@ impl PlayerState {
             gear: BTreeMap::new(),
             rep: BTreeMap::new(),
             buffs: Vec::new(),
+            cooldowns: BTreeMap::new(),
             furniture: BTreeMap::new(),
             storage: Vec::new(),
             at_home: false,
@@ -739,6 +743,17 @@ impl PlayerState {
     pub fn add_buff(&mut self, source: ItemId, buff: &BuffDef, now_ms: i64) {
         self.buffs.retain(|b| b.source != source);
         self.buffs.push(ActiveBuff { source, skill: buff.skill, levels: buff.levels, until_ms: now_ms + (buff.seconds * 1000.0) as i64 });
+    }
+
+    /// Milliseconds until the cooldown `key` is over (`None` = ready now).
+    pub fn cooldown_left_ms(&self, key: &str, now_ms: i64) -> Option<i64> {
+        self.cooldowns.get(key).map(|until| until - now_ms).filter(|left| *left > 0)
+    }
+
+    /// Starts a cooldown (and forgets the ones that are over).
+    pub fn start_cooldown(&mut self, key: impl Into<String>, until_ms: i64, now_ms: i64) {
+        self.cooldowns.retain(|_, until| *until > now_ms);
+        self.cooldowns.insert(key.into(), until_ms);
     }
 
     /// Drops buffs that have run out. Returns whether any did.

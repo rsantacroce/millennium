@@ -252,6 +252,8 @@ impl SqliteStore {
                 .await
                 .map(|_| None),
             DbCommand::LoadHouses => self.load_houses().await.map(|h| Some(DbResult::Houses(h))),
+            DbCommand::LoadShops => self.load_shops().await.map(|rows| Some(DbResult::Shops(rows))),
+            DbCommand::SaveShops(rows) => self.save_shops(&rows).await.map(|_| None),
             DbCommand::BuyHouse { link, character_id, plot, state } => self
                 .buy_house(character_id, plot, &state)
                 .await
@@ -418,6 +420,14 @@ impl SqliteStore {
             .bind(character_id)
             .fetch_all(&self.pool)
             .await?;
+        let buffs: Vec<(String, String, i32, i64)> = sqlx::query_as("SELECT source, skill, levels, until_ms FROM buffs WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
+        let cooldowns: Vec<(String, i64)> = sqlx::query_as("SELECT name, until_ms FROM cooldowns WHERE character_id = ?")
+            .bind(character_id)
+            .fetch_all(&self.pool)
+            .await?;
         let mut state = assemble_state(cash, items, quests, skills);
         state.weapon = weapon;
         state.rep = rep.into_iter().collect();
@@ -425,6 +435,7 @@ impl SqliteStore {
         restore_storage(&mut state, stored);
         state.gear = gear.into_iter().filter_map(|(slot, item)| Some((shared::content::GearSlot::from_name(&slot)?, item))).collect();
         state.kills = kills.into_iter().map(|(m, k)| (m, k.max(0) as u32)).collect();
+        restore_timers(&mut state, buffs, cooldowns);
 
         let ignores: Vec<(i64, String)> = sqlx::query_as(
             "SELECT i.ignored_id, c.name FROM ignores i
@@ -731,6 +742,8 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
         "DELETE FROM reputation WHERE character_id = ?",
         "DELETE FROM furniture WHERE character_id = ?",
         "DELETE FROM storage_items WHERE character_id = ?",
+        "DELETE FROM buffs WHERE character_id = ?",
+        "DELETE FROM cooldowns WHERE character_id = ?",
     ] {
         sqlx::query(sql).bind(character_id).execute(&mut **tx).await?;
     }
@@ -799,6 +812,25 @@ async fn write_state(tx: &mut Transaction<'_, Sqlite>, character_id: i64, state:
             .bind(character_id)
             .bind(slot.name())
             .bind(item)
+            .execute(&mut **tx)
+            .await?;
+    }
+    let now = now_ms();
+    for b in state.buffs.iter().filter(|b| b.until_ms > now) {
+        sqlx::query("INSERT INTO buffs (character_id, source, skill, levels, until_ms) VALUES (?, ?, ?, ?, ?)")
+            .bind(character_id)
+            .bind(&b.source)
+            .bind(b.skill.key())
+            .bind(b.levels as i32)
+            .bind(b.until_ms)
+            .execute(&mut **tx)
+            .await?;
+    }
+    for (name, until) in state.cooldowns.iter().filter(|(_, until)| **until > now) {
+        sqlx::query("INSERT INTO cooldowns (character_id, name, until_ms) VALUES (?, ?, ?)")
+            .bind(character_id)
+            .bind(name)
+            .bind(*until)
             .execute(&mut **tx)
             .await?;
     }
@@ -1124,6 +1156,40 @@ impl SqliteStore {
 }
 
 impl SqliteStore {
+    async fn load_shops(&self) -> Result<Vec<ShopRow>, sqlx::Error> {
+        type Row = (String, String, Option<i64>, Option<i64>, Option<f64>, Option<i64>);
+        let rows: Vec<Row> = sqlx::query_as("SELECT shop, item, stock_left, restock_ms, demand, demand_ms FROM shop_stock").fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|(shop, item, left, restock, demand, demand_ms)| ShopRow {
+                shop,
+                item,
+                stock: left.zip(restock).map(|(l, r)| (l.max(0) as u32, r)),
+                demand: demand.zip(demand_ms).map(|(d, t)| (d as f32, t)),
+            })
+            .collect())
+    }
+
+    async fn save_shops(&self, rows: &[ShopRow]) -> Result<(), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        for r in rows {
+            sqlx::query(
+                "INSERT INTO shop_stock (shop, item, stock_left, restock_ms, demand, demand_ms) VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (shop, item) DO UPDATE SET stock_left = excluded.stock_left, restock_ms = excluded.restock_ms,
+                     demand = excluded.demand, demand_ms = excluded.demand_ms",
+            )
+            .bind(&r.shop)
+            .bind(&r.item)
+            .bind(r.stock.map(|(l, _)| l as i64))
+            .bind(r.stock.map(|(_, t)| t))
+            .bind(r.demand.map(|(d, _)| d as f64))
+            .bind(r.demand.map(|(_, t)| t))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await
+    }
+
     async fn load_houses(&self) -> Result<Vec<HouseRecord>, sqlx::Error> {
         let rows: Vec<(i32, i64, String)> =
             sqlx::query_as("SELECT h.plot, h.owner_id, c.name FROM houses h JOIN characters c ON c.id = h.owner_id ORDER BY h.plot")

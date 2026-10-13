@@ -3,7 +3,7 @@
 //! Choosing "Hack it" in a terminal's dialogue starts a challenge: the server picks a random
 //! code and sends it to the client, which flashes it for a moment; the player types it back
 //! before the clock runs out. The server checks the answer and the time, rolls the rewards and
-//! puts the hack on a cooldown for that player. A wrong or late answer trips an alarm.
+//! puts the hack on a cooldown for that player (saved with the character). A wrong or late answer trips an alarm.
 //!
 //! The code does travel to the client, so a modified client could solve it instantly. The
 //! payouts are small and capped by cooldowns; a cheat-proof puzzle would need a different design.
@@ -14,12 +14,11 @@ use lightyear::prelude::*;
 use rand::Rng;
 use shared::content::{Content, HackId, Skill};
 use shared::protocol::{ChatNetChannel, GameChannel, GameUpdate, SystemNotice};
-use std::collections::HashMap;
 
 /// Network latency allowance on top of the official time limit.
 const SLACK_SECS: f64 = 1.0;
 /// How long you have to wait after tripping an alarm.
-const ALARM_COOLDOWN_SECS: f64 = 30.0;
+const ALARM_COOLDOWN_SECS: i64 = 30;
 const CODE_ALPHABET: &[u8] = b"0123456789ABCDEF";
 
 #[derive(Debug, Clone)]
@@ -44,10 +43,6 @@ struct ActiveHack {
     deadline: f64,
 }
 
-/// Per player: when each hack may be tried again.
-#[derive(Component, Debug, Default)]
-struct HackCooldowns(HashMap<HackId, f64>);
-
 pub struct HackingPlugin;
 
 impl Plugin for HackingPlugin {
@@ -68,6 +63,11 @@ fn update(updates: &mut Query<&mut MessageSender<GameUpdate>>, link: Entity, upd
     }
 }
 
+/// The hack's entry in `PlayerState::cooldowns` (saved, so it survives logouts and restarts).
+fn cooldown_key(hack: &str) -> String {
+    format!("hack:{hack}")
+}
+
 fn random_code(length: usize) -> String {
     let mut rng = rand::rng();
     (0..length).map(|_| CODE_ALPHABET[rng.random_range(0..CODE_ALPHABET.len())] as char).collect()
@@ -76,7 +76,7 @@ fn random_code(length: usize) -> String {
 #[allow(clippy::too_many_arguments)]
 fn handle_requests(
     mut requests: MessageReader<HackRequest>,
-    mut players: Query<(&PlayerLink, &mut Progress, Option<&ActiveHack>, Option<&mut HackCooldowns>)>,
+    mut players: Query<(&PlayerLink, &mut Progress, Option<&ActiveHack>)>,
     mut updates: Query<&mut MessageSender<GameUpdate>>,
     mut notices: Query<&mut MessageSender<SystemNotice>>,
     content: Res<Content>,
@@ -84,8 +84,9 @@ fn handle_requests(
     mut commands: Commands,
 ) {
     let now = time.elapsed_secs_f64();
+    let wall = crate::persistence::now_ms();
     for req in requests.read() {
-        let Ok((link, mut progress, active, cooldowns)) = players.get_mut(req.player) else { continue };
+        let Ok((link, mut progress, active)) = players.get_mut(req.player) else { continue };
         let link = link.0;
         match &req.action {
             HackAction::Start(id) => {
@@ -98,8 +99,8 @@ fn handle_requests(
                     say(&mut notices, link, SystemNotice::info(format!("You need Hacking {} for that (you have {level}).", def.level)));
                     continue;
                 }
-                if let Some(ready) = cooldowns.as_ref().and_then(|c| c.0.get(id)).filter(|r| **r > now) {
-                    let secs = (ready - now).ceil();
+                if let Some(left) = progress.cooldown_left_ms(&cooldown_key(id), wall) {
+                    let secs = (left as f64 / 1000.0).ceil();
                     say(&mut notices, link, SystemNotice::info(format!("Too hot right now. Try again in {secs} seconds.")));
                     continue;
                 }
@@ -115,27 +116,25 @@ fn handle_requests(
                 commands.entity(req.player).remove::<ActiveHack>();
                 let right = answer.trim().eq_ignore_ascii_case(&hack.code);
                 let success = right && now <= hack.deadline;
-                let mut cool = cooldowns.map(|c| std::mem::take(&mut c.into_inner().0)).unwrap_or_default();
                 if success {
                     let mut rng = rand::rng();
                     let cash = rng.random_range(def.cash.0..=def.cash.1);
                     let loot: Vec<String> = def.loot.iter().filter(|(_, p)| rng.random::<f32>() < *p).map(|(i, _)| i.clone()).collect();
                     let events = progress.reward_hack(def, cash, &loot, &content);
-                    cool.insert(def.id.clone(), now + def.cooldown_secs as f64);
+                    progress.start_cooldown(cooldown_key(&def.id), wall + def.cooldown_secs as i64 * 1000, wall);
                     say(&mut notices, link, SystemNotice::info(format!("ACCESS GRANTED: {}.", def.name)));
                     for text in events.iter().filter_map(|e| crate::gameplay::describe(e, &content)) {
                         say(&mut notices, link, SystemNotice::info(text));
                     }
                 } else {
                     let events = progress.hack_alarm();
-                    cool.insert(def.id.clone(), now + ALARM_COOLDOWN_SECS);
+                    progress.start_cooldown(cooldown_key(&def.id), wall + ALARM_COOLDOWN_SECS * 1000, wall);
                     let why = if right { "Too slow" } else { "Wrong code" };
                     say(&mut notices, link, SystemNotice::warn(format!("{why}! ALARM! City Services won't like that.")));
                     for text in events.iter().filter_map(|e| crate::gameplay::describe(e, &content)) {
                         say(&mut notices, link, SystemNotice::info(text));
                     }
                 }
-                commands.entity(req.player).insert(HackCooldowns(cool));
                 update(&mut updates, link, GameUpdate::HackEnded { success });
             }
             HackAction::Cancel => {

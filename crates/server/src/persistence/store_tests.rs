@@ -86,6 +86,14 @@ macro_rules! store_tests {
         state.gear.insert(shared::content::GearSlot::Body, "windbreaker".into());
         state.rep.insert("meridian".into(), 150);
         state.rep.insert("dockside".into(), -20);
+        // Buffs and cooldowns survive; ones already over are dropped.
+        let now = now_ms();
+        state.buffs.push(shared::game::ActiveBuff { source: "eggs".into(), skill: Skill::Cooking, levels: 2, until_ms: now + 600_000 });
+        state.start_cooldown("hack:payphone", now + 300_000, now);
+        let mut saved = state.clone();
+        saved.buffs.push(shared::game::ActiveBuff { source: "soda".into(), skill: Skill::Fitness, levels: 1, until_ms: now - 1 });
+        saved.cooldowns.insert("hack:atm".into(), now - 1);
+        s.handle(DbCommand::SaveState { character_id: id, state: saved }, LIMITS).await;
         s.handle(DbCommand::SaveState { character_id: id, state: state.clone() }, LIMITS).await;
         s.handle(
             DbCommand::SavePositions(vec![SavedPosition { character_id: id, zone: ZoneId(1), position: Vec2::new(5.0, -6.0) }]),
@@ -277,6 +285,17 @@ macro_rules! store_tests {
         assert!(s.resolve_report(id, "Admin").await.unwrap());
         assert!(!s.resolve_report(id, "Admin").await.unwrap());
         assert!(s.open_reports().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn shop_stock_survives_and_only_touched_rows_change() {
+        let Some(s) = store().await else { return };
+        let row = |shop: &str, stock: Option<(u32, i64)>, demand: Option<(f32, i64)>| ShopRow { shop: shop.into(), item: "soda".into(), stock, demand };
+        s.save_shops(&[row("corner", Some((3, 1_000)), None), row("diner", None, Some((4.5, 2_000)))]).await.unwrap();
+        s.save_shops(&[row("corner", Some((2, 5_000)), Some((1.0, 5_000)))]).await.unwrap();
+        let mut rows = s.load_shops().await.unwrap();
+        rows.sort_by(|a, b| a.shop.cmp(&b.shop));
+        assert_eq!(rows, vec![row("corner", Some((2, 5_000)), Some((1.0, 5_000))), row("diner", None, Some((4.5, 2_000)))]);
     }
 
     #[tokio::test]
